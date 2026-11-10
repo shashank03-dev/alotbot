@@ -165,7 +165,7 @@ export class GrokBotClient {
     });
   }
 
-  private async rpc(method: string, body: object): Promise<any> {
+  protected async rpc(method: string, body: object): Promise<any> {
     let auth = this.opts.store.read();
     if (!auth) throw new SignedOutError();
     let res = await this.call(method, body, auth);
