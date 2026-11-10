@@ -12,7 +12,9 @@ const state = {
   level: 0,
   tiles: new Map(),
   frame: 0,
-  panel: null, // 'people' | 'notes' | null
+  panel: null, // 'people' | 'notes' | 'timeline' | null
+  timelineSeq: 0, // last timeline entry drawn
+  toastTimer: 0,
   notesSeen: -1, // notepad state last drawn: `${notepadVersion}|${direction.length}`
 };
 
@@ -74,6 +76,8 @@ const ICONS = {
   mic: '<path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Z"/><path d="M19 11a7 7 0 0 1-14 0M12 18v3"/>',
   micOff: '<path d="M15 9.4V6a3 3 0 0 0-5.7-1.3M9 9v3a3 3 0 0 0 5.1 2.1M19 11a7 7 0 0 1-1.1 3.8M5 11a7 7 0 0 0 11.4 5.4M12 18v3M3 3l18 18"/>',
   people: '<path d="M16 19v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1"/><circle cx="9.5" cy="7.5" r="3.5"/><path d="M21 19v-1a4 4 0 0 0-3-3.9M15.5 4.1a3.5 3.5 0 0 1 0 6.8"/>',
+  timeline: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  send: '<path d="M5 12h14M13 6l6 6-6 6"/>',
   notes: '<path d="M8 3h8l4 4v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h2"/><path d="M8 3v3h8V3M8 12h8M8 16h5"/>',
   leave: '<path d="M4.5 14.2c-1-.9-1-2.4 0-3.3 4.2-3.9 10.8-3.9 15 0 1 .9 1 2.4 0 3.3l-1.6 1.4a1.5 1.5 0 0 1-2 0l-1.4-1.3a1.5 1.5 0 0 1-.4-1.5l.3-1a9 9 0 0 0-4.8 0l.3 1a1.5 1.5 0 0 1-.4 1.5l-1.4 1.3a1.5 1.5 0 0 1-2 0Z"/>',
 };
@@ -329,6 +333,8 @@ async function join() {
   $('#saved').hidden = true;
   $('#leave').disabled = false;
   $('#wrap-status').hidden = true;
+  $('#say-text').value = '';
+  setSayEnabled(true);
   state.tiles.clear();
   $('#grid').innerHTML = '';
   state.notesSeen = -1;
@@ -343,6 +349,7 @@ async function leave() {
   const call = state.call;
   if (!call || call.phase !== 'in-call') return;
   $('#leave').disabled = true;
+  setSayEnabled(false);
   $('#wrap-status').hidden = false;
   const data = await call.wrapUp();
   cancelAnimationFrame(state.frame);
@@ -472,6 +479,7 @@ function renderCall() {
   grid.dataset.count = String(Math.min(view.bots.length + 1, 7));
   $('#empty-hint').hidden = view.bots.length > 0;
   if (state.panel === 'people') renderPeople(view);
+  if (state.panel === 'timeline') renderTimeline(view);
   const notesKey = `${view.notepadVersion}|${view.direction.length}`;
   if (notesKey !== state.notesSeen) {
     if (state.panel === 'notes') renderNotes(view);
@@ -483,10 +491,10 @@ function renderCall() {
 
 // ---------- per-bot selection during the call ----------
 
-/** Opens one side panel ('people' or 'notes'), or closes both with null. */
+/** Opens one side panel ('people', 'notes' or 'timeline'), or closes them with null. */
 function setPanel(name) {
   state.panel = name;
-  for (const p of ['people', 'notes']) {
+  for (const p of ['people', 'notes', 'timeline']) {
     $(`#${p}`).hidden = p !== name;
     $(`#${p}-btn`).setAttribute('aria-expanded', String(p === name));
   }
@@ -499,6 +507,13 @@ function setPanel(name) {
     renderNotes(view);
     state.notesSeen = `${view.notepadVersion}|${view.direction.length}`;
     $('#notes-btn').dataset.unseen = 'false';
+  }
+  if (name === 'timeline') {
+    $('#timeline-list').replaceChildren();
+    state.timelineSeq = 0;
+    renderTimeline(state.call.view());
+    const list = $('#timeline-list');
+    list.scrollTop = list.scrollHeight;
   }
   if (name) $(`#${name}-close`).focus();
 }
@@ -583,6 +598,59 @@ function renderNotes(view) {
   $('#notes-empty').hidden = hasNotepad(view);
 }
 
+// ---------- message box, stop hotkey, timeline ----------
+
+function setSayEnabled(on) {
+  $('#say-text').disabled = !on;
+  $('#say-send').disabled = !on;
+}
+
+function toast(text) {
+  const el = $('#toast');
+  el.textContent = text;
+  el.hidden = false;
+  clearTimeout(state.toastTimer);
+  state.toastTimer = setTimeout(() => (el.hidden = true), 2500);
+}
+
+function sendMessage(e) {
+  e.preventDefault();
+  const input = $('#say-text');
+  if (!input.value.trim()) return;
+  if (state.call?.sendText(input.value)) input.value = '';
+  else toast('No bot is ready to hear that yet.');
+}
+
+function stopAll() {
+  if (state.call?.phase !== 'in-call') return;
+  state.call.stopAll();
+  toast('Stopped every bot. They wait for you.');
+}
+
+const clock = (ms) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`;
+
+/** Appends timeline entries not drawn yet, and drops ones the call no longer keeps. */
+function renderTimeline(view) {
+  const list = $('#timeline-list');
+  const fresh = view.timeline.filter((e) => e.seq > state.timelineSeq);
+  $('#timeline-empty').hidden = view.timeline.length > 0;
+  if (!fresh.length) return;
+  const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 40;
+  for (const e of fresh) {
+    const li = document.createElement('li');
+    li.dataset.kind = e.kind;
+    const t = document.createElement('time');
+    t.textContent = clock(e.at);
+    const text = document.createElement('span');
+    text.textContent = e.text;
+    li.append(t, text);
+    list.append(li);
+  }
+  state.timelineSeq = fresh.at(-1).seq;
+  while (list.children.length > view.timeline.length) list.firstElementChild.remove();
+  if (atBottom) list.scrollTop = list.scrollHeight;
+}
+
 // ---------- wiring ----------
 
 $('#signin-btn').onclick = signIn;
@@ -596,8 +664,16 @@ $('#people-close').onclick = closePanel;
 $('#notes-btn').innerHTML = icon('notes');
 $('#notes-btn').onclick = () => togglePanel('notes');
 $('#notes-close').onclick = closePanel;
+$('#timeline-btn').innerHTML = icon('timeline');
+$('#timeline-btn').onclick = () => togglePanel('timeline');
+$('#timeline-close').onclick = closePanel;
+$('#say-send').innerHTML = icon('send');
+$('#say').onsubmit = sendMessage;
+// Esc: closes the side panel you are in; anywhere else in a call, it stops every bot.
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && state.panel) closePanel();
+  if (e.key !== 'Escape') return;
+  if (state.panel && $(`#${state.panel}`).contains(document.activeElement)) closePanel();
+  else stopAll();
 });
 window.addEventListener('pagehide', () => state.call?.leave());
 

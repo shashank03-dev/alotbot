@@ -105,7 +105,7 @@
   #saved-where { font-size: .88rem; }
   #saved-where.error { min-height: 0; }
   .saved .ghost { justify-self: start; text-decoration: none; color: var(--text); }
-  #wrap-status {
+  #toast, #wrap-status {
     position: fixed; left: 50%; top: 16px; transform: translateX(-50%); z-index: 6; margin: 0;
     background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px; padding: 8px 16px; font-size: .9rem;
     display: flex; align-items: center; gap: 10px; white-space: nowrap;
@@ -114,14 +114,30 @@
 
   /* ---------- call ---------- */
   #call { height: 100%; display: grid; grid-template-rows: 1fr auto; overflow: hidden; }
-  .stage { position: relative; min-height: 0; padding: 16px; display: grid; align-content: center; overflow-y: auto; }
+  .dock { display: grid; grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 6px; padding: 8px 16px 0; }
+  .say {
+    display: flex; gap: 8px; width: min(560px, 100%); background: var(--surface); border: 1px solid var(--line);
+    border-radius: 999px; padding: 5px 5px 5px 16px; transition: border-color .15s;
+  }
+  .say:focus-within { border-color: var(--accent); }
+  .say input { flex: 1; min-width: 0; background: transparent; border: 0; color: var(--text); font: inherit; outline: none; }
+  .say input::placeholder { color: var(--muted); }
+  .say button {
+    width: 36px; height: 36px; border-radius: 50%; border: 0; flex: none; display: grid; place-items: center;
+    background: var(--accent); color: #0b0d12;
+  }
+  .say button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .hint { margin: 0; font-size: .8rem; color: var(--muted); }
+  .hint kbd { font: inherit; border: 1px solid var(--line); border-radius: 6px; padding: 0 5px; }
+  @media (hover: none) { .hint { display: none; } }
+  .stage { position: relative; min-height: 0; padding: 16px; display: grid; align-content: safe center; overflow-y: auto; }
   .grid {
     --cols: 2; display: grid; gap: 12px; align-content: center; width: 100%; max-width: 1280px; margin: 0 auto;
     grid-template-columns: repeat(var(--cols), minmax(0, 1fr));
   }
   .grid[data-count="1"] { --cols: 1; max-width: 760px; }
   .grid[data-count="2"] { --cols: 2; }
-  .grid[data-count="3"], .grid[data-count="4"] { --cols: 2; max-width: 1040px; }
+  .grid[data-count="3"], .grid[data-count="4"] { --cols: 2; max-width: min(1040px, calc((100dvh - 214px) * 1.6 + 12px)); }
   .grid[data-count="5"], .grid[data-count="6"], .grid[data-count="7"] { --cols: 3; }
   .tile {
     --ring: color-mix(in srgb, var(--c) 70%, #fff);
@@ -159,7 +175,7 @@
   #empty-hint { text-align: center; color: var(--muted); margin: 14px 0 0; }
 
   .controls {
-    display: flex; justify-content: center; gap: 12px; padding: 12px 16px calc(16px + env(safe-area-inset-bottom));
+    display: flex; justify-content: center; gap: 12px; padding: 6px 16px calc(16px + env(safe-area-inset-bottom));
   }
   .round {
     width: 56px; height: 56px; border-radius: 50%; border: 0; display: grid; place-items: center;
@@ -169,7 +185,7 @@
   .round:active { transform: scale(.94); }
   .round svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   #mute[aria-pressed="true"] { background: #fff; color: #0b0d12; }
-  #people-btn[aria-expanded="true"], #notes-btn[aria-expanded="true"] { background: color-mix(in srgb, var(--accent) 30%, var(--surface-2)); }
+  #people-btn[aria-expanded="true"], #notes-btn[aria-expanded="true"], #timeline-btn[aria-expanded="true"] { background: color-mix(in srgb, var(--accent) 30%, var(--surface-2)); }
   #notes-btn { position: relative; }
   #notes-btn[data-unseen="true"]::after {
     content: ""; position: absolute; top: 12px; right: 12px; width: 9px; height: 9px; border-radius: 50%;
@@ -180,8 +196,8 @@
   #leave svg { fill: currentColor; stroke: none; }
 
   /* ---------- side panels ---------- */
-  #people, #notes {
-    position: fixed; top: 16px; right: 16px; bottom: 96px; width: min(360px, calc(100% - 32px));
+  #people, #notes, #timeline {
+    position: fixed; top: 16px; right: 16px; bottom: 176px; width: min(360px, calc(100% - 32px));
     background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 16px;
     display: flex; flex-direction: column; gap: 12px; z-index: 5; box-shadow: 0 20px 60px rgb(0 0 0 / .5);
   }
@@ -202,7 +218,14 @@
   }
   #tasks li.done::before { background: var(--accent); border-color: var(--accent); }
   #tasks li.done span { text-decoration: line-through; color: var(--muted); }
-  #notes-empty { color: var(--muted); margin: 0; }
+  #notes-empty, #timeline-empty { color: var(--muted); margin: 0; }
+  #timeline-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; display: grid; gap: 2px; align-content: start; }
+  #timeline-list li { display: grid; grid-template-columns: 3.2em 1fr; gap: 8px; padding: 5px 4px; font-size: .88rem; line-height: 1.4; overflow-wrap: anywhere; }
+  #timeline-list time { color: var(--muted); font-variant-numeric: tabular-nums; }
+  #timeline-list [data-kind="host"] span { color: color-mix(in srgb, var(--accent) 70%, #fff); }
+  #timeline-list [data-kind="cut"] span { color: var(--muted); font-style: italic; }
+  #timeline-list :is([data-kind="tool"], [data-kind="notepad"], [data-kind="join"], [data-kind="leave"], [data-kind="direction"]) span { color: var(--muted); }
+  #timeline-list :is([data-kind="error"], [data-kind="stop"], [data-kind="stuck"]) span { color: #fca5a5; }
   #people-list { display: grid; gap: 8px; overflow-y: auto; align-content: start; }
   .switch { width: 40px; height: 24px; border-radius: 999px; background: var(--line); position: relative; flex: none; transition: background .15s; }
   .switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform .15s var(--ease); }
@@ -220,7 +243,11 @@
     .label { flex-direction: column; align-items: flex-start; gap: 4px; }
     .label .name { max-width: 100%; }
     .label .status { padding-left: 4px; }
-    #people, #notes { top: auto; left: 12px; right: 12px; bottom: 88px; width: auto; max-height: 60vh; }
+    .dock { padding: 8px 12px 0; }
+    .controls { gap: 6px; padding-left: 0; padding-right: 0; }
+    .round { width: 50px; height: 50px; }
+    #leave { width: 64px; }
+    #people, #notes, #timeline { top: auto; left: 12px; right: 12px; bottom: 168px; width: auto; max-height: calc(100dvh - 184px); }
   }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition: none !important; }
@@ -268,12 +295,21 @@
       </div>
     </section>
     <p id="wrap-status" role="status" hidden><span class="spinner" aria-hidden="true"></span>Saving the call summary…</p>
+    <p id="toast" role="status" hidden></p>
+    <div class="dock">
+      <form id="say" class="say" autocomplete="off">
+        <input id="say-text" type="text" maxlength="1000" placeholder="Message all bots" aria-label="Message all bots">
+        <button id="say-send" type="submit" aria-label="Send to all bots"></button>
+      </form>
+      <p class="hint"><kbd>Esc</kbd> stops every bot</p>
     <nav class="controls" aria-label="Call controls">
       <button id="mute" class="round" type="button" aria-pressed="false" aria-label="Mute microphone"></button>
       <button id="people-btn" class="round" type="button" aria-expanded="false" aria-controls="people" aria-label="People: choose bots in the call"></button>
       <button id="notes-btn" class="round" type="button" aria-expanded="false" aria-controls="notes" aria-label="Notepad: direction, notes and tasks" data-unseen="false"></button>
+      <button id="timeline-btn" class="round" type="button" aria-expanded="false" aria-controls="timeline" aria-label="Call timeline"></button>
       <button id="leave" class="round" type="button" aria-label="Leave call"></button>
     </nav>
+    </div>
     <aside id="people" aria-label="People in the call" hidden>
       <div class="panel-head">
         <h2>People</h2>
@@ -292,6 +328,14 @@
         <section id="notes-list" hidden><h3>Notes</h3><ul></ul></section>
         <p id="notes-empty">Nothing here yet. Bots write notes and tasks here, and your corrections are pinned at the top.</p>
       </div>
+    </aside>
+    <aside id="timeline" aria-label="Call timeline" hidden>
+      <div class="panel-head">
+        <h2>Timeline</h2>
+        <button id="timeline-close" class="ghost" type="button">Done</button>
+      </div>
+      <ol id="timeline-list"></ol>
+      <p id="timeline-empty">Nothing has happened yet.</p>
     </aside>
   </main>
 

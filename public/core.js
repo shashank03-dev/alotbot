@@ -38,6 +38,10 @@ export const WRAP_UP_MS = 20000;
 export const ACTION_ITEMS_MAX = 50;
 /** Lines of the call given to the bot writing the summary. */
 export const SUMMARY_LINES = 300;
+/** Longest message Shashank can type to the bots. */
+export const MESSAGE_MAX_CHARS = 1000;
+/** Timeline entries kept (oldest dropped first). */
+export const TIMELINE_MAX = 500;
 /** A correction this short ("no", "wait, stop") is a nudge, not a new direction to pin. */
 export const DIRECTION_MIN_WORDS = 3;
 
@@ -461,14 +465,14 @@ export class BotLink {
     this.suppressNext = false; // cancel the next reply as soon as it starts
     this.itemId = null;
     this.text = '';
-    this.audioMs = 0; // audio generated for the current reply, played or not
-    this.heardMs = 0; // set when Shashank cuts this reply off: how much of it he heard
+    this.audioMs = 0; // audio generated so far for the current reply, played or not
     this.replyTimer = null;
     this.toolCalls = [];
     this.turn = null; // what this bot decided with a turn tool: { kind, target? }
     this.leaving = false; // used leave_call; removed once its goodbye has played
     this.search = true; // web and X search on; turned off if this session refuses them
     this.queued = null; // instructions for a reply to ask for once the current one ends
+    this.joined = false; // has been ready at least once (so a later ready is a reconnect)
   }
 
   async connect(context) {
@@ -616,7 +620,6 @@ export class BotLink {
         this.itemId = null;
         this.discard = false;
         this.audioMs = 0;
-        this.heardMs = 0;
         this.toolCalls = [];
         if (this.suppressNext) {
           this.suppressNext = false;
@@ -663,8 +666,6 @@ export class BotLink {
           }
           this.send({ type: 'conversation.item.create', item: { type: 'function_call_output', call_id: c.callId, output } });
         }
-        if (!heard && this.heardMs > 0) this.call.onBotCut(this, heardPart(cleanTranscript(this.text), this.heardMs, this.audioMs));
-        this.heardMs = 0;
         this.call.onBotDone(this, text, status, followUp);
         if (this.queued !== null) {
           const q = this.queued;
@@ -683,6 +684,7 @@ export class BotLink {
         if (!this.ready && this.search && this.ws) {
           this.search = false;
           this.ws.send(JSON.stringify(this.sessionUpdate()));
+          this.call.event('error', `${this.bot.name}: web and X search were refused, joining without them`);
           return;
         }
         // e.g. a reply asked for while one is running, or cancelling one that already ended
@@ -757,6 +759,8 @@ export class Call {
     this.actionItems = [];
     this.startedAt = 0;
     this.onSummary = null; // set while Leave waits for save_summary
+    this.timeline = []; // { seq, at (ms into the call), kind, text }
+    this.seq = 0;
     this.ear = null; // the bot hearing Shashank's mic right now
     this.opened = false;
     this.muted = false;
@@ -855,6 +859,40 @@ export class Call {
     this.player.flush(id);
     if (this.ear === link) this.setEar(this.readyLinks()[0] ?? null);
     this.rosterChanged();
+    this.event('leave', `${link.bot.name} left the call`);
+  }
+
+  /**
+   * Shashank typed a message to all bots. It counts as him speaking: whoever is talking is cut off,
+   * every bot gets it, and the bot he names (or the listening bot) answers. Returns false if not sent.
+   */
+  sendText(text) {
+    const said = String(text ?? '').replace(/\s+/g, ' ').trim().slice(0, MESSAGE_MAX_CHARS);
+    const ready = this.readyLinks();
+    if (this.phase !== 'in-call' || !said || !ready.length) return false;
+    this.interrupt();
+    this.record(USER, said, null);
+    this.hostSpoke(said);
+    const named = findAddressee(said, ready.map((l) => l.bot));
+    const target = named ? this.links.get(named) : ready.includes(this.ear) ? this.ear : ready[0];
+    this.setEar(target);
+    target.respondWhenFree();
+    return true;
+  }
+
+  /** The stop hotkey: every bot goes quiet now and waits for Shashank. */
+  stopAll() {
+    if (this.phase !== 'in-call') return;
+    this.interrupt();
+    for (const link of this.links.values()) link.clearReplyTimer();
+    this.waitingForHost = true;
+    this.event('stop', 'You stopped every bot');
+  }
+
+  /** Adds an entry to the call timeline the page shows. */
+  event(kind, text) {
+    this.timeline.push({ seq: ++this.seq, at: Math.max(0, this.d.now() - this.startedAt), kind, text });
+    if (this.timeline.length > TIMELINE_MAX) this.timeline.shift();
   }
 
   setMuted(muted) {
@@ -905,6 +943,7 @@ export class Call {
       notes: this.notes,
       tasks: this.tasks,
       notepadVersion: this.notepadVersion,
+      timeline: this.timeline,
       bots: this.order.map((id) => {
         const l = this.links.get(id);
         let status = l.status;
@@ -942,6 +981,7 @@ export class Call {
   record(who, text, from, cut = false) {
     const line = cut ? { who, text, cut } : { who, text };
     this.lines.push(line);
+    this.event(who === USER ? 'host' : cut ? 'cut' : 'bot', `${tagOf(line)}: ${text}`);
     for (const link of this.links.values()) if (link !== from) link.say(`[${tagOf(line)}]: ${text}`);
   }
 
@@ -957,13 +997,18 @@ export class Call {
     const cut = this.player.flush();
     for (const [itemId, { botId, ms }] of cut) this.links.get(botId)?.truncate(itemId, ms);
     for (const link of this.links.values()) {
-      // Remember how much of a reply Shashank heard, so the others get only that part.
-      if (link.active && !link.discard) link.heardMs = cut.get(link.itemKey())?.ms ?? this.player.heardMs(link.itemKey());
+      // Pass on only the part of a reply Shashank heard, now, so it comes before whatever he says next.
+      if (link.active && !link.discard) {
+        const heardMs = cut.get(link.itemKey())?.ms ?? this.player.heardMs(link.itemKey());
+        this.onBotCut(link, heardPart(cleanTranscript(link.text), heardMs, link.audioMs));
+      }
       link.cancel();
     }
   }
 
   onReady(link) {
+    this.event('join', `${link.bot.name} ${link.joined ? 'reconnected' : 'joined'}`);
+    link.joined = true;
     const by = this.invited.get(link.bot.id);
     if (by !== undefined) {
       this.invited.delete(link.bot.id);
@@ -985,6 +1030,7 @@ export class Call {
   }
 
   onFailed(link) {
+    this.event('error', `${link.bot.name}: ${link.error}`);
     if (this.ear === link) this.setEar(this.readyLinks()[0] ?? null);
   }
 
@@ -1046,14 +1092,14 @@ export class Call {
     if (this.d.now() - this.lastLoud < STUCK_SPEAKING_MS) return this.armStuck();
     this.userSpeaking = false;
     this.echoRisk = false;
+    this.event('stuck', 'Your mic went quiet with no words heard: stopped waiting for you');
     this.ear?.clearInput();
     this.ear?.expectReply();
   }
 
   /** A reply Shashank cut off: the others get only the part he heard. */
   onBotCut(link, part) {
-    if (!part || !this.links.has(link.bot.id)) return;
-    this.record(link.bot.name, part, link, true);
+    if (part) this.record(link.bot.name, part, link, true);
   }
 
   /** Shashank said something: bots may take turns again, and a correction is pinned for every bot. */
@@ -1062,6 +1108,7 @@ export class Call {
     this.passes = 0;
     if (!isDirection(text)) return;
     this.direction = [...this.direction, text].slice(-DIRECTION_MAX);
+    this.event('direction', `Direction pinned: "${text}"`);
     for (const link of this.links.values()) link.updateInstructions();
   }
 
@@ -1078,6 +1125,7 @@ export class Call {
         return { output: this.invite(link, String(a.name ?? '')), followUp: true };
       case PASS_TOOL.name:
         link.turn = { kind: 'pass' };
+        this.event('tool', `${link.bot.name} passed`);
         return { output: 'You passed this turn.', followUp: false };
       case HAND_TO_TOOL.name: {
         const others = this.readyLinks().filter((l) => l !== link);
@@ -1088,13 +1136,16 @@ export class Call {
           return { output: `No bot called "${wanted}" can take the turn. Bots in the call: ${list}. The turn goes on as usual.`, followUp: false };
         }
         link.turn = { kind: 'hand', target: id };
+        this.event('tool', `${link.bot.name} handed the turn to ${this.links.get(id).bot.name}`);
         return { output: `${this.links.get(id).bot.name} speaks next.`, followUp: false };
       }
       case WAIT_FOR_HOST_TOOL.name:
         link.turn = { kind: 'wait' };
+        this.event('tool', `${link.bot.name} asked the bots to wait for you`);
         return { output: `The bots now wait for ${USER} to speak.`, followUp: false };
       case LEAVE_CALL_TOOL.name:
         link.turn = { kind: 'leave' };
+        this.event('tool', `${link.bot.name} is leaving the call`);
         return { output: 'You are leaving the call.', followUp: false };
       case WRITE_NOTE_TOOL.name:
       case ADD_TASK_TOOL.name: {
@@ -1118,10 +1169,12 @@ export class Call {
         this.summary = cleanNote(a.summary, SUMMARY_MAX_CHARS);
         const items = Array.isArray(a.action_items) ? a.action_items : [];
         this.actionItems = items.map((x) => cleanNote(x)).filter(Boolean).slice(0, ACTION_ITEMS_MAX);
+        this.event('tool', `${link.bot.name} saved the call summary`);
         this.onSummary?.();
         return { output: 'Saved.', followUp: false };
       }
       case READ_NOTES_TOOL.name:
+        this.event('tool', `${link.bot.name} read the notepad`);
         return { output: notepadText(this.notes, this.tasks), followUp: true };
       case DONE_TASK_TOOL.name: {
         const id = Number(String(a.id ?? '').replace(/^#/, ''));
@@ -1143,6 +1196,7 @@ export class Call {
   /** Tell the other bots what changed on the notepad, and let the page redraw it. */
   notepadChanged(from, what) {
     this.notepadVersion++;
+    this.event('notepad', what);
     for (const link of this.links.values()) if (link !== from) link.say(`[Notepad]: ${what}`);
   }
 
@@ -1153,6 +1207,7 @@ export class Call {
     const bot = this.available.find((b) => b.id === id);
     if (this.links.has(id)) return `${bot.name} is already in the call.`;
     this.invited.set(id, link.bot.name);
+    this.event('tool', `${link.bot.name} pulled ${bot.name} into the call`);
     this.addBot(bot);
     return `${bot.name} is joining the call now. Tell everyone in one short line.`;
   }
@@ -1188,6 +1243,7 @@ export class Call {
     if (this.passes > 0 && this.passes >= others.length + 1) {
       // Every bot passed in a row: nobody has anything to add.
       this.waitingForHost = true;
+      this.event('tool', 'Every bot passed: waiting for you');
       return;
     }
     if (!others.length || this.userSpeaking || this.waitingForHost) return;
