@@ -1,4 +1,4 @@
-import { Call, SAMPLE_RATE, USER, exportMarkdown, floatTo16, resample, rms } from './core.js';
+import { CONNECT_TIMEOUT_MS, Call, SAMPLE_RATE, TOOL_TIMEOUT_MS, USER, exportMarkdown, floatTo16, resample, rms } from './core.js';
 
 const $ = (sel) => document.querySelector(sel);
 const screens = ['boot', 'signin', 'lobby', 'call'];
@@ -22,11 +22,14 @@ const state = {
 
 class SignedOut extends Error {}
 
-async function api(path, method = 'GET', payload = undefined) {
+async function api(path, method = 'GET', payload = undefined, timeoutMs = 0) {
   let res;
+  const opts = payload === undefined ? { method } : { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) };
+  if (timeoutMs) opts.signal = AbortSignal.timeout(timeoutMs);
   try {
-    res = await fetch(path, payload === undefined ? { method } : { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
-  } catch {
+    res = await fetch(path, opts);
+  } catch (err) {
+    if (err?.name === 'TimeoutError') throw new Error(`No answer within ${timeoutMs / 1000} s.`);
     throw new Error('Grok Call server is not reachable. Is it still running?');
   }
   const body = await res.json().catch(() => ({}));
@@ -359,7 +362,8 @@ async function join() {
   }
   const { ctx, out } = state.audio;
   state.call = new Call({
-    mintVoice: (id) => api(`/api/bots/${encodeURIComponent(id)}/voice`, 'POST'),
+    mintVoice: (id) => api(`/api/bots/${encodeURIComponent(id)}/voice`, 'POST', undefined, CONNECT_TIMEOUT_MS),
+    callTool: (id, req) => api(`/api/bots/${encodeURIComponent(id)}/tool`, 'POST', req, TOOL_TIMEOUT_MS),
     openSocket: (url, protocols) => new WebSocket(url, protocols),
     audio: {
       now: () => ctx.currentTime,

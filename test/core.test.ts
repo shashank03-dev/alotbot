@@ -44,6 +44,14 @@ import {
   MAX_QUIET_TOOL_ROUNDS,
   FOCUS_IDLE_MS,
   CLOSING_MAX_WORDS,
+  RESPONSE_START_MS,
+  RESPONSE_STALL_MS,
+  CONNECT_TIMEOUT_MS,
+  isFiller,
+  hasRealWords,
+  PASS_TOOL,
+  spokenWords,
+  groupRulesText,
   namedBots,
   isGroupAddress,
   isClosing,
@@ -173,7 +181,9 @@ class FakeSocket {
 const samples = (seconds: number) => new Float32Array(Math.round(seconds * SAMPLE_RATE)).fill(0.25);
 const b64audio = (seconds: number) => toBase64(floatTo16(samples(seconds)));
 
-function setup(opts: { mintFail?: (id: string) => Error | null } = {}) {
+type ToolReq = { id: string; req: any; resolve: (v: any) => void; reject: (e: Error) => void };
+function setup(opts: { mintFail?: (id: string) => Error | null; tools?: (id: string) => object[]; mintWait?: (id: string) => Promise<void> | undefined } = {}) {
+  const toolCalls: ToolReq[] = [];
   const audio = new FakeAudio();
   const sockets = new Map<string, FakeSocket[]>();
   const timers: { fn: () => void; ms: number; id: number; done: boolean }[] = [];
@@ -183,9 +193,10 @@ function setup(opts: { mintFail?: (id: string) => Error | null } = {}) {
   const call: any = new Call({
     mintVoice: async (id: string) => {
       mints.push(id);
+      await opts.mintWait?.(id);
       const err = opts.mintFail?.(id);
       if (err) throw err;
-      return { clientSecret: `sec-${id}`, url: `wss://voice.test/${id}`, instructions: `I am ${id}.` };
+      return { clientSecret: `sec-${id}`, url: `wss://voice.test/${id}`, instructions: `I am ${id}.`, tools: opts.tools?.(id) };
     },
     openSocket: (url: string, protocols: string[]) => {
       const ws = new FakeSocket(url, protocols);
@@ -194,6 +205,7 @@ function setup(opts: { mintFail?: (id: string) => Error | null } = {}) {
       return ws;
     },
     audio,
+    callTool: (id: string, req: any) => new Promise((resolve, reject) => toolCalls.push({ id, req, resolve, reject })),
     setTimer: (fn: () => void, ms: number) => {
       const t = { fn, ms, id: ++tid, done: false };
       timers.push(t);
@@ -220,7 +232,7 @@ function setup(opts: { mintFail?: (id: string) => Error | null } = {}) {
     }
   };
   return {
-    call, audio, ws, ready, timers, runTimers, mints, sockets,
+    call, audio, ws, ready, timers, runTimers, mints, sockets, toolCalls,
     setClock: (ms: number) => (clock = ms),
   };
 }
@@ -458,7 +470,8 @@ test('barge-in: Shashank talking over a bot silences it and cuts its reply where
   assert.equal(call.links.get('b').suppressNext, true, 'B’s pending reply will be cancelled');
   ws('b').emit('response.created');
   assert.equal(ws('b').types().at(-1), 'response.cancel');
-  assert.equal(timers.filter((t) => !t.done && t.ms !== STUCK_SPEAKING_MS).length, 0, 'no bot turn queued');
+  assert.equal(call.nextTimer, null, 'no bot turn queued');
+  assert.equal(timers.filter((t) => !t.done && t.ms === RESPONSE_STALL_MS).length, 1, 'only B\'s watchdog, waiting for its cancel to be confirmed');
 });
 
 test('barge-in while a bot is mid-reply sends a cancel', async () => {
@@ -848,18 +861,18 @@ test('leaked voice-model markup is stripped before other bots hear a line', asyn
 });
 
 test('the next bot is not cued again if it is already about to speak', async () => {
-  const { call, ws, ready, runTimers } = setup();
+  const { call, ws, ready, timers } = setup();
   call.join([bot('a'), bot('b')]);
   await ready('a');
   await ready('b');
   speak(ws('a'), 'Over to B.');
   call.links.get('b').respond(); // e.g. its hello as a newly invited bot
   const before = ws('b').types().filter((x: string) => x === 'response.create').length;
-  runTimers();
+  fire(timers, call.nextTimer);
   assert.equal(ws('b').types().filter((x: string) => x === 'response.create').length, before);
   ws('b').emit('response.created'); // now active rather than pending
   speak(ws('a'), 'Still over to B.');
-  runTimers();
+  fire(timers, call.nextTimer);
   assert.equal(ws('b').types().filter((x: string) => x === 'response.create').length, before);
 });
 
@@ -1187,7 +1200,7 @@ test('leave_call: the bot says goodbye, leaves once it has played, and the other
   ws('b').emit('response.function_call_arguments.done', { call_id: 'l', name: 'leave_call', arguments: '{}' });
   ws('b').emit('response.done', { response: { status: 'completed' } });
   assert.equal(outputs(ws('b')).at(-1).output, 'You are leaving the call.');
-  const leaveTimer = timers.find((t) => t.ms === 2000)!;
+  const leaveTimer = timers.find((t) => t.ms === 2000 && !t.done)!;
   assert.ok(leaveTimer, 'leaves after its 2 s goodbye');
   assert.equal(call.links.get('b').leaving, true);
   assert.ok(!call.readyLinks().some((l: any) => l.bot.id === 'b'), 'not offered turns or the mic while leaving');
@@ -1577,7 +1590,7 @@ test('Leave: no answer in time ends with no summary; summary text is capped and 
   await ready('a');
   speak(ws('a'), 'Hi.');
   const pending = call.wrapUp();
-  timers.find((t) => t.ms === WRAP_UP_MS)!.fn();
+  timers.find((t) => t.ms === WRAP_UP_MS && !t.done)!.fn();
   const data = await pending;
   assert.equal(data.summary, '');
   assert.deepEqual(data.memory.actionItems, []);
@@ -1783,6 +1796,7 @@ test('timeline: joins, lines, cut-offs, tools, notepad, direction, leaves, error
     'bot|Bot B: Bye.',
     'stuck|Your mic went quiet with no words heard: stopped waiting for you',
     'leave|Bot B left the call',
+    'error|Bot A lost its connection: reconnecting',
     'join|Bot A reconnected',
     'tool|Bot A saved the call summary',
   ]);
@@ -1799,7 +1813,7 @@ test('timeline: stuck mic, refused search and every-bot-passed are shown; it kee
   ws('a').emit('error', {});
   ws('a').emit('session.updated');
   ws('a').emit('input_audio_buffer.speech_started');
-  timers.find((t) => t.ms === STUCK_SPEAKING_MS)!.fn();
+  timers.find((t) => t.ms === STUCK_SPEAKING_MS && !t.done)!.fn();
   useTool(ws('a'), 'pass', {});
   assert.deepEqual(call.timeline.map((e: any) => e.kind), ['error', 'join', 'stuck', 'tool', 'tool']);
   assert.equal(call.timeline[0].text, 'Bot A: web and X search were refused, joining without them');
@@ -2077,7 +2091,7 @@ test('focusText and suggestionPrompt: what each side of a one-on-one is told', (
   assert.match(groupInstructions('x', 'B', ['A', 'B']), /When the host names one bot, that is a one-on-one/);
   const p = suggestionPrompt('Bot A');
   assert.match(p, /^\[Call\]: Shashank's one-on-one with Bot A just ended/);
-  assert.match(p, /Otherwise use the pass tool and say nothing at all/);
+  assert.match(p, /Otherwise call the pass tool without speaking: no "pass", no "silence"/);
 });
 
 test('one-on-one: only the named bot talks, follow-ups stay with it, then "thanks" opens a suggestion round and the call waits', async () => {
@@ -2295,4 +2309,463 @@ test('leaving mid one-on-one clears its quiet clock', async () => {
   const id = call.focusTimer;
   call.leave();
   assert.equal(timers.find((x) => x.id === id)!.done, true);
+});
+
+// ---------- spoken passes, Grok Bot tools, and nothing ever stuck ----------
+
+const SEND_TASK = { type: 'function', name: 'send_task', description: 'Send a job.', parameters: { type: 'object', properties: { request: { type: 'string' } }, required: ['request'] } };
+const SEARCH_TOOL = { type: 'function', name: 'search_conversations', description: 'Search.', parameters: { type: 'object', properties: { query: { type: 'string' } } } };
+/** The newest pending timer of `ms`. */
+const lastTimer = (timers: { ms: number; done: boolean; id: number }[], ms: number) => timers.filter((t) => t.ms === ms && !t.done).at(-1)!.id;
+const two = async (opts: Parameters<typeof setup>[0] = {}) => {
+  const t = setup(opts);
+  t.call.join([bot('a'), bot('b')]);
+  await t.ready('a');
+  await t.ready('b');
+  return t;
+};
+/** Bot socket `s` starts a reply: one second of audio, then `deltas` of transcript, without finishing. */
+function startHeld(s: FakeSocket, deltas: string[], item = 'ib') {
+  s.emit('response.created');
+  s.emit('response.output_item.added', { item: { id: item } });
+  s.emit('response.output_audio.delta', { delta: b64audio(1) });
+  for (const d of deltas) s.emit('response.output_audio_transcript.delta', { delta: d });
+}
+
+test('spokenWords, isFiller and hasRealWords tell a spoken pass from real words', () => {
+  assert.deepEqual(spokenWords('*stays silent* (pause) [beat] Okay. <x>y</x>'), ['okay']);
+  for (const t of ['Pass.', 'Silence.', 'Push, pass.', 'Nothing to add from me.', 'No suggestion.', '*stays silent*', '(silence)', '[pass]', "I'll pass, Bot B.", '']) {
+    assert.equal(isFiller(t, ['Bot B']), true, t);
+  }
+  // real answers, and a bot name that isn't in the call
+  for (const t of ['No.', 'Okay.', 'I think we should pass the bill', 'Silence is golden', "I'll pass, Bot B."]) assert.equal(isFiller(t), false, t);
+  assert.equal(hasRealWords('Pass, nothing from me'), false);
+  assert.equal(hasRealWords('Pass on that, but pricing'), true);
+  assert.equal(hasRealWords('Okay Bot B', ['Bot B']), false);
+});
+
+test('the rules that adapt Grok Bot\'s phone-call instructions to a group call', () => {
+  const plain = groupRulesText(false);
+  assert.match(plain, /There is no end_the_call here/);
+  assert.match(plain, /Do not end a turn with a question just to keep the call going/);
+  assert.match(plain, /Never say a tool's name, never say "pass" or "silence"/);
+  assert.doesNotMatch(plain, /send_task/);
+  assert.match(groupRulesText(true), /Its result does not come back on this call: it lands in your chat with Shashank/);
+  const text = groupInstructions('BASE', 'A', ['A'], [], [], null, null, true);
+  assert.ok(text.indexOf('# Group call rules') > text.indexOf('BASE'), 'after the bot\'s own instructions, so they win');
+  assert.match(PASS_TOOL.description, /silent action: produce no speech/);
+});
+
+test('a turn the call starts holds the bot\'s voice: a spoken "Pass." is never heard and never passed on', async () => {
+  const { call, ws, timers, audio } = await two();
+  speak(ws('a'), 'Bot B, anything to add?', 1);
+  fire(timers, call.nextTimer);
+  const played = audio.played.length;
+  startHeld(ws('b'), ['Pass.']);
+  assert.equal(audio.played.length, played, 'held while it might be a pass');
+  assert.equal(call.view().bots[1].status, 'thinking');
+  ws('b').emit('response.done', { response: { status: 'completed' } });
+  assert.equal(audio.played.length, played, 'never played');
+  assert.ok(!ws('a').said().some((t: string) => t.includes('Pass')), 'never passed on');
+  assert.equal(call.lines.at(-1).who, 'Bot A');
+  assert.equal(call.timeline.find((e: any) => e.text.startsWith('Bot B passed')).text, 'Bot B passed (it said "Pass." out loud; not passed on)');
+  assert.equal(call.passes, 1);
+  assert.notEqual(call.nextTimer, null, 'the turn goes on to A');
+});
+
+test('held voice plays as soon as real words come, or at the end if the reply is short but real', async () => {
+  const { call, ws, timers, audio } = await two();
+  speak(ws('a'), 'Bot B, thoughts?', 1);
+  fire(timers, call.nextTimer);
+  const played = audio.played.length;
+  startHeld(ws('b'), ['Pass on that, ']);
+  assert.equal(audio.played.length, played);
+  ws('b').emit('response.output_audio_transcript.delta', { delta: 'but pricing matters.' });
+  assert.equal(audio.played.length, played + 1, 'released');
+  ws('b').emit('response.output_audio.delta', { delta: b64audio(1) });
+  assert.equal(audio.played.length, played + 2, 'the rest streams straight through');
+  ws('b').emit('response.done', { response: { status: 'completed' } });
+  assert.equal(ws('a').said().at(-1), '[Bot B]: Pass on that, but pricing matters.');
+  // a short real reply whose words only come at the end
+  fire(timers, call.nextTimer); // A's turn
+  const before = audio.played.length;
+  startHeld(ws('a'), [], 'ia');
+  ws('a').emit('response.output_audio_transcript.done', { transcript: 'Okay.' });
+  assert.equal(audio.played.length, before, 'still held: "Okay" alone could be a pass');
+  ws('a').emit('response.done', { response: { status: 'completed' } });
+  assert.equal(audio.played.length, before + 1, 'played once it was clearly not a pass');
+  // a real-word transcript.done releases straight away
+  fire(timers, call.nextTimer);
+  startHeld(ws('b'), [], 'ib2');
+  ws('b').emit('response.output_audio_transcript.done', { transcript: 'Shipping Friday works.' });
+  assert.equal(call.links.get('b').holding, false);
+});
+
+test('held voice is dropped when the reply fails, says nothing, or the host cuts in', async () => {
+  const { call, ws, timers, audio } = await two();
+  speak(ws('a'), 'Bot B?', 1);
+  fire(timers, call.nextTimer);
+  const played = audio.played.length;
+  startHeld(ws('b'), []);
+  ws('b').emit('response.done', { response: { status: 'failed' } });
+  assert.equal(audio.played.length, played);
+  speak(ws('a'), 'Bot B, again?', 1);
+  fire(timers, call.nextTimer);
+  startHeld(ws('b'), []);
+  ws('b').emit('response.done', { response: { status: 'completed' } }); // no words at all
+  assert.equal(audio.played.length, played + 1, 'only A\'s second line played');
+  speak(ws('a'), 'Bot B, last try?', 1);
+  fire(timers, call.nextTimer);
+  startHeld(ws('b'), []);
+  ws('a').emit('input_audio_buffer.speech_started');
+  assert.ok(!call.lines.some((l: any) => l.cut), 'nothing of B was heard, so nothing is passed on as cut off');
+  ws('b').emit('response.output_audio.delta', { delta: b64audio(1) });
+  ws('b').emit('response.done', { response: { status: 'cancelled' } });
+  assert.equal(audio.played.length, played + 2);
+});
+
+test('a spoken "Pass." in an ordinary reply plays but is not passed on; with the pass tool it counts once', async () => {
+  const { call, ws } = await two();
+  hostSays(ws('a'), 'what do you think about the plan');
+  speak(ws('a'), 'Pass.');
+  assert.ok(!ws('b').said().some((t: string) => t.includes('Pass.')));
+  assert.equal(call.passes, 1);
+  useTool(ws('b'), 'pass', {}, 'Nothing to add.');
+  assert.ok(!ws('a').said().some((t: string) => t.includes('Nothing to add')));
+  assert.equal(call.waitingForHost, true, 'both bots passed in a row');
+  useTool(ws('b'), 'pass', {}, 'Pass.', 'cancelled'); // cut off: no pass is counted
+  assert.equal(call.passes, 2);
+});
+
+test('a reply that never starts is given up on and the talk moves on; a late start is cancelled', async () => {
+  const { call, ws, timers } = await two();
+  speak(ws('a'), 'Over to B.');
+  fire(timers, call.nextTimer);
+  fire(timers, lastTimer(timers, RESPONSE_START_MS));
+  assert.equal(call.timeline.at(-1).text, 'Bot B never started its reply: moving on');
+  assert.equal(call.links.get('b').pending, false);
+  assert.notEqual(call.nextTimer, null, 'A is cued instead');
+  ws('b').emit('response.created');
+  assert.equal(ws('b').types().at(-1), 'response.cancel');
+});
+
+test('a reply that goes silent is stopped and the talk moves on; its late end changes nothing', async () => {
+  const { call, ws, timers } = await two();
+  speak(ws('a'), 'Over to B.');
+  fire(timers, call.nextTimer);
+  startHeld(ws('b'), ['Real words here.']);
+  ws('b').emit('response.function_call_arguments.done', { call_id: 'x', name: 'pass', arguments: '{}' });
+  assert.equal(timers.filter((t) => t.ms === RESPONSE_STALL_MS && !t.done).length, 1, 'each event restarts one watchdog');
+  const lines = call.lines.length;
+  fire(timers, lastTimer(timers, RESPONSE_STALL_MS));
+  assert.equal(ws('b').types().at(-1), 'response.cancel');
+  assert.equal(call.timeline.at(-1).text, 'Bot B went silent mid-reply: moving on');
+  assert.notEqual(call.nextTimer, null);
+  ws('b').emit('response.done', { response: { status: 'completed' } });
+  assert.deepEqual(call.lines.slice(lines), [], 'the stalled reply is not passed on');
+  // a reply that was already cut off only has its end confirmed: no "moving on"
+  hostSays(ws('a'), 'Bot B, quick one'); // the mic moves to B
+  ws('b').emit('response.created');
+  ws('b').emit('input_audio_buffer.speech_started'); // he cuts B off
+  const events = call.timeline.length;
+  fire(timers, lastTimer(timers, RESPONSE_STALL_MS));
+  assert.deepEqual(call.timeline.slice(events).map((e: any) => e.text), []);
+  assert.equal(call.links.get('b').active, false, 'no longer stuck "active"');
+});
+
+test('a lost reply does not cue anyone while the host is talking', async () => {
+  const { call, ws, timers } = await two();
+  speak(ws('a'), 'Over to B.');
+  fire(timers, call.nextTimer);
+  call.userSpeaking = true;
+  fire(timers, lastTimer(timers, RESPONSE_START_MS));
+  assert.equal(call.nextTimer, null);
+});
+
+test('an error about the reply we asked for moves on at once; other errors change nothing', async () => {
+  const { call, ws } = await two();
+  const b = call.links.get('b');
+  b.respond();
+  ws('b').emit('error', { error: { message: 'busy', event_id: 'something-else' } });
+  assert.equal(b.pending, true);
+  ws('b').emit('error', { error: { event_id: b.pendingEventId } });
+  assert.equal(b.pending, false);
+  assert.equal(call.timeline.at(-1).text, 'Bot B could not start a reply (unknown error): moving on');
+  ws('b').emit('error', {}); // nothing pending: ignored
+  assert.equal(ws('b').sent.filter((m) => m.type === 'response.create').at(-1).event_id, b.pendingEventId);
+});
+
+test('a voice session that never comes up fails with the reason, and its socket closing is not a drop', async () => {
+  const { call, ws, timers, mints } = setup();
+  call.join([bot('a'), bot('b')]);
+  await flush();
+  ws('a').onopen!();
+  ws('a').emit('error', { error: { message: 'bad voice' } }); // search refused, retried without it
+  fire(timers, timers.find((t) => t.ms === CONNECT_TIMEOUT_MS && !t.done)!.id); // A's (the first armed)
+  assert.equal(call.view().bots[0].status, 'error');
+  assert.equal(call.view().bots[0].error, 'Voice setup was refused: bad voice');
+  assert.equal(ws('a').closed, true);
+  ws('a').onclose!();
+  assert.equal(mints.filter((m: string) => m === 'a').length, 1, 'no reconnect');
+  ws('b').onopen!();
+  fire(timers, lastTimer(timers, CONNECT_TIMEOUT_MS));
+  assert.equal(call.view().bots[1].error, 'Timed out connecting.');
+});
+
+test('setup refused: search goes first, then the bot\'s Grok Bot tools, then the bot fails with the reason', async () => {
+  const { call, ws } = setup({ tools: (id) => (id === 'a' ? [SEND_TASK, SEARCH_TOOL] : []) });
+  call.join([bot('a'), bot('b')]);
+  await flush();
+  ws('a').onopen!();
+  const names = () => ws('a').sent.filter((m) => m.type === 'session.update').at(-1).session.tools.map((t: any) => t.name ?? t.type);
+  assert.deepEqual(names().slice(-4), ['send_task', 'search_conversations', 'web_search', 'x_search']);
+  assert.match(ws('a').sent[0].session.instructions, /send_task hands a job to your own agent/);
+  ws('a').emit('error', { error: { message: 'no search' } });
+  assert.deepEqual(names().slice(-2), ['send_task', 'search_conversations']);
+  ws('a').emit('error', { error: { message: 'no tools' } });
+  assert.ok(!names().includes('send_task'));
+  assert.equal(call.timeline.at(-1).text, 'Bot A: its Grok Bot tools were refused, joining without them');
+  ws('a').emit('error', { error: { message: 'still no' } });
+  assert.equal(call.view().bots[0].error, 'Voice setup was refused: still no');
+  // a bot with no Grok Bot tools fails right after search
+  ws('b').onopen!();
+  ws('b').emit('error', { error: { message: 'x' } });
+  ws('b').emit('error', { error: { message: 'y' } });
+  assert.equal(call.view().bots[1].error, 'Voice setup was refused: y');
+});
+
+test('a bot that drops mid-reply hands on its turn and the mic; an idle drop just reconnects', async () => {
+  const { call, ws, timers, mints } = await two();
+  speak(ws('a'), 'Over to B.');
+  fire(timers, call.nextTimer);
+  ws('b').emit('response.created');
+  call.setEar(call.links.get('b'));
+  ws('b').onclose!();
+  assert.equal(call.timeline.at(-1).text, 'Bot B lost its connection: reconnecting');
+  assert.equal(call.ear, call.links.get('a'), 'the mic moves to a bot that is up');
+  assert.notEqual(call.nextTimer, null, 'A takes the turn');
+  assert.equal(mints.filter((m: string) => m === 'b').length, 2);
+  call.stopNext();
+  ws('a').onclose!(); // idle, and no other bot is up: the mic stays, nobody is cued
+  assert.equal(call.nextTimer, null);
+  assert.equal(call.ear, call.links.get('a'));
+});
+
+test('a bot that fails mid-reply hands on its turn and ends a one-on-one with it', async () => {
+  const { call, ws, timers } = await three();
+  hostSays(ws('a'), 'Bot B, a question');
+  assert.equal(call.focus, call.links.get('b'));
+  call.links.get('b').respond();
+  call.links.get('b').fail(new Error('No usage left'));
+  assert.ok(call.focus === null);
+  assert.equal(call.view().bots[1].error, 'No usage left');
+  assert.notEqual(call.nextTimer, null);
+  fire(timers, call.nextTimer);
+});
+
+test('a bot picked for the next turn that dropped meanwhile is skipped', async () => {
+  const { call, ws, timers } = await three();
+  speak(ws('a'), 'Over to B.');
+  ws('b').onclose!(); // idle drop: reconnecting
+  const before = creates(ws('c'));
+  fire(timers, call.nextTimer); // B is not up: the turn goes past it
+  fire(timers, call.nextTimer);
+  assert.equal(creates(ws('c')), before + 1);
+});
+
+test('send_task: the bot\'s words count at once, its job goes to Grok Bot, and its turn ends when the receipt comes', async () => {
+  const { call, ws, toolCalls } = await two({ tools: () => [SEND_TASK, SEARCH_TOOL] });
+  hostSays(ws('a'), 'check my mail please');
+  ws('a').emit('response.created');
+  ws('a').emit('response.output_audio_transcript.done', { transcript: 'Checking your inbox now.' });
+  ws('a').emit('response.function_call_arguments.done', { call_id: 't1', name: 'send_task', arguments: JSON.stringify({ request: 'Check the inbox' }) });
+  ws('a').emit('response.done', { response: { status: 'completed' } });
+  assert.equal(ws('b').said().at(-1), '[Bot A]: Checking your inbox now.');
+  assert.equal(toolCalls.length, 1);
+  assert.equal(toolCalls[0].id, 'a');
+  assert.match(toolCalls[0].req.callId, /^[0-9a-f-]{36}-a$/);
+  assert.deepEqual(
+    { ...toolCalls[0].req, callId: 'x' },
+    { callId: 'x', name: 'send_task', input: { request: 'Check the inbox' }, line: { theyJustTalked: true, newsOwed: false, receiptOwed: false, alreadySpokeThisTurn: true } },
+  );
+  assert.equal(call.timeline.at(-1).text, 'Bot A sent a job to its agent: "Check the inbox"');
+  assert.equal(call.view().bots[0].status, 'thinking');
+  assert.equal(outputs(ws('a')).length, 0, 'no output until Grok Bot answers');
+  assert.equal(call.nextTimer, null, 'nobody else is cued meanwhile');
+  const before = creates(ws('a'));
+  toolCalls[0].resolve({ kind: 'served', output: { receipt: 'under way' } });
+  await flush();
+  assert.deepEqual(outputs(ws('a')).at(-1), { type: 'function_call_output', call_id: 't1', output: '{"receipt":"under way"}' });
+  assert.equal(creates(ws('a')), before, 'it already said its line: no follow-up');
+  assert.notEqual(call.nextTimer, null, 'the turn goes on');
+  // the same job again is not sent twice
+  useTool(ws('a'), 'send_task', { request: 'check the INBOX!' });
+  await flush();
+  assert.equal(toolCalls.length, 1);
+  assert.match(outputs(ws('a')).at(-1).output, /^Not sent again: that same job is already under way/);
+  assert.equal(creates(ws('a')), before + 1, 'said nothing, so it gets to speak');
+});
+
+test('search_conversations: the bot speaks once the result is in; refusals and failures are told to the bot', async () => {
+  const { call, ws, toolCalls } = await two({ tools: () => [SEND_TASK, SEARCH_TOOL] });
+  let before = creates(ws('a'));
+  useTool(ws('a'), 'search_conversations', { query: 'launch date' });
+  assert.equal(call.timeline.at(-1).text, 'Bot A searched its past chats for "launch date"');
+  toolCalls[0].resolve({ kind: 'served', output: { hits: [{ text: 'Tuesday' }], more: false } });
+  await flush();
+  assert.equal(outputs(ws('a')).at(-1).output, '{"hits":[{"text":"Tuesday"}],"more":false}');
+  assert.equal(creates(ws('a')), before + 1, 'speaks the answer');
+  ws('a').emit('response.created');
+  ws('a').emit('response.done', { response: { status: 'completed' } });
+  const cases: [(t: ToolReq) => void, RegExp, RegExp][] = [
+    [(t) => t.resolve({ kind: 'invalid_input', output: { error: 'missing request' } }), /^Not done: missing request\.$/, /send_task was refused \(missing request\)/],
+    [(t) => t.resolve({ kind: 'unknown_tool', output: null }), /^Not done: unknown tool\.$/, /send_task was refused \(unknown tool\)/],
+    [(t) => t.resolve({ kind: 'served' }), /^\{\}$/, /sent a job/],
+    [(t) => t.reject(new Error('did not answer within 20 s')), /^Not done: did not answer within 20 s\. Tell Shashank in a few words/, /send_task failed \(did not answer within 20 s\)/],
+    [(t) => t.reject(new Error('')), /^Not done: no answer\./, /send_task failed \(no answer\)/],
+  ];
+  cases.forEach(([answer, output, event], i) => {
+    useTool(ws('a'), 'send_task', `{"request":"job ${i}"}`);
+    answer(toolCalls.at(-1)!);
+  });
+  await flush();
+  // answered in order: check each output and event
+  const outs = outputs(ws('a')).slice(-cases.length).map((o: any) => o.output);
+  cases.forEach(([, output], i) => assert.match(outs[i], output, String(output)));
+  for (const [, , event] of cases) assert.ok(call.timeline.some((e: any) => event.test(e.text)), String(event));
+  before = toolCalls.length;
+  useTool(ws('a'), 'send_task', '{oops');
+  assert.deepEqual(toolCalls.at(-1)!.req.input, {}, 'bad arguments are sent as none');
+  useTool(ws('a'), 'something_else', {});
+  assert.equal(toolCalls.length, before + 1, 'only the bot\'s own tools go to Grok Bot');
+});
+
+test('while a tool runs: the host can cut in and is answered once the result is in; nothing else is asked for', async () => {
+  const { call, ws, toolCalls, timers } = await two({ tools: () => [SEARCH_TOOL] });
+  useTool(ws('a'), 'search_conversations', { query: 'x' });
+  const a = call.links.get('a');
+  assert.equal(a.toolsBusy, true);
+  const before = creates(ws('a'));
+  hostSays(ws('a'), 'and the calendar too');
+  assert.equal(a.queued, '', 'its reply waits for the tool');
+  assert.equal(creates(ws('a')), before);
+  a.expectReply();
+  fire(timers, a.replyTimer);
+  assert.equal(creates(ws('a')), before, 'no nudge while the tool runs');
+  toolCalls[0].resolve({ kind: 'served', output: { hits: [] } });
+  await flush();
+  assert.equal(creates(ws('a')), before + 1, 'answered once, with the result in hand');
+  assert.equal(call.nextTimer, null);
+});
+
+test('a tool result for a connection that dropped is thrown away; cut-off and refused tools never reach Grok Bot', async () => {
+  const t = await two({ tools: () => [SEND_TASK] });
+  useTool(t.ws('a'), 'send_task', { request: 'a job' });
+  const old = t.ws('a');
+  old.onclose!();
+  assert.equal(t.call.links.get('a').toolsBusy, false);
+  await t.ready('a');
+  t.toolCalls[0].resolve({ kind: 'served', output: {} });
+  await flush();
+  assert.equal(outputs(old).length, 0);
+  assert.equal(outputs(t.ws('a')).length, 0);
+  useTool(t.ws('a'), 'send_task', { request: 'cut job' }, 'On it.', 'cancelled');
+  assert.match(outputs(t.ws('a')).at(-1).output, /cut off before anyone heard it/);
+  t.call.links.get('a').harness = false;
+  useTool(t.ws('a'), 'send_task', { request: 'another' });
+  assert.match(outputs(t.ws('a')).at(-1).output, /^Unknown tool "send_task"/);
+  assert.equal(t.toolCalls.length, 1);
+  const a = t.call.links.get('a');
+  a.queued = 'x';
+  a.ready = false;
+  a.flushQueued();
+  assert.equal(a.queued, 'x', 'not sent while the bot is down');
+});
+
+test('a Grok Bot tool the call has no special words for is still forwarded and logged', async () => {
+  const PEEK = { ...SEARCH_TOOL, name: 'peek_runs' };
+  const { call, ws, toolCalls } = await two({ tools: () => [PEEK] });
+  useTool(ws('a'), 'peek_runs', {});
+  assert.equal(call.timeline.at(-1).text, 'Bot A used peek_runs');
+  assert.equal(toolCalls[0].req.name, 'peek_runs');
+  toolCalls[0].resolve({ kind: 'served', output: { runs: [] } });
+  await flush();
+  assert.equal(outputs(ws('a')).at(-1).output, '{"runs":[]}');
+});
+
+test('naming a bot that already has a reply coming queues the request instead of asking twice', async () => {
+  const { call, ws, timers } = await two();
+  const b = call.links.get('b');
+  b.respond(); // e.g. its turn was just asked for
+  const before = creates(ws('b'));
+  call.sendText('Bot B, and one more thing'); // the cut-in cancels B's pending reply first, so B is asked now
+  assert.equal(creates(ws('b')), before + 1);
+  b.respondWhenFree('again');
+  assert.equal(b.queued, 'again', 'already pending: queued, not asked twice');
+  assert.equal(creates(ws('b')), before + 1);
+  // that pending reply never starts: the host's queued request is asked for instead of moving the turn on
+  fire(timers, lastTimer(timers, RESPONSE_START_MS));
+  assert.equal(call.timeline.at(-1).text, 'Bot B never started its reply: asking it again');
+  assert.equal(creates(ws('b')), before + 2);
+  assert.equal(b.queued, null);
+  assert.equal(call.nextTimer, null, 'the turn did not move on');
+  // Leave while B is mid-reply and its cancel is never confirmed: the summary request waits, then goes out
+  ws('b').emit('response.created');
+  const wrap = call.wrapUp(); // cuts B off, and queues the summary request behind B's reply
+  assert.match(b.queued, /is ending this group voice call now/);
+  fire(timers, lastTimer(timers, RESPONSE_STALL_MS));
+  assert.equal(creates(ws('b')), before + 3);
+  assert.match(ws('b').sent.filter((m) => m.type === 'response.create').at(-1).response.instructions, /Call the save_summary tool once/);
+  call.leave();
+  assert.ok(await wrap);
+});
+
+test('a refused reply that the host was waiting on is asked for again', async () => {
+  const { call, ws } = await two();
+  const b = call.links.get('b');
+  b.respond();
+  b.queued = '';
+  ws('b').emit('error', { error: { message: 'busy', event_id: b.pendingEventId } });
+  assert.equal(call.timeline.at(-1).text, 'Bot B could not start a reply (busy): asking it again');
+  assert.equal(b.pending, true, 'asked again');
+});
+
+test('a turn decision made in a reply whose tool result came after the host cut in is dropped', async () => {
+  const { call, ws, toolCalls } = await two({ tools: () => [SEARCH_TOOL] });
+  ws('a').emit('response.created');
+  ws('a').emit('response.function_call_arguments.done', { call_id: 's', name: 'search_conversations', arguments: '{"query":"x"}' });
+  ws('a').emit('response.function_call_arguments.done', { call_id: 'h', name: 'hand_to', arguments: '{"name":"Bot B"}' });
+  ws('a').emit('response.done', { response: { status: 'completed' } });
+  assert.deepEqual(call.links.get('a').turn, { kind: 'hand', target: 'b' });
+  call.stopAll();
+  toolCalls[0].resolve({ kind: 'served', output: {} });
+  await flush();
+  assert.equal(call.links.get('a').turn, null);
+  assert.equal(call.nextTimer, null);
+});
+
+test('a Grok Bot session request that hangs times out; its late answer or failure is ignored', async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const { call, ws, timers, sockets } = setup({ mintWait: (id) => (id === 'a' ? gate : undefined), mintFail: (id) => (id === 'c' ? new Error('late no') : null) });
+  call.join([bot('a')]);
+  await flush();
+  fire(timers, lastTimer(timers, CONNECT_TIMEOUT_MS));
+  assert.equal(call.view().bots[0].error, 'Timed out connecting.');
+  release();
+  await flush();
+  assert.equal(sockets.get('a'), undefined, 'no socket is opened for the timed-out session');
+  // a failure that comes after the timeout is not reported twice
+  let releaseC!: () => void;
+  const gateC = new Promise<void>((r) => (releaseC = r));
+  const t2 = setup({ mintWait: () => gateC, mintFail: () => new Error('late no') });
+  t2.call.join([bot('c')]);
+  await flush();
+  fire(t2.timers, lastTimer(t2.timers, CONNECT_TIMEOUT_MS));
+  const errors = t2.call.timeline.filter((e: any) => e.kind === 'error').length;
+  releaseC();
+  await flush();
+  assert.equal(t2.call.timeline.filter((e: any) => e.kind === 'error').length, errors);
+  assert.equal(t2.call.view().bots[0].error, 'Timed out connecting.');
+  void ws;
 });

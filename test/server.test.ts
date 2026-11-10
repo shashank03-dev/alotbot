@@ -6,7 +6,7 @@ import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { after, before, test } from 'node:test';
-import { createApp, isAllowed, readJson } from '../src/server.ts';
+import { createApp, isAllowed, parseToolCall, readJson, TOOL_BODY_LIMIT } from '../src/server.ts';
 import { mock, sendJson, until, type Mock } from './helpers.ts';
 
 let up: Mock;
@@ -16,6 +16,8 @@ let port: number;
 let signedIn = false;
 let upstreamFail = false;
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'grok-call-srv-'));
+const SEARCH = { type: 'function', name: 'search_conversations', description: 'Search.', parameters: { type: 'object', properties: {} } };
+const toolBodies: unknown[] = [];
 
 before(async () => {
   up = await mock((req, res) => {
@@ -28,7 +30,11 @@ before(async () => {
     if (method === 'ListGrokBotAgents') {
       return sendJson(res, 200, { agents: [{ id: '7', name: 'My Bot', kind: 'GROK_BOT_AGENT_KIND_AGENT', voiceId: 'carina' }] });
     }
-    if (method === 'VoiceCallHarnessSession') return sendJson(res, 200, { instructions: 'Be My Bot.' });
+    if (method === 'VoiceCallHarnessSession') return sendJson(res, 200, { instructions: 'Be My Bot.', tools: [SEARCH] });
+    if (method === 'VoiceCallHarnessTool') {
+      toolBodies.push(req.body);
+      return sendJson(res, 200, { kind: 'VOICE_CALL_HARNESS_TOOL_OUTCOME_KIND_SERVED', output: { hits: [], more: false } });
+    }
     if (method === 'MintSandVoiceCallSecret') {
       return sendJson(res, 200, { clientSecret: 's', model: 'm', websocketUrl: 'wss://voice.test/rt', expiresAtUnixSeconds: '5' });
     }
@@ -113,7 +119,7 @@ test('lists bots and mints a voice session for one', async () => {
   assert.deepEqual(bots, { bots: [{ id: '7', name: 'My Bot', voice: 'carina', speed: 1, language: null, color: null, shape: null }] });
   const r = await fetch(`${base}/api/bots/7/voice`, { method: 'POST' });
   assert.equal(r.status, 200);
-  assert.deepEqual(await r.json(), { clientSecret: 's', url: 'wss://voice.test/rt?model=m', expiresAt: 5, instructions: 'Be My Bot.' });
+  assert.deepEqual(await r.json(), { clientSecret: 's', url: 'wss://voice.test/rt?model=m', expiresAt: 5, instructions: 'Be My Bot.', tools: [SEARCH] });
   assert.equal((await fetch(`${base}/api/bots/nope/voice`, { method: 'POST' })).status, 404);
   assert.equal((await fetch(`${base}/api/bots/7/voice`)).status, 405);
   assert.equal((await fetch(`${base}/api/bots/bad%20id/voice`, { method: 'POST' })).status, 404);
@@ -204,4 +210,49 @@ test('readJson stops reading a body over the limit', async () => {
   assert.deepEqual(await readJson(ok, 100), [1, 2]);
   const none = Object.assign((async function* () {})(), { headers: {} }) as unknown as http.IncomingMessage;
   await assert.rejects(readJson(none, 100), (e: any) => e.status === 415);
+});
+
+const LINE = { theyJustTalked: true, newsOwed: false, receiptOwed: false, alreadySpokeThisTurn: false };
+
+test('call tools: a bot\'s search goes to Grok Bot; hang-up and malformed calls are refused with the reason', async () => {
+  await until(() => fs.existsSync(path.join(dataDir, 'auth.json')));
+  const post = (id: string, body: unknown, type = 'application/json') =>
+    fetch(`${base}/api/bots/${id}/tool`, { method: 'POST', headers: { 'content-type': type }, body: typeof body === 'string' ? body : JSON.stringify(body) });
+  const call = { callId: 'call-1-7', name: 'search_conversations', input: { query: 'launch', if_missing: 'say-no-record' }, line: LINE };
+  await fetch(`${base}/api/bots/7/voice`, { method: 'POST' }); // the bot's tools are known once its session is minted
+  let r = await post('7', call);
+  assert.equal(r.status, 200);
+  assert.deepEqual(await r.json(), { kind: 'served', output: { hits: [], more: false } });
+  assert.deepEqual(toolBodies.at(-1), { agentId: '7', ...call });
+  r = await post('7', { ...call, name: 'end_the_call' });
+  assert.equal(r.status, 400);
+  assert.match((await r.json()).error, /not one of this bot's call tools/);
+  assert.equal((await post('7', call, 'text/plain')).status, 415);
+  assert.equal((await post('7', 'x'.repeat(TOOL_BODY_LIMIT + 1))).status, 413);
+  assert.equal((await fetch(`${base}/api/bots/7/tool`)).status, 405);
+  assert.equal((await raw('POST', '/api/bots/7/tool', { origin: 'https://evil.test', 'content-type': 'application/json' })).status, 403);
+  upstreamFail = true;
+  r = await post('7', call);
+  upstreamFail = false;
+  assert.equal(r.status, 502);
+});
+
+test('parseToolCall checks every field', () => {
+  const ok = { callId: 'call-1.a:b_c', name: 'send_task', input: { request: 'x' }, line: { ...LINE, extra: 1 } };
+  assert.deepEqual(parseToolCall(ok), { ...ok, line: LINE });
+  const cases: [unknown, RegExp][] = [
+    [null, /body must be an object/],
+    [[], /body must be an object/],
+    [{ ...ok, callId: '' }, /callId/],
+    [{ ...ok, callId: 'a b' }, /callId/],
+    [{ ...ok, callId: 'x'.repeat(129) }, /callId/],
+    [{ ...ok, callId: 5 }, /callId/],
+    [{ ...ok, name: 'Send Task' }, /name must be a tool name/],
+    [{ ...ok, name: 7 }, /name must be a tool name/],
+    [{ ...ok, input: null }, /input must be an object/],
+    [{ ...ok, input: [] }, /input must be an object/],
+    [{ ...ok, line: null }, /line must have/],
+    [{ ...ok, line: { ...LINE, newsOwed: 'no' } }, /line must have/],
+  ];
+  for (const [body, msg] of cases) assert.throws(() => parseToolCall(body), (e: any) => e.status === 400 && msg.test(e.message), String(msg));
 });

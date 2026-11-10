@@ -17,6 +17,42 @@ export class SignedOutError extends Error {
 
 export class NotFoundError extends Error {}
 
+/** A voice tool request we refuse to forward (not a tool this bot's voice harness offers, or bad fields). */
+export class ToolRefusedError extends Error {}
+
+/** Voice harness tools a group call never offers: hanging up is the host's Leave button. */
+export const SKIPPED_HARNESS_TOOLS = new Set(['end_the_call']);
+/** Grok Bot's own app gives a voice tool call this long to answer. */
+export const HARNESS_TOOL_TIMEOUT_MS = 20_000;
+
+/** A function tool from Grok Bot's voice harness (e.g. send_task, search_conversations), run by Grok Bot. */
+export interface HarnessTool {
+  type: 'function';
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+}
+
+export interface ToolCall {
+  /** Identifies this voice call to Grok Bot (one per bot per call). */
+  callId: string;
+  name: string;
+  input: Record<string, unknown>;
+  /** Where the conversation is, as Grok Bot's app reports it. */
+  line: { theyJustTalked: boolean; newsOwed: boolean; receiptOwed: boolean; alreadySpokeThisTurn: boolean };
+}
+
+export interface ToolOutcome {
+  kind: 'served' | 'unknown_tool' | 'invalid_input';
+  output: unknown;
+}
+
+const OUTCOMES: Record<string, ToolOutcome['kind']> = {
+  VOICE_CALL_HARNESS_TOOL_OUTCOME_KIND_SERVED: 'served',
+  VOICE_CALL_HARNESS_TOOL_OUTCOME_KIND_UNKNOWN_TOOL: 'unknown_tool',
+  VOICE_CALL_HARNESS_TOOL_OUTCOME_KIND_INVALID_INPUT: 'invalid_input',
+};
+
 export interface Bot {
   id: string;
   name: string;
@@ -36,6 +72,26 @@ export interface VoiceSession {
   expiresAt: number;
   /** The bot's own voice-call instructions from Grok Bot. */
   instructions: string;
+  /** Tools Grok Bot runs for this bot during a call (its agent, with the account's plugins, and its chat history). */
+  tools: HarnessTool[];
+}
+
+/** The harness tools a group call can use: well-formed function tools, minus hang-up. */
+export function harnessTools(raw: unknown): HarnessTool[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter(
+      (t) =>
+        t &&
+        t.type === 'function' &&
+        str(t.name) &&
+        !SKIPPED_HARNESS_TOOLS.has(t.name) &&
+        typeof t.description === 'string' &&
+        t.parameters &&
+        typeof t.parameters === 'object' &&
+        !Array.isArray(t.parameters),
+    )
+    .map((t) => ({ type: 'function', name: t.name, description: t.description, parameters: t.parameters }));
 }
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
@@ -102,6 +158,8 @@ export interface ClientOptions {
   apiUrl?: string;
   fetch?: typeof fetch;
   userName?: string;
+  /** How long a call tool may take (default HARNESS_TOOL_TIMEOUT_MS). */
+  toolTimeoutMs?: number;
 }
 
 /** Talks to Grok Bot with your own sign-in. */
@@ -110,6 +168,8 @@ export class GrokBotClient {
   private readonly fetch: typeof fetch;
   private readonly userName: string;
   private bots = new Map<string, Bot>();
+  /** Harness tool names each bot was given, so only those are forwarded. */
+  private toolNames = new Map<string, Set<string>>();
   private readonly opts: ClientOptions;
 
   constructor(opts: ClientOptions) {
@@ -149,29 +209,55 @@ export class GrokBotClient {
       throw new Error('Grok Bot returned an unusable voice session.');
     }
     url.searchParams.set('model', secret.model);
+    const tools = harnessTools(harness?.tools);
+    this.toolNames.set(bot.id, new Set(tools.map((t) => t.name)));
     return {
       clientSecret: secret.clientSecret,
       url: url.toString(),
       expiresAt: Number(secret.expiresAtUnixSeconds) || 0,
       instructions: str(harness?.instructions),
+      tools,
     };
   }
 
-  private call(method: string, body: object, auth: Auth): Promise<Response> {
+  /**
+   * Runs one of a bot's harness tools on Grok Bot (send_task hands a job to the bot's agent; search_conversations
+   * searches its chat history). Only tools that bot's voice session was given are forwarded.
+   */
+  async harnessTool(botId: string, call: ToolCall): Promise<ToolOutcome> {
+    if (!this.toolNames.has(botId)) throw new ToolRefusedError('Start a voice session with this bot first.');
+    if (!this.toolNames.get(botId)!.has(call.name)) throw new ToolRefusedError(`"${call.name}" is not one of this bot's call tools.`);
+    const j = await this.rpc('VoiceCallHarnessTool', { agentId: botId, ...call }, this.opts.toolTimeoutMs ?? HARNESS_TOOL_TIMEOUT_MS);
+    const kind = OUTCOMES[str(j?.kind)];
+    if (!kind) throw new Error('Grok Bot VoiceCallHarnessTool returned an unusable answer');
+    return { kind, output: j.output ?? null };
+  }
+
+  private call(method: string, body: object, auth: Auth, timeoutMs?: number): Promise<Response> {
     return this.fetch(`${this.apiUrl}/${SERVICE}/${method}`, {
       method: 'POST',
       headers: clientHeaders(auth),
       body: JSON.stringify(body),
+      ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
     });
   }
 
-  private async rpc(method: string, body: object): Promise<any> {
+  private async rpc(method: string, body: object, timeoutMs?: number): Promise<any> {
+    try {
+      return await this.rpcOnce(method, body, timeoutMs);
+    } catch (err) {
+      if ((err as Error)?.name === 'TimeoutError') throw new Error(`Grok Bot ${method} did not answer within ${timeoutMs! / 1000} s`);
+      throw err;
+    }
+  }
+
+  private async rpcOnce(method: string, body: object, timeoutMs?: number): Promise<any> {
     let auth = this.opts.store.read();
     if (!auth) throw new SignedOutError();
-    let res = await this.call(method, body, auth);
+    let res = await this.call(method, body, auth, timeoutMs);
     if (res.status === 401) {
       auth = await this.refresh(auth);
-      if (auth) res = await this.call(method, body, auth);
+      if (auth) res = await this.call(method, body, auth, timeoutMs);
       if (!auth || res.status === 401) {
         this.opts.store.clear();
         throw new SignedOutError();
