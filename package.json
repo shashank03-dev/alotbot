@@ -1,0 +1,19 @@
+{
+  "name": "grok-call",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A group voice call with your own Grok Bots: join, pick which bots are in the call, talk to them, and hear them talk to each other.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env src/main.ts",
+    "test": "node --test --experimental-test-coverage --test-coverage-include=src/**/*.ts --test-coverage-include=public/core.js --test-coverage-exclude=src/main.ts --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100 \"test/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.8.0"
+  }
+}
