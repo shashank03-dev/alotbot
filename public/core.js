@@ -24,6 +24,10 @@ export const STUCK_SPEAKING_MS = 8000;
 export const HOST = `${USER} (host)`;
 /** A line with any of these words is a correction: never dropped as echo. */
 export const CORRECTION_WORDS = ['no', 'wait', 'stop', 'actually', 'wrong'];
+/** Host corrections kept in the pinned "current direction" note (newest last). */
+export const DIRECTION_MAX = 5;
+/** A correction this short ("no", "wait, stop") is a nudge, not a new direction to pin. */
+export const DIRECTION_MIN_WORDS = 3;
 
 // ---------- text ----------
 
@@ -53,6 +57,21 @@ export function findAddressee(text, bots) {
 export function hasCorrection(text) {
   const words = new Set(normalize(text).split(' '));
   return CORRECTION_WORDS.some((w) => words.has(w));
+}
+
+/** True if a host line is a correction worth pinning as the current direction. */
+export function isDirection(text) {
+  return hasCorrection(text) && normalize(text).split(' ').length >= DIRECTION_MIN_WORDS;
+}
+
+/** The pinned note added to every bot's instructions. Empty when the host hasn't corrected anyone yet. */
+export function directionText(direction) {
+  if (!direction.length) return '';
+  return (
+    `\n\n# Current direction (pinned by the host)\n` +
+    `${USER} corrected the bots during this call. Follow this over anything said before it; the newest is last:\n` +
+    direction.map((d) => `- "${d}"`).join('\n')
+  );
 }
 
 /**
@@ -109,7 +128,7 @@ export const LEAVE_CALL_TOOL = fn(
 
 export const TOOLS = [INVITE_TOOL, PASS_TOOL, HAND_TO_TOOL, WAIT_FOR_HOST_TOOL, LEAVE_CALL_TOOL];
 
-export function groupInstructions(base, me, roster, invitable = []) {
+export function groupInstructions(base, me, roster, invitable = [], direction = []) {
   const others = roster.filter((n) => n !== me);
   const who = others.length
     ? `The other Grok bots in the call: ${others.join(', ')}.`
@@ -130,7 +149,8 @@ export function groupInstructions(base, me, roster, invitable = []) {
     `Manage turns with your tools: hand_to gives the next turn to one bot, pass skips your turn when you have nothing to add, ` +
     `wait_for_host stops the bots and waits for ${USER} (use it when the topic is done or you are going in circles), ` +
     `and leave_call takes you out of the call. ` +
-    `Your other Grok Bot tools are not available during this call; only the tools given here are.`
+    `Your other Grok Bot tools are not available during this call; only the tools given here are.` +
+    directionText(direction)
   );
 }
 
@@ -374,7 +394,7 @@ export class BotLink {
   }
 
   instructions() {
-    return groupInstructions(this.base, this.bot.name, this.call.roster(), this.call.invitable().map((b) => b.name));
+    return groupInstructions(this.base, this.bot.name, this.call.roster(), this.call.invitable().map((b) => b.name), this.call.direction);
   }
 
   send(msg) {
@@ -586,6 +606,7 @@ export class Call {
     this.invited = new Map(); // botId -> name of the bot that pulled it in
     this.order = [];
     this.lines = [];
+    this.direction = []; // pinned host corrections, newest last
     this.ear = null; // the bot hearing Shashank's mic right now
     this.opened = false;
     this.muted = false;
@@ -681,6 +702,7 @@ export class Call {
       muted: this.muted,
       userSpeaking: this.userSpeaking,
       waitingForHost: this.waitingForHost,
+      direction: this.direction,
       bots: this.order.map((id) => {
         const l = this.links.get(id);
         let status = l.status;
@@ -793,7 +815,7 @@ export class Call {
       return;
     }
     this.record(USER, text.trim(), link);
-    this.hostSpoke();
+    this.hostSpoke(text.trim());
     const named = findAddressee(text, this.readyLinks().map((l) => l.bot));
     const target = named ? this.links.get(named) : link;
     if (target === link) {
@@ -832,10 +854,13 @@ export class Call {
     this.record(link.bot.name, part, link, true);
   }
 
-  /** Shashank said something: bots may take turns again. */
-  hostSpoke() {
+  /** Shashank said something: bots may take turns again, and a correction is pinned for every bot. */
+  hostSpoke(text) {
     this.waitingForHost = false;
     this.passes = 0;
+    if (!isDirection(text)) return;
+    this.direction = [...this.direction, text].slice(-DIRECTION_MAX);
+    for (const link of this.links.values()) link.updateInstructions();
   }
 
   /** A bot used a tool. Returns { output: what the bot is told, followUp: it should speak again }. */

@@ -4,6 +4,9 @@ import {
   BARGE_IN_LEVEL,
   Call,
   CORRECTION_WORDS,
+  DIRECTION_MAX,
+  directionText,
+  isDirection,
   hasCorrection,
   heardPart,
   HOST,
@@ -1103,7 +1106,7 @@ test('pass: the bot says nothing and the turn moves on; when every bot passes, t
   assert.equal(timers.filter((t) => !t.done).length, 0);
   assert.equal(call.view().waitingForHost, true);
   // a real line resets the count
-  call.hostSpoke();
+  call.hostSpoke('');
   useTool(ws('a'), 'pass', {});
   speak(ws('b'), 'I have something.');
   assert.equal(call.passes, 0);
@@ -1209,4 +1212,64 @@ test('a turn decision in a reply the host cut off is dropped', async () => {
   useTool(ws('a'), 'wait_for_host', {}, 'Wait.', 'cancelled');
   assert.equal(call.waitingForHost, false);
   assert.equal(call.links.get('a').turn, null);
+});
+
+// ---------- pinned current direction ----------
+
+test('isDirection: a correction of at least three words', () => {
+  assert.equal(isDirection('No, focus on pricing'), true);
+  assert.equal(isDirection('actually let us talk about hiring'), true);
+  assert.equal(isDirection('no stop'), false);
+  assert.equal(isDirection('focus on pricing now'), false);
+});
+
+test('directionText lists the pinned corrections, newest last, or nothing', () => {
+  assert.equal(directionText([]), '');
+  assert.equal(
+    directionText(['no, focus on pricing', 'wait, only Europe']),
+    '\n\n# Current direction (pinned by the host)\nShashank corrected the bots during this call. Follow this over anything said before it; the newest is last:\n- "no, focus on pricing"\n- "wait, only Europe"',
+  );
+  assert.ok(groupInstructions('B', 'A', ['A'], [], ['no, focus on pricing']).endsWith('- "no, focus on pricing"'));
+  assert.ok(!groupInstructions('B', 'A', ['A']).includes('Current direction'));
+});
+
+const lastInstructions = (s: FakeSocket) => s.sent.filter((m) => m.type === 'session.update').at(-1).session.instructions;
+
+test('a host correction is pinned for every bot, and kept for bots that join or reconnect later', async () => {
+  const { call, ws, ready } = setup();
+  call.join([bot('a'), bot('b')]);
+  await ready('a');
+  await ready('b');
+  ws('a').emit('conversation.item.input_audio_transcription.completed', { transcript: 'tell me about the market' });
+  assert.deepEqual(call.direction, [], 'not a correction');
+  ws('a').emit('conversation.item.input_audio_transcription.completed', { transcript: ' No, focus on pricing only. ' });
+  assert.deepEqual(call.direction, ['No, focus on pricing only.']);
+  assert.deepEqual(call.view().direction, ['No, focus on pricing only.']);
+  for (const id of ['a', 'b']) assert.match(lastInstructions(ws(id)), /# Current direction \(pinned by the host\)[\s\S]*- "No, focus on pricing only\."$/);
+  // a short nudge is passed on as a line but not pinned
+  ws('a').emit('conversation.item.input_audio_transcription.completed', { transcript: 'wait' });
+  assert.equal(call.direction.length, 1);
+  call.addBot(bot('c'));
+  await flush();
+  ws('c').onopen!();
+  assert.match(ws('c').sent[0].session.instructions, /- "No, focus on pricing only\."$/);
+  // reconnecting bot gets it in its new session too
+  ws('b').onclose!();
+  await flush();
+  ws('b').onopen!();
+  assert.match(ws('b').sent.at(-1).session.instructions, /- "No, focus on pricing only\."$/);
+});
+
+test('only the newest DIRECTION_MAX corrections are kept, and leaving clears them', async () => {
+  const { call, ws, ready } = setup();
+  call.join([bot('a')]);
+  await ready('a');
+  for (let i = 0; i < DIRECTION_MAX + 2; i++) {
+    ws('a').emit('conversation.item.input_audio_transcription.completed', { transcript: `no, do step ${i}` });
+  }
+  assert.equal(call.direction.length, DIRECTION_MAX);
+  assert.equal(call.direction[0], 'no, do step 2');
+  assert.equal(call.direction.at(-1), `no, do step ${DIRECTION_MAX + 1}`);
+  call.leave();
+  assert.deepEqual(call.direction, []);
 });

@@ -40,6 +40,7 @@ Set `PORT=9000` (or `HOST=localhost`) in the environment or a `.env` file to cha
   - `wait_for_host`: stop the bot-to-bot talk until you speak.
   - `leave_call`: the bot says goodbye and leaves once its voice has finished.
 - **Interrupting**: start talking and every bot goes quiet at once. A bot you cut off is told how much of its answer you actually heard, and the other bots get only that part, tagged `(cut off by the host)`.
+- **Current direction**: when you correct the bots (a line of 3+ words with "no", "wait", "stop", "actually" or "wrong"), your words are pinned in every bot's instructions as the current direction, newest last, up to 5. Bots that join or reconnect later get it too.
 - **Stuck mic**: if the call thinks you are still talking but your mic has been quiet for 8 seconds and no words came through, it stops waiting and the listening bot answers.
 - Voices never overlap: all bot audio plays on one timeline.
 - A bot that drops reconnects by itself with the conversation so far. A bot added mid-call also gets the conversation so far.
