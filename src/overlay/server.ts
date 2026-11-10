@@ -191,6 +191,12 @@ export function createOverlayServer(opts: OverlayOptions) {
           return login.state();
         case 'login':
           return { loginUrl: login.start() };
+        case 'logout':
+          if (this.call) throw new ClientError('leave the call before signing out');
+          login.cancel();
+          store.clear();
+          this.bots = [];
+          return login.state();
         case 'bots':
           this.bots = await grok.listBots();
           return { bots: this.bots };

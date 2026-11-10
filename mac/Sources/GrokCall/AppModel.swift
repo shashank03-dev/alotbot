@@ -1,0 +1,409 @@
+import AppKit
+import Foundation
+import GrokCallCore
+import SwiftUI
+
+/// How the host looks in the circle and the pill.
+enum HostLook: String, CaseIterable, Identifiable {
+    case initials, photo, character
+    var id: String { rawValue }
+    var label: String { ["initials": "Initials", "photo": "Photo", "character": "Character"][rawValue]! }
+}
+
+/// Settings kept on this Mac.
+final class Prefs: ObservableObject {
+    private let d = UserDefaults.standard
+    @Published var hostLook: HostLook { didSet { d.set(hostLook.rawValue, forKey: "hostLook") } }
+    @Published var hostShape: String { didSet { d.set(hostShape, forKey: "hostShape") } }
+    @Published var hostColor: String { didSet { d.set(hostColor, forKey: "hostColor") } }
+    @Published var keepPill: Bool { didSet { d.set(keepPill, forKey: "keepPill") } }
+    /// The circle's center, in screen points from the bottom-left of the main screen.
+    @Published var orbCenter: CGPoint { didSet { d.set([orbCenter.x, orbCenter.y], forKey: "orbCenter") } }
+    @Published var photo: NSImage?
+
+    var photoURL: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("GrokCall/host-photo.png")
+    }
+
+    init() {
+        hostLook = HostLook(rawValue: d.string(forKey: "hostLook") ?? "") ?? .initials
+        hostShape = d.string(forKey: "hostShape") ?? "blob"
+        hostColor = d.string(forKey: "hostColor") ?? "blue"
+        keepPill = d.bool(forKey: "keepPill")
+        if let p = d.array(forKey: "orbCenter") as? [Double], p.count == 2 { orbCenter = CGPoint(x: p[0], y: p[1]) } else {
+            let f = NSScreen.main?.visibleFrame ?? .init(x: 0, y: 0, width: 1440, height: 900)
+            orbCenter = CGPoint(x: f.maxX - 120, y: f.maxY - 90)
+        }
+        photo = NSImage(contentsOf: photoURL)
+    }
+
+    /// Copies a picked photo in (as a 256 px PNG) so the original can move or be deleted.
+    func setPhoto(from url: URL) throws {
+        guard let img = NSImage(contentsOf: url) else { throw CocoaError(.fileReadCorruptFile) }
+        let side = 256.0
+        let out = NSImage(size: NSSize(width: side, height: side))
+        out.lockFocus()
+        let s = img.size, k = max(side / s.width, side / s.height)
+        img.draw(in: NSRect(x: (side - s.width * k) / 2, y: (side - s.height * k) / 2, width: s.width * k, height: s.height * k))
+        out.unlockFocus()
+        guard let tiff = out.tiffRepresentation, let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        try png.write(to: photoURL, options: .atomic)
+        photo = out
+    }
+}
+
+enum Tray: Equatable { case add, newBot, chat, voice }
+
+enum Connection: Equatable { case starting, ready, failed(String) }
+
+@MainActor
+final class AppModel: ObservableObject {
+    let backend = Backend()
+    let audio = AudioIO()
+    let prefs = Prefs()
+
+    @Published var connection: Connection = .starting
+    @Published var login = LoginState(state: "signed-out", error: nil)
+    @Published var hostName = "Shashank"
+    @Published var choices: Choices?
+    @Published var bots: [Bot] = []
+    @Published var botsError: String?
+    @Published var picked = Set<String>()
+    @Published var view: CallView?
+    @Published var lines: [Line] = []
+    @Published var tasks: [TaskItem] = []
+    @Published var pastCalls: [PastCall] = []
+    @Published var joining = false
+    @Published var leaving = false
+    @Published var lastCall: LeaveResult?
+    @Published var toast: String?
+
+    // Overlay
+    @Published var overlayShown = false
+    /// The bot under the pointer in the open pill (set by the overlay window).
+    @Published var hoveredBot: String?
+    @Published var expanded = false
+    @Published var tray: Tray?
+    @Published var cardBot: String?
+    @Published var highlightTask: Int?
+    @Published var showAllBots = false
+    @Published var voiceBot: String?
+    @Published var savingVoice: String?
+
+    private var clock: ClockMap?
+    private var toastTask: Task<Void, Never>?
+
+    var inCall: Bool { view != nil }
+    var callBots: [CallBot] { view?.bots ?? [] }
+
+    init() {
+        backend.onConnected = { [weak self] hello, clock in self?.connected(hello, clock) }
+        backend.onStopped = { [weak self] why in self?.stopped(why) }
+        backend.onMessage = { [weak self] msg in self?.handle(msg) }
+        backend.onAudio = { [weak self] chunk in self?.audio.play(chunk) }
+        audio.onMic = { [weak self] level, pcm in self?.backend.sendMic(AudioFrames.encodeMic(level: level, samples: pcm)) }
+        if Self.demo { startDemo() } else { backend.start() }
+    }
+
+    // MARK: backend lifecycle
+
+    private func connected(_ hello: Hello, _ clock: ClockMap) {
+        self.clock = clock
+        hostName = hello.user
+        choices = hello.choices
+        connection = .ready
+        Task {
+            await refreshLogin()
+            await refreshTasks()
+            await refreshCalls()
+        }
+    }
+
+    private func stopped(_ why: String) {
+        connection = .failed(why)
+        if inCall { endCallLocally() }
+    }
+
+    func restartBackend() {
+        connection = .starting
+        backend.restart()
+    }
+
+    private func handle(_ msg: ServerMessage) {
+        switch msg {
+        case .view(let v):
+            let wasIn = view != nil
+            view = v
+            if !wasIn { overlayShown = true }
+        case .lines(let l):
+            lines.append(contentsOf: l)
+            if lines.count > 500 { lines.removeFirst(lines.count - 500) }
+        case .tasks(let t):
+            tasks = t.tasks
+        case .stopAudio(let id):
+            audio.stopChunk(id)
+        case .ended:
+            endCallLocally()
+        case .reply, .unknown:
+            break
+        }
+    }
+
+    func show(_ message: String) {
+        toast = message
+        toastTask?.cancel()
+        toastTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(3.5))
+            guard !Task.isCancelled else { return }
+            self?.toast = nil
+        }
+    }
+
+    /// Runs a backend call; a failure becomes a toast (and a signed-out failure updates the sign-in state).
+    @discardableResult
+    func attempt<T>(_ what: String, _ body: () async throws -> T) async -> T? {
+        do { return try await body() } catch {
+            if let e = error as? BackendError, e.signedOut { login = LoginState(state: "signed-out", error: nil) }
+            show("\(what): \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    // MARK: sign-in
+
+    func refreshLogin() async {
+        guard let s: LoginState = await attempt("Couldn't check sign-in", { try await backend.request("state") }) else { return }
+        login = s
+        if s.state == "signed-in" { await refreshBots() }
+    }
+
+    func signIn() async {
+        struct R: Decodable { let loginUrl: String }
+        guard let r: R = await attempt("Couldn't start sign-in", { try await backend.request("login") }), let url = URL(string: r.loginUrl) else { return }
+        login = LoginState(state: "signing-in", error: nil)
+        NSWorkspace.shared.open(url)
+        // The backend finishes the sign-in by itself; check until it's done.
+        for _ in 0..<400 {
+            try? await Task.sleep(for: .seconds(1.5))
+            guard let s: LoginState = try? await backend.request("state") else { continue }
+            login = s
+            if s.state != "signing-in" { break }
+        }
+        if login.state == "signed-in" { await refreshBots() }
+    }
+
+    func signOut() async {
+        guard let s: LoginState = await attempt("Couldn't sign out", { try await backend.request("logout") }) else { return }
+        login = s
+        bots = []
+        picked = []
+    }
+
+    // MARK: bots and calls
+
+    func refreshBots() async {
+        struct R: Decodable { let bots: [Bot] }
+        do {
+            let r: R = try await backend.request("bots")
+            bots = r.bots
+            botsError = nil
+            picked = picked.filter { id in r.bots.contains { $0.id == id } }
+        } catch {
+            if let e = error as? BackendError, e.signedOut { login = LoginState(state: "signed-out", error: nil) }
+            botsError = error.localizedDescription
+        }
+    }
+
+    func bot(_ id: String) -> Bot? { bots.first { $0.id == id } }
+
+    func join() async {
+        guard !picked.isEmpty, !joining else { return }
+        joining = true
+        defer { joining = false }
+        guard await AudioIO.requestMic() else { show(AudioIO.AudioError.micDenied.localizedDescription); return }
+        guard let clock else { show(BackendError.notConnected.localizedDescription); return }
+        do { try audio.start(clock: clock) } catch { show(error.localizedDescription); return }
+        lines = []
+        lastCall = nil
+        tray = nil
+        cardBot = nil
+        showAllBots = false
+        let ids = bots.map(\.id).filter(picked.contains) // keep the account's order
+        struct R: Decodable { let joined: [String] }
+        guard let _: R = await attempt("Couldn't join", { try await backend.request("join", ["botIds": ids]) }) else {
+            audio.stop()
+            return
+        }
+        expanded = true
+        overlayShown = true
+        await refreshTasks()
+    }
+
+    func leave() async {
+        guard inCall, !leaving else { return }
+        leaving = true
+        tray = nil
+        cardBot = nil
+        let r: LeaveResult? = await attempt("Couldn't save the call", { try await backend.request("leave") })
+        leaving = false
+        endCallLocally()
+        if let r {
+            lastCall = r
+            show(r.file == nil ? "Call ended. Nothing was said, so it wasn't saved." : "Call saved.")
+            await refreshCalls()
+        }
+        await refreshTasks()
+    }
+
+    private func endCallLocally() {
+        audio.stop()
+        view = nil
+        tray = nil
+        cardBot = nil
+        expanded = false
+        overlayShown = false
+        leaving = false
+    }
+
+    func addBot(_ id: String) async {
+        await attempt("Couldn't add the bot") { try await backend.send("addBot", ["botId": id]) }
+    }
+
+    func removeBot(_ id: String) async {
+        if cardBot == id { cardBot = nil }
+        await attempt("Couldn't remove the bot") { try await backend.send("removeBot", ["botId": id]) }
+    }
+
+    /// Message everyone (botId nil) or one bot. Returns true if it was sent.
+    func say(_ text: String, to botId: String? = nil) async -> Bool {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return false }
+        struct R: Decodable { let sent: Bool }
+        var args: [String: Any] = ["text": String(t.prefix(1000))]
+        if let botId { args["botId"] = botId }
+        guard let r: R = await attempt("Couldn't send", { try await backend.request("say", args) }) else { return false }
+        if !r.sent { show("No bot is ready to hear that yet.") }
+        return r.sent
+    }
+
+    func stopAll() {
+        guard inCall else { return }
+        Task { await attempt("Couldn't stop the bots") { try await backend.send("stop") } }
+        show("Stopped every bot. They wait for you.")
+    }
+
+    func toggleMute() {
+        guard let v = view else { return }
+        let next = !v.muted
+        audio.muted = next
+        view?.muted = next
+        Task { await attempt("Couldn't change mute") { try await backend.send("mute", ["muted": next]) } }
+    }
+
+    func setVoice(_ botId: String, voice: String?? = nil, speed: Double? = nil, language: String?? = nil) async {
+        var s: [String: Any] = [:]
+        if let voice { s["voice"] = voice ?? NSNull() }
+        if let speed { s["speed"] = speed }
+        if let language { s["language"] = language ?? NSNull() }
+        savingVoice = "Saving…"
+        struct R: Decodable { let bot: Bot }
+        if let r: R = await attempt("Couldn't save to Grok Bot", { try await backend.request("setVoice", ["botId": botId, "settings": s]) }) {
+            if let i = bots.firstIndex(where: { $0.id == r.bot.id }) { bots[i] = r.bot } else { bots.append(r.bot) }
+            savingVoice = "Saved to Grok Bot"
+        } else {
+            savingVoice = nil
+        }
+    }
+
+    func createBot(name: String, description: String, shape: String, color: String, voice: String?) async -> Bool {
+        struct R: Decodable { let bot: Bot }
+        var b: [String: Any] = ["name": name, "description": description, "shape": shape, "color": color]
+        b["voice"] = voice ?? NSNull()
+        guard let r: R = await attempt("Couldn't make the bot", { try await backend.request("createBot", ["bot": b, "addToCall": inCall]) }) else { return false }
+        await refreshBots()
+        show("\(r.bot.name) is ready\(inCall ? " and joining the call" : "").")
+        return true
+    }
+
+    // MARK: tasks
+
+    func refreshTasks() async {
+        guard let t: TaskList = try? await backend.request("tasks") else { return }
+        tasks = t.tasks
+    }
+
+    func addTask(title: String, owner: String?, parent: Int?, waitsOn: [Int]) async -> Bool {
+        var a: [String: Any] = ["title": title, "waitsOn": waitsOn]
+        a["owner"] = owner ?? NSNull()
+        a["parent"] = parent ?? NSNull()
+        guard let t: TaskList = await attempt("Couldn't add the task", { try await backend.request("taskAdd", a) }) else { return false }
+        tasks = t.tasks
+        return true
+    }
+
+    func taskOp(_ op: String, _ args: [String: Any], _ what: String) async {
+        if let t: TaskList = await attempt(what, { try await backend.request(op, args) }) { tasks = t.tasks }
+    }
+
+    func setTask(_ id: Int, status: String) async { await taskOp("taskStatus", ["id": id, "status": status], "Couldn't update task #\(id)") }
+    func removeTask(_ id: Int) async { await taskOp("taskRemove", ["id": id], "Couldn't remove task #\(id)") }
+    func linkTask(_ id: Int, waitsOn on: Int) async { await taskOp("taskLink", ["id": id, "on": on], "Couldn't link task #\(id)") }
+    func unlinkTask(_ id: Int, from on: Int) async { await taskOp("taskUnlink", ["id": id, "on": on], "Couldn't unlink task #\(id)") }
+
+    /// Owners a task can have: the host, then every bot on the account.
+    var owners: [String] { [hostName] + bots.map(\.name) }
+
+    // MARK: past calls
+
+    func refreshCalls() async {
+        struct R: Decodable { let calls: [PastCall] }
+        if let r: R = try? await backend.request("calls") { pastCalls = r.calls }
+    }
+
+    func callURL(_ c: PastCall) -> URL? { backend.paths?.dataDir.appendingPathComponent("calls").appendingPathComponent(c.file) }
+
+    func saveToDownloads(_ c: PastCall) {
+        guard let src = callURL(c) else { return }
+        let dest = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0].appendingPathComponent("grok-\(c.file)")
+        do {
+            if FileManager.default.fileExists(atPath: dest.path) { try FileManager.default.removeItem(at: dest) }
+            try FileManager.default.copyItem(at: src, to: dest)
+            NSWorkspace.shared.activateFileViewerSelecting([dest])
+        } catch {
+            show("Couldn't save the call: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: overlay helpers
+
+    func toggleTray(_ t: Tray) {
+        cardBot = nil
+        tray = tray == t ? nil : t
+        if t == .voice, voiceBot == nil || !callBots.contains(where: { $0.id == voiceBot }) { voiceBot = callBots.first?.id }
+        savingVoice = nil
+    }
+
+    func openCard(_ botId: String, highlight: Int? = nil) {
+        tray = nil
+        highlightTask = highlight
+        cardBot = cardBot == botId && highlight == nil ? nil : botId
+    }
+
+    /// The bot card for the task's owner, with that task highlighted (from a "waits on" chip).
+    func jump(toTask id: Int) {
+        guard let t = tasks.first(where: { $0.id == id }) else { return }
+        if let owner = t.owner, let b = callBots.first(where: { $0.name == owner }) { openCard(b.id, highlight: id) } else {
+            show("Task #\(id) belongs to \(t.owner ?? "nobody"), who isn't in this call. See it in the menu bar.")
+        }
+    }
+
+    func collapse() {
+        tray = nil
+        cardBot = nil
+        expanded = false
+    }
+
+    var ringMode: RingMode { GrokCallCore.ringMode(view) }
+}

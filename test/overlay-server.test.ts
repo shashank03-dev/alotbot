@@ -476,3 +476,13 @@ test('the view is pushed on the default cadence', async () => {
   await inCall(h, c, ['a']);
   await c.next((m) => m.t === 'view' && m.view.bots[0].status !== 'connecting');
 });
+
+test('logout forgets the sign-in, but not during a call', async () => {
+  const h = await start();
+  const c = await connect(h);
+  await inCall(h, c, ['a']);
+  await c.fails('logout', {}, /leave the call before signing out/);
+  await c.ok('leave');
+  assert.deepEqual(await c.ok('logout'), { state: 'signed-out', error: null });
+  assert.equal(new AuthStore(h.dir).read(), null);
+});
