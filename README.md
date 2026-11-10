@@ -33,9 +33,10 @@ Set `PORT=9000` (or `HOST=localhost`) in the environment or a `.env` file to cha
 
 - On join, each picked bot gets its own live voice session (Grok voice, `grok-voice-3.0`), with that bot's own voice-call instructions from Grok Bot plus a note that it's in a group call and who else is there.
 - The first bot to connect opens the call with one short line.
-- **Your mic** goes to one bot at a time: the last bot that spoke, or the bot you named. Grok voice sessions always reply to audio they hear, so sending your voice to every bot would make them all answer at once. The other bots get your words as text: `[Shashank]: ...`.
+- **Your mic** goes to one bot at a time: the last bot that spoke, or the bot you named. Grok voice sessions always reply to audio they hear, so sending your voice to every bot would make them all answer at once. The other bots get your words as text: `[Shashank (host)]: ...`. Every bot is told that what the host says comes before the current topic.
 - **Bot to bot**: when a bot finishes, the others get its words as `[Bot name]: ...`. Then the bot it named answers, or the next bot in line. After 6 bot turns in a row they stop and wait for you.
-- **Interrupting**: start talking and every bot goes quiet at once. A bot you cut off is told how much of its answer you actually heard.
+- **Interrupting**: start talking and every bot goes quiet at once. A bot you cut off is told how much of its answer you actually heard, and the other bots get only that part, tagged `(cut off by the host)`.
+- **Stuck mic**: if the call thinks you are still talking but your mic has been quiet for 8 seconds and no words came through, it stops waiting and the listening bot answers.
 - Voices never overlap: all bot audio plays on one timeline.
 - A bot that drops reconnects by itself with the conversation so far. A bot added mid-call also gets the conversation so far.
 - **Pulling a bot in**: every bot in the call has one tool, `invite_bot`, and knows which of your bots aren't in the call yet. When a bot uses it, that bot joins (its tile appears), gets the conversation so far, is told who pulled it in, and says hello; the bot that invited it confirms out loud. Asking for a bot that doesn't exist or is already in the call is refused and the bot is told why. An invite inside a reply that got cut off is not carried out.
@@ -52,7 +53,7 @@ Set `PORT=9000` (or `HOST=localhost`) in the environment or a `.env` file to cha
 
 ### Echo
 
-With speakers, a bot's voice can come back through your mic. The app asks the browser for echo cancellation and holds back quiet mic audio while a bot is speaking, so you need to speak up to cut in. Headphones avoid the problem entirely.
+With speakers, a bot's voice can come back through your mic. The app asks the browser for echo cancellation and holds back quiet mic audio while a bot is speaking, so you need to speak up to cut in. A line that mostly repeats what a bot just said is dropped as echo, but only if a bot's voice was playing when you started talking, and never if it has "no", "wait", "stop", "actually" or "wrong" in it. Headphones avoid the problem entirely.
 
 ## Sign-in and privacy
 

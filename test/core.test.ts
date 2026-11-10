@@ -3,6 +3,12 @@ import { test } from 'node:test';
 import {
   BARGE_IN_LEVEL,
   Call,
+  CORRECTION_WORDS,
+  hasCorrection,
+  heardPart,
+  HOST,
+  STUCK_SPEAKING_MS,
+  tagOf,
   cleanTranscript,
   CONTEXT_LINES,
   contextText,
@@ -342,7 +348,7 @@ test('Shashank speaks: mic goes to the listening bot, others get his words as te
   assert.equal(call.view().userSpeaking, true);
   ws('a').emit('conversation.item.input_audio_transcription.completed', { transcript: ' What is the plan for today? ' });
   assert.equal(call.view().userSpeaking, false);
-  assert.deepEqual(ws('b').said(), ['[Shashank]: What is the plan for today?']);
+  assert.deepEqual(ws('b').said(), ['[Shashank (host)]: What is the plan for today?']);
   assert.deepEqual(ws('a').said().slice(1), [], 'the listening bot heard the audio itself');
   assert.equal(call.lines.at(-1).text, 'What is the plan for today?');
   // A replies on its own (server VAD); the nudge timer is cleared when it starts.
@@ -423,7 +429,7 @@ test('barge-in: Shashank talking over a bot silences it and cuts its reply where
   assert.equal(call.links.get('b').suppressNext, true, 'B’s pending reply will be cancelled');
   ws('b').emit('response.created');
   assert.equal(ws('b').types().at(-1), 'response.cancel');
-  assert.equal(timers.filter((t) => !t.done).length, 0);
+  assert.equal(timers.filter((t) => !t.done && t.ms !== STUCK_SPEAKING_MS).length, 0, 'no bot turn queued');
 });
 
 test('barge-in while a bot is mid-reply sends a cancel', async () => {
@@ -445,7 +451,8 @@ test('speaker echo and empty speech are dropped and the auto reply is suppressed
   const { call, ws, ready } = setup();
   call.join([bot('a')]);
   await ready('a');
-  speak(ws('a'), 'Good to hear you, what is on your mind today?');
+  speak(ws('a'), 'Good to hear you, what is on your mind today?', 3);
+  ws('a').emit('input_audio_buffer.speech_started'); // while A's voice is still playing
   ws('a').emit('conversation.item.input_audio_transcription.completed', { transcript: 'what is on your mind today' });
   assert.equal(call.lines.length, 1);
   ws('a').emit('response.created');
@@ -824,4 +831,197 @@ test('the next bot is not cued again if it is already about to speak', async () 
   speak(ws('a'), 'Still over to B.');
   runTimers();
   assert.equal(ws('b').types().filter((x: string) => x === 'response.create').length, before);
+});
+
+// ---------- corrections reach the bots ----------
+
+test('hasCorrection matches whole correction words only', () => {
+  assert.deepEqual(CORRECTION_WORDS, ['no', 'wait', 'stop', 'actually', 'wrong']);
+  for (const t of ['No, not that.', 'WAIT a second', 'please stop', 'actually let us do X', 'that is wrong']) assert.equal(hasCorrection(t), true, t);
+  for (const t of ['I know nothing', 'nonstop waiting', 'wrongly', '', 'actual numbers']) assert.equal(hasCorrection(t), false, t);
+});
+
+test('isNoiseOrEcho never drops a correction, even when it repeats the bot', () => {
+  const bot = 'No wait, the plan is to stop the old service and fix what is wrong';
+  assert.equal(isNoiseOrEcho('the plan is to stop the old service', bot), false);
+  assert.equal(isNoiseOrEcho('the plan is the old service', bot), true);
+  assert.equal(isNoiseOrEcho('the plan is the old service', ''), false, 'no bot audio: only empty speech is dropped');
+  assert.equal(isNoiseOrEcho('', ''), true);
+});
+
+test('tagOf and contextText label the host and cut-off lines', () => {
+  assert.equal(HOST, 'Shashank (host)');
+  assert.equal(tagOf({ who: USER, text: 'x' }), HOST);
+  assert.equal(tagOf({ who: 'Bot A', text: 'x' }), 'Bot A');
+  assert.equal(tagOf({ who: 'Bot A', text: 'x', cut: true }), 'Bot A (cut off by the host)');
+  assert.equal(
+    contextText([{ who: USER, text: 'hi' }, { who: 'B', text: 'half', cut: true }]),
+    'Conversation so far in this call:\n[Shashank (host)]: hi\n[B (cut off by the host)]: half',
+  );
+});
+
+test('groupInstructions tells bots the host comes before the current topic', () => {
+  const text = groupInstructions('B', 'A', ['A']);
+  assert.match(text, /lines are tagged "\[Shashank \(host\)\]"/);
+  assert.match(text, /What the host says comes before the current topic/);
+  assert.match(text, /\(cut off by the host\)" is only the part the host heard/);
+});
+
+test('heardPart keeps whole words up to the share of audio heard', () => {
+  const t = 'aaaa bbbb cccc dddd';
+  assert.equal(heardPart(t, 2000, 4000), 'aaaa bbbb');
+  assert.equal(heardPart(t, 1000, 4000), 'aaaa');
+  assert.equal(heardPart(t, 100, 4000), '', 'mid first word: nothing whole was heard');
+  assert.equal(heardPart(t, 4000, 4000), t);
+  assert.equal(heardPart(t, 5000, 4000), t);
+  assert.equal(heardPart('', 1, 1), '');
+  assert.equal(heardPart(t, 0, 4000), '');
+  assert.equal(heardPart(t, 10, 0), '');
+});
+
+test('the host’s words reach the other bots tagged as host', async () => {
+  const { call, ws, ready } = setup();
+  call.join([bot('a'), bot('b')]);
+  await ready('a');
+  await ready('b');
+  ws('a').emit('conversation.item.input_audio_transcription.completed', { transcript: 'focus on pricing' });
+  assert.deepEqual(ws('b').said(), ['[Shashank (host)]: focus on pricing']);
+  call.addBot(bot('c'));
+  await ready('c');
+  assert.equal(ws('c').said()[0], 'Conversation so far in this call:\n[Shashank (host)]: focus on pricing');
+});
+
+test('echo check runs only while bot audio plays: the same words with nothing playing are kept', async () => {
+  const { call, ws, ready, audio } = setup();
+  call.join([bot('a')]);
+  await ready('a');
+  speak(ws('a'), 'Good to hear you, what is on your mind today?', 1);
+  audio.t = 5; // A's voice finished playing
+  ws('a').emit('input_audio_buffer.speech_started');
+  ws('a').emit('conversation.item.input_audio_transcription.completed', { transcript: 'what is on your mind today' });
+  assert.equal(call.lines.at(-1).who, USER);
+  // a transcript with no speech_started before it is not treated as echo either
+  ws('a').emit('conversation.item.input_audio_transcription.completed', { transcript: 'what is on your mind today' });
+  assert.equal(call.lines.filter((l: any) => l.who === USER).length, 2);
+});
+
+test('a correction spoken over a bot is kept even if it sounds like the bot', async () => {
+  const { call, ws, ready } = setup();
+  call.join([bot('a')]);
+  await ready('a');
+  speak(ws('a'), 'We should ship the old version today', 3);
+  ws('a').emit('input_audio_buffer.speech_started');
+  ws('a').emit('conversation.item.input_audio_transcription.completed', { transcript: 'no we should not ship the old version' });
+  assert.equal(call.lines.at(-1).text, 'no we should not ship the old version');
+});
+
+/** Bot `s` starts a reply with `seconds` of audio and `text`, but does not finish it. */
+function startReply(s: FakeSocket, text: string, seconds: number, item: string) {
+  s.emit('response.created');
+  s.emit('response.output_item.added', { item: { id: item } });
+  s.emit('response.output_audio.delta', { delta: b64audio(seconds) });
+  s.emit('response.output_audio_transcript.delta', { delta: text });
+}
+
+test('cutting a bot off: the others get only the part the host heard', async () => {
+  const { call, ws, ready, audio } = setup();
+  call.join([bot('a'), bot('b')]);
+  await ready('a');
+  await ready('b');
+  startReply(ws('a'), 'aaaa bbbb cccc dddd', 4, 'ia');
+  audio.t = 2;
+  ws('a').emit('input_audio_buffer.speech_started');
+  // audio still streaming after the cut counts toward the whole reply but never plays
+  ws('a').emit('response.output_audio.delta', { delta: b64audio(4) });
+  assert.equal(call.player.chunks.length, 0);
+  ws('a').emit('response.done', { response: { status: 'cancelled' } });
+  assert.deepEqual(ws('b').said(), ['[Bot A (cut off by the host)]: aaaa']);
+  assert.deepEqual(call.lines, [{ who: 'Bot A', text: 'aaaa', cut: true }]);
+  assert.deepEqual(ws('a').said(), [`[Call]: ${USER} just joined. Open the call with one short spoken line.`], 'the cut bot is not sent its own line');
+  assert.equal(call.links.get('a').heardMs, 0);
+});
+
+test('cut off before any audio played: nothing is passed on', async () => {
+  const { call, ws, ready } = setup();
+  call.join([bot('a'), bot('b')]);
+  await ready('a');
+  await ready('b');
+  startReply(ws('a'), 'never heard', 2, 'ia');
+  ws('a').emit('input_audio_buffer.speech_started');
+  ws('a').emit('response.done', { response: { status: 'cancelled' } });
+  assert.deepEqual(ws('b').said(), []);
+  assert.equal(call.lines.length, 0);
+});
+
+test('cut off after all its audio had played: the whole reply is passed on', async () => {
+  const { call, ws, ready, audio } = setup();
+  call.join([bot('a'), bot('b')]);
+  await ready('a');
+  await ready('b');
+  startReply(ws('a'), 'short and done', 1, 'ia');
+  audio.t = 1.5;
+  ws('a').emit('input_audio_buffer.speech_started');
+  ws('a').emit('response.done', { response: { status: 'cancelled' } });
+  assert.deepEqual(ws('b').said(), ['[Bot A (cut off by the host)]: short and done']);
+});
+
+test('a cut bot removed before its reply ends passes nothing on; idle bots are untouched', async () => {
+  const { call, ws, ready, audio } = setup();
+  call.join([bot('a'), bot('b')]);
+  await ready('a');
+  await ready('b');
+  startReply(ws('b'), 'aaaa bbbb', 2, 'ib');
+  audio.t = 1;
+  ws('a').emit('input_audio_buffer.speech_started');
+  assert.equal(call.links.get('a').heardMs, 0, 'A had no reply running');
+  assert.equal(call.links.get('b').heardMs, 1000);
+  call.removeBot('b');
+  ws('b').emit('response.done', { response: { status: 'cancelled' } });
+  assert.equal(call.lines.length, 0);
+});
+
+test('stuck "host is talking" state is reset when the mic goes quiet and no transcript comes', async () => {
+  const { call, ws, ready, timers, setClock } = setup();
+  call.join([bot('a'), bot('b')]);
+  await ready('a');
+  await ready('b');
+  setClock(1000);
+  call.micAudio(new Int16Array(10), 0.2);
+  ws('a').emit('input_audio_buffer.speech_started');
+  assert.equal(call.view().userSpeaking, true);
+  const stuck = timers.filter((t) => t.ms === STUCK_SPEAKING_MS && !t.done);
+  assert.equal(stuck.length, 1);
+  // still loud recently: keep waiting
+  setClock(1000 + STUCK_SPEAKING_MS - 1);
+  stuck[0].done = true;
+  stuck[0].fn();
+  assert.equal(call.view().userSpeaking, true);
+  const again = timers.filter((t) => t.ms === STUCK_SPEAKING_MS && !t.done);
+  assert.equal(again.length, 1, 're-armed');
+  // quiet long enough: unstick, clear the half-heard audio, and let the listener answer
+  setClock(1000 + STUCK_SPEAKING_MS);
+  again[0].done = true;
+  again[0].fn();
+  assert.equal(call.view().userSpeaking, false);
+  assert.equal(ws('a').types().at(-1), 'input_audio_buffer.clear');
+  assert.equal(timers.at(-1)!.ms, REPLY_GRACE_MS);
+  // with the call unstuck, bots take turns again
+  speak(ws('a'), 'Anyway.');
+  assert.ok(timers.some((t) => !t.done && t.ms === 0), 'next bot turn cued');
+});
+
+test('stuck timer: cleared by a transcript, harmless after leaving, and fine with no listener', async () => {
+  const { call, ws, ready, timers } = setup();
+  call.join([bot('a')]);
+  await ready('a');
+  ws('a').emit('input_audio_buffer.speech_started');
+  ws('a').emit('conversation.item.input_audio_transcription.completed', { transcript: 'hello there friend' });
+  assert.ok(timers.filter((t) => t.ms === STUCK_SPEAKING_MS).every((t) => t.done));
+  call.checkStuck(); // not speaking: nothing happens
+  ws('a').emit('input_audio_buffer.speech_started');
+  call.removeBot('a'); // the listener leaves mid-sentence
+  call.checkStuck(); // no listener left: just unsticks
+  assert.equal(call.view().userSpeaking, false);
+  call.leave();
+  assert.equal(call.stuckTimer, null);
 });

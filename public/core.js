@@ -20,6 +20,12 @@ export const USER_ACTIVE_MS = 1500;
 export const CONTEXT_LINES = 30;
 /** A dropped bot reconnects by itself only if it had stayed up at least this long. */
 export const MIN_UPTIME_FOR_RETRY_MS = 10000;
+/** If Shashank seems to be talking but the mic has been quiet this long with no transcript, unstick the call. */
+export const STUCK_SPEAKING_MS = 8000;
+/** How Shashank's lines are tagged for the bots. */
+export const HOST = `${USER} (host)`;
+/** A line with any of these words is a correction: never dropped as echo. */
+export const CORRECTION_WORDS = ['no', 'wait', 'stop', 'actually', 'wrong'];
 
 // ---------- text ----------
 
@@ -45,11 +51,21 @@ export function findAddressee(text, bots) {
   return best ? best.id : null;
 }
 
-/** True for empty speech, or speech that is mostly words a bot just said (speaker echo). */
+/** True if the text has a correction word ("no", "wait", "stop", "actually", "wrong") as a whole word. */
+export function hasCorrection(text) {
+  const words = new Set(normalize(text).split(' '));
+  return CORRECTION_WORDS.some((w) => words.has(w));
+}
+
+/**
+ * True for empty speech, or speech that is mostly words a bot just said (speaker echo).
+ * Pass '' as `recentBotText` when no bot audio was playing: then only empty speech is dropped.
+ * A correction is never dropped.
+ */
 export function isNoiseOrEcho(heard, recentBotText) {
   const words = normalize(heard).split(' ').filter(Boolean);
   if (!words.length) return true;
-  if (words.length < 3) return false;
+  if (words.length < 3 || hasCorrection(heard)) return false;
   const pool = new Set(normalize(recentBotText).split(' ').filter(Boolean));
   const hits = words.filter((w) => pool.has(w)).length;
   return hits / words.length >= 0.8;
@@ -81,6 +97,9 @@ export function groupInstructions(base, me, roster, invitable = []) {
     `${base}\n\n# Group call\n` +
     `You are ${me}, in a live group voice call hosted by ${USER}. ${who} ` +
     `Audio you hear is ${USER} speaking. A text message that starts with "[Name]:" is what that participant just said out loud; treat it as speech you heard. ` +
+    `${USER} is the host; his lines are tagged "[${HOST}]". What the host says comes before the current topic: ` +
+    `when the host corrects you, changes the subject or asks for something, drop what you were doing and follow the host right away. ` +
+    `A line tagged "(cut off by the host)" is only the part the host heard before cutting that speaker off. ` +
     `Speak only as yourself and never say a "[Name]:" prefix. Keep each turn to one to three short spoken sentences. ` +
     `To ask someone to answer, say their name. ${invite} ` +
     `Your other tools are not available during this call; invite_bot is the only one.`
@@ -103,8 +122,29 @@ export function cleanTranscript(text) {
     .trim();
 }
 
+/** The "[...]" tag a line is shown to the bots with. */
+export function tagOf(line) {
+  if (line.who === USER) return HOST;
+  return line.cut ? `${line.who} (cut off by the host)` : line.who;
+}
+
 export function contextText(lines) {
-  return `Conversation so far in this call:\n${lines.map((l) => `[${l.who}]: ${l.text}`).join('\n')}`;
+  return `Conversation so far in this call:\n${lines.map((l) => `[${tagOf(l)}]: ${l.text}`).join('\n')}`;
+}
+
+/** The start of `text` that was heard: `heardMs` of `totalMs` of audio, cut back to whole words. */
+export function heardPart(text, heardMs, totalMs) {
+  if (!text || heardMs <= 0 || totalMs <= 0) return '';
+  if (heardMs >= totalMs) return text;
+  const n = Math.round((text.length * heardMs) / totalMs);
+  const out = [];
+  let len = 0;
+  for (const w of text.split(' ')) {
+    len += w.length + (out.length ? 1 : 0);
+    if (len > n) break;
+    out.push(w);
+  }
+  return out.join(' ');
 }
 
 // ---------- audio ----------
@@ -200,6 +240,12 @@ export class Player {
     return c ? c.botId : null;
   }
 
+  /** Ms of a reply already played out in full (chunks that finished). */
+  heardMs(itemId) {
+    this.prune(this.audio.now());
+    return Math.round((this.heard.get(itemId) ?? 0) * 1000);
+  }
+
   remainingMs() {
     return Math.max(0, (this.end - this.audio.now()) * 1000);
   }
@@ -249,6 +295,8 @@ export class BotLink {
     this.suppressNext = false; // cancel the next reply as soon as it starts
     this.itemId = null;
     this.text = '';
+    this.audioMs = 0; // audio generated for the current reply, played or not
+    this.heardMs = 0; // set when Shashank cuts this reply off: how much of it he heard
     this.replyTimer = null;
     this.toolCalls = [];
   }
@@ -347,6 +395,11 @@ export class BotLink {
     this.replyTimer = null;
   }
 
+  /** The key this reply's audio is queued under in the Player. */
+  itemKey() {
+    return this.itemId ?? `${this.bot.id}:reply`;
+  }
+
   truncate(itemId, ms) {
     this.send({ type: 'conversation.item.truncate', item_id: itemId, content_index: 0, audio_end_ms: ms });
   }
@@ -385,6 +438,8 @@ export class BotLink {
         this.text = '';
         this.itemId = null;
         this.discard = false;
+        this.audioMs = 0;
+        this.heardMs = 0;
         this.toolCalls = [];
         if (this.suppressNext) {
           this.suppressNext = false;
@@ -394,11 +449,13 @@ export class BotLink {
       case 'response.output_item.added':
         this.itemId = e.item?.id ?? null;
         return;
-      case 'response.output_audio.delta':
-        if (!this.discard && typeof e.delta === 'string') {
-          this.call.player.enqueue(this.bot.id, this.itemId ?? `${this.bot.id}:reply`, pcm16ToFloat(fromBase64(e.delta)));
-        }
+      case 'response.output_audio.delta': {
+        if (typeof e.delta !== 'string') return;
+        const pcm = fromBase64(e.delta);
+        this.audioMs += (pcm.length / SAMPLE_RATE) * 1000;
+        if (!this.discard) this.call.player.enqueue(this.bot.id, this.itemKey(), pcm16ToFloat(pcm));
         return;
+      }
       case 'response.output_audio_transcript.delta':
         if (typeof e.delta === 'string') this.text += e.delta;
         return;
@@ -421,6 +478,8 @@ export class BotLink {
           const output = ran ? this.call.onToolCall(this, c) : 'Not done: this reply was cut off before anyone heard it.';
           this.send({ type: 'conversation.item.create', item: { type: 'function_call_output', call_id: c.callId, output } });
         }
+        if (!heard && this.heardMs > 0) this.call.onBotCut(this, heardPart(cleanTranscript(this.text), this.heardMs, this.audioMs));
+        this.heardMs = 0;
         return this.call.onBotDone(this, heard ? cleanTranscript(this.text) : '', status, ran && calls.length > 0);
       }
       case 'input_audio_buffer.speech_started':
@@ -500,6 +559,8 @@ export class Call {
     this.nextTimer = null;
     this.preroll = [];
     this.lastLoud = -Infinity; // when the mic last went above BARGE_IN_LEVEL
+    this.echoRisk = false; // bot audio was playing when Shashank's current speech started
+    this.stuckTimer = null;
   }
 
   /** `available`: all of Shashank's Grok Bots, so bots in the call can pull others in. */
@@ -514,6 +575,7 @@ export class Call {
   leave() {
     if (this.phase === 'idle') return;
     this.stopNext();
+    this.clearStuck();
     for (const link of this.links.values()) link.close();
     this.player.flush();
     this.phase = 'idle';
@@ -615,9 +677,10 @@ export class Call {
     this.preroll = [];
   }
 
-  record(who, text, from) {
-    this.lines.push({ who, text });
-    for (const link of this.links.values()) if (link !== from) link.say(`[${who}]: ${text}`);
+  record(who, text, from, cut = false) {
+    const line = cut ? { who, text, cut } : { who, text };
+    this.lines.push(line);
+    for (const link of this.links.values()) if (link !== from) link.say(`[${tagOf(line)}]: ${text}`);
   }
 
   stopNext() {
@@ -629,8 +692,13 @@ export class Call {
   interrupt() {
     this.gen++;
     this.stopNext();
-    for (const [itemId, { botId, ms }] of this.player.flush()) this.links.get(botId)?.truncate(itemId, ms);
-    for (const link of this.links.values()) link.cancel();
+    const cut = this.player.flush();
+    for (const [itemId, { botId, ms }] of cut) this.links.get(botId)?.truncate(itemId, ms);
+    for (const link of this.links.values()) {
+      // Remember how much of a reply Shashank heard, so the others get only that part.
+      if (link.active && !link.discard) link.heardMs = cut.get(link.itemKey())?.ms ?? this.player.heardMs(link.itemKey());
+      link.cancel();
+    }
   }
 
   onReady(link) {
@@ -661,6 +729,8 @@ export class Call {
   onSpeechStart(link) {
     if (link !== this.ear) return;
     this.userSpeaking = true;
+    this.echoRisk = this.player.remainingMs() > 0;
+    this.armStuck();
     this.interrupt();
     // The listening bot's server stops its own reply when Shashank talks, and its next
     // reply will be to him, so don't mark that one for cancelling.
@@ -670,11 +740,16 @@ export class Call {
   onTranscript(link, text) {
     if (link !== this.ear) return;
     this.userSpeaking = false;
-    const recent = this.lines
-      .filter((l) => l.who !== USER)
-      .slice(-2)
-      .map((l) => l.text)
-      .join(' ');
+    this.clearStuck();
+    // The echo check only runs if a bot's voice was playing when this speech started.
+    const recent = this.echoRisk
+      ? this.lines
+          .filter((l) => l.who !== USER)
+          .slice(-2)
+          .map((l) => l.text)
+          .join(' ')
+      : '';
+    this.echoRisk = false;
     if (isNoiseOrEcho(text, recent)) {
       link.suppress();
       return;
@@ -690,6 +765,33 @@ export class Call {
       target.respond();
       this.setEar(target);
     }
+  }
+
+  armStuck() {
+    this.clearStuck();
+    this.stuckTimer = this.d.setTimer(() => this.checkStuck(), STUCK_SPEAKING_MS);
+  }
+
+  clearStuck() {
+    if (this.stuckTimer !== null) this.d.clearTimer(this.stuckTimer);
+    this.stuckTimer = null;
+  }
+
+  /** Shashank "started talking" but no transcript came: if his mic has gone quiet, stop waiting for him. */
+  checkStuck() {
+    this.stuckTimer = null;
+    if (!this.userSpeaking) return;
+    if (this.d.now() - this.lastLoud < STUCK_SPEAKING_MS) return this.armStuck();
+    this.userSpeaking = false;
+    this.echoRisk = false;
+    this.ear?.clearInput();
+    this.ear?.expectReply();
+  }
+
+  /** A reply Shashank cut off: the others get only the part he heard. */
+  onBotCut(link, part) {
+    if (!part || !this.links.has(link.bot.id)) return;
+    this.record(link.bot.name, part, link, true);
   }
 
   /** A bot used a tool. Returns what the bot is told back. */
