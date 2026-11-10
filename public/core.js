@@ -154,6 +154,9 @@ export const TOOLS = [
   DONE_TASK_TOOL,
 ];
 
+/** xAI's built-in search tools: they run on xAI's side, so the call never sees or answers them. */
+export const SEARCH_TOOLS = [{ type: 'web_search' }, { type: 'x_search' }];
+
 /** The notepad as plain text, for read_notes. */
 export function notepadText(notes, tasks) {
   if (!notes.length && !tasks.length) return 'The notepad is empty.';
@@ -197,6 +200,7 @@ export function groupInstructions(base, me, roster, invitable = [], direction = 
     `and leave_call takes you out of the call. ` +
     `There is a shared notepad that every bot and ${USER} can see: write_note keeps a fact, decision or idea, add_task adds an action item, ` +
     `done_task ticks one off, and read_notes shows it all. A "[Notepad]:" message tells you someone changed it. ` +
+    `You can search the web and X for current facts and posts; say in a few words that you are looking it up, and keep what you found short. ` +
     `Your other Grok Bot tools are not available during this call; only the tools given here are.` +
     directionText(direction)
   );
@@ -397,6 +401,7 @@ export class BotLink {
     this.toolCalls = [];
     this.turn = null; // what this bot decided with a turn tool: { kind, target? }
     this.leaving = false; // used leave_call; removed once its goodbye has played
+    this.search = true; // web and X search on; turned off if this session refuses them
   }
 
   async connect(context) {
@@ -428,7 +433,7 @@ export class BotLink {
       session: {
         ...(voice ? { voice } : {}),
         instructions: this.instructions(),
-        tools: TOOLS,
+        tools: this.search ? [...TOOLS, ...SEARCH_TOOLS] : TOOLS,
         turn_detection: { type: 'server_vad' },
         audio: {
           input: {
@@ -593,6 +598,13 @@ export class BotLink {
       case 'conversation.item.input_audio_transcription.completed':
         return this.call.onTranscript(this, typeof e.transcript === 'string' ? e.transcript : '');
       case 'error':
+        // Before the session is set up, an error means our setup was refused (the session keeps its old one).
+        // Search is the part most likely to be refused, so try once more without it.
+        if (!this.ready && this.search && this.ws) {
+          this.search = false;
+          this.ws.send(JSON.stringify(this.sessionUpdate()));
+          return;
+        }
         // e.g. a reply asked for while one is running, or cancelling one that already ended
         this.pending = false;
         return;
@@ -768,7 +780,7 @@ export class Call {
           else if (this.ear === l) status = 'listening';
           else status = 'idle';
         }
-        return { id, name: l.bot.name, color: l.bot.color, shape: l.bot.shape, status, error: l.error };
+        return { id, name: l.bot.name, color: l.bot.color, shape: l.bot.shape, status, error: l.error, search: l.search };
       }),
     };
   }

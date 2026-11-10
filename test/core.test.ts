@@ -24,6 +24,7 @@ import {
   fromBase64,
   groupInstructions,
   INVITE_TOOL,
+  SEARCH_TOOLS,
   TOOLS,
   isNoiseOrEcho,
   matchBot,
@@ -706,7 +707,7 @@ test('every bot gets the invite tool and the list of bots it can pull in', async
   await flush();
   ws('a').onopen!();
   const update = ws('a').sent[0].session;
-  assert.deepEqual(update.tools, TOOLS);
+  assert.deepEqual(update.tools, [...TOOLS, ...SEARCH_TOOLS]);
   assert.deepEqual(update.tools[0], INVITE_TOOL);
   assert.match(update.instructions, /Bots you can invite: Bot B, Bot C\./);
 });
@@ -1377,4 +1378,49 @@ test('read_notes returns the notepad and the bot speaks with it', async () => {
   assert.equal(outputs(ws('a')).at(-1).output, 'Notes:\n- Budget 5k (Bot A)');
   call.leave();
   assert.deepEqual([call.notes, call.tasks], [[], []]);
+});
+
+// ---------- web and X search ----------
+
+test('every bot gets web search and X search', async () => {
+  assert.deepEqual(SEARCH_TOOLS, [{ type: 'web_search' }, { type: 'x_search' }]);
+  const { call, ws } = setup();
+  call.join([bot('a'), bot('b')]);
+  await flush();
+  for (const id of ['a', 'b']) {
+    ws(id).onopen!();
+    const { tools, instructions } = ws(id).sent[0].session;
+    assert.deepEqual(tools.slice(-2), SEARCH_TOOLS);
+    assert.match(instructions, /You can search the web and X/);
+  }
+  ws('a').emit('session.updated');
+  assert.equal(call.view().bots[0].search, true);
+});
+
+test('if a session refuses the setup, the bot retries once without search and still joins', async () => {
+  const { call, ws } = setup();
+  call.join([bot('a')]);
+  await flush();
+  ws('a').onopen!();
+  ws('a').emit('error', { error: { message: 'unsupported tool type' } });
+  const retry = ws('a').sent[1];
+  assert.equal(retry.type, 'session.update');
+  assert.deepEqual(retry.session.tools, TOOLS, 'no search tools this time');
+  ws('a').emit('session.updated');
+  assert.equal(call.view().bots[0].status, 'thinking', 'joined and opening the call');
+  assert.equal(call.view().bots[0].search, false);
+  // a second refusal is not retried again (the bot would stay connecting, as before)
+  ws('a').emit('error', {});
+  assert.equal(ws('a').sent.filter((m) => m.type === 'session.update').length, 2);
+});
+
+test('an error before the socket exists, or after setup, does not resend the setup', async () => {
+  const { call, ws, ready } = setup();
+  call.join([bot('a')]);
+  const link = call.links.get('a');
+  link.onEvent(JSON.stringify({ type: 'error' })); // still minting: no socket yet
+  assert.equal(link.search, true);
+  await ready('a');
+  ws('a').emit('error', {});
+  assert.equal(ws('a').sent.filter((m) => m.type === 'session.update').length, 1);
 });

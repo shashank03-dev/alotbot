@@ -410,11 +410,12 @@ function renderCall() {
       state.tiles.set(b.id, t);
       grid.append(t.tile);
     }
-    const key = `${b.status}|${b.error}`;
+    const key = `${b.status}|${b.error}|${b.search}`;
     if (t.last !== key) {
       t.last = key;
       t.tile.dataset.status = b.status;
-      t.status.textContent = b.status === 'error' ? b.error : STATUS_TEXT[b.status];
+      t.status.textContent =
+        b.status === 'error' ? b.error : [STATUS_TEXT[b.status], b.search ? '' : 'Search off'].filter(Boolean).join(' · ');
       t.tile.setAttribute('aria-label', `${b.name}${t.status.textContent ? `, ${t.status.textContent}` : ''}`);
     }
   }

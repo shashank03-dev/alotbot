@@ -45,6 +45,7 @@ Set `PORT=9000` (or `HOST=localhost`) in the environment or a `.env` file to cha
 - Voices never overlap: all bot audio plays on one timeline.
 - A bot that drops reconnects by itself with the conversation so far. A bot added mid-call also gets the conversation so far.
 - **Shared notepad**: bots use `write_note`, `add_task`, `done_task` and `read_notes`. The other bots get a short `[Notepad]: ...` line when it changes. You see it under the Notepad button (a dot means something changed), with the current direction pinned at the top. A note or task is cut to 500 characters, and the notepad holds up to 200 items.
+- **Web and X search**: every bot gets xAI's built-in `web_search` and `x_search` tools, which run on xAI's side. If a bot's voice session refuses them, that bot joins without search and its tile says *Search off*.
 - **Pulling a bot in**: every bot in the call has one tool, `invite_bot`, and knows which of your bots aren't in the call yet. When a bot uses it, that bot joins (its tile appears), gets the conversation so far, is told who pulled it in, and says hello; the bot that invited it confirms out loud. Asking for a bot that doesn't exist or is already in the call is refused and the bot is told why. An invite inside a reply that got cut off is not carried out.
 
 ## Limits, stated plainly
