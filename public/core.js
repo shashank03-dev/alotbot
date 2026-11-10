@@ -44,6 +44,14 @@ export const MESSAGE_MAX_CHARS = 1000;
 export const TIMELINE_MAX = 500;
 /** A correction this short ("no", "wait, stop") is a nudge, not a new direction to pin. */
 export const DIRECTION_MIN_WORDS = 3;
+/** Once the mic is loud, keep sending it this long, so the quieter parts of Shashank's words get through too. */
+export const GATE_HOLD_MS = 600;
+/** A host line this long or shorter can be a "stop talking" command. */
+export const STOP_MAX_WORDS = 8;
+/** A bot line is a repeat if it matches one of this many recent bot lines. */
+export const REPEAT_LOOKBACK = 6;
+/** Tool-only replies (a note, a task, read_notes) a bot gets in a row before its turn simply ends. */
+export const MAX_QUIET_TOOL_ROUNDS = 3;
 
 // ---------- text ----------
 
@@ -90,18 +98,52 @@ export function directionText(direction) {
   );
 }
 
+/** Words that make a short host line a "stop talking" command. */
+const STOP_KEYS = new Set(['stop', 'wait', 'hold', 'hang', 'shut', 'quiet', 'shush', 'shh', 'pause', 'enough', 'silence', 'let', 'sec', 'second', 'moment', 'minute']);
+/** Words that can sit around a stop key without changing what it means ("okay guys, stop talking please"). */
+const STOP_FILLER = new Set([
+  'ok', 'okay', 'hey', 'no', 'oh', 'guys', 'everyone', 'everybody', 'all', 'you', 'bots', 'please', 'just', 'now', 'a', 'one',
+  'on', 'up', 'be', 'it', 'me', 'give', 'talking', 'speaking', 'talk', 'speak', 'finish', 'listen', 'there', 'right', 'thats', 'for',
+]);
+
+/** True if a host line only tells the bots to stop ("stop", "wait", "hold on", "be quiet", "let me talk"). `names`: bot names, allowed as filler. */
+export function isStopCommand(text, names = []) {
+  const words = normalize(text).split(' ').filter(Boolean);
+  if (!words.length || words.length > STOP_MAX_WORDS) return false;
+  const nameWords = new Set(names.flatMap((n) => normalize(n).split(' ')));
+  return words.some((w) => STOP_KEYS.has(w)) && words.every((w) => STOP_KEYS.has(w) || STOP_FILLER.has(w) || nameWords.has(w));
+}
+
 /**
  * True for empty speech, or speech that is mostly words a bot just said (speaker echo).
  * Pass '' as `recentBotText` when no bot audio was playing: then only empty speech is dropped.
- * A correction is never dropped.
+ * A correction word the bots did not just say can only be the host's, so a line with one is kept;
+ * a bot's own "no" or "actually" coming back through the speakers is still echo.
  */
 export function isNoiseOrEcho(heard, recentBotText) {
   const words = normalize(heard).split(' ').filter(Boolean);
   if (!words.length) return true;
-  if (words.length < 3 || hasCorrection(heard)) return false;
   const pool = new Set(normalize(recentBotText).split(' ').filter(Boolean));
+  if (!pool.size) return false;
+  if (CORRECTION_WORDS.some((w) => words.includes(w) && !pool.has(w))) return false;
   const hits = words.filter((w) => pool.has(w)).length;
   return hits / words.length >= 0.8;
+}
+
+const FILLER_WORDS = new Set(['that', 'this', 'with', 'have', 'what', 'your', 'just', 'like', 'about', 'they', 'them', 'there', 'their', 'from', 'will', 'would', 'could', 'should', 'really', 'yeah', 'okay', 'sure', 'well', 'into', 'also', 'here', 'then', 'than', 'were', 'been']);
+const contentWords = (text) => new Set(normalize(text).split(' ').filter((w) => w.length >= 4 && !FILLER_WORDS.has(w)));
+
+/** True if `text` says again what one of `earlier` already said (most of the shorter line's key words match). */
+export function isRepeat(text, earlier) {
+  const a = contentWords(text);
+  if (a.size < 3) return false;
+  return earlier.some((e) => {
+    const b = contentWords(e);
+    if (b.size < 3) return false;
+    let same = 0;
+    for (const w of a) if (b.has(w)) same++;
+    return same / Math.min(a.size, b.size) >= 0.8;
+  });
 }
 
 /** The one tool bots get in the call: pull another of Shashank's Grok Bots in. */
@@ -266,6 +308,8 @@ export function groupInstructions(base, me, roster, invitable = [], direction = 
     `Bots take turns on their own. After you speak, the turn goes to the bot you name, or round the call in order. ` +
     `Manage turns with your tools: hand_to gives the next turn to one bot, pass skips your turn when you have nothing to add, ` +
     `wait_for_host stops the bots and waits for ${USER} (use it when the topic is done or you are going in circles), ` +
+    `Never repeat a point already made in the call; if you have nothing new, pass. ` +
+    `When the host says stop or wait, every bot goes quiet until he speaks again. ` +
     `and leave_call takes you out of the call. ` +
     `There is a shared notepad that every bot and ${USER} can see: write_note keeps a fact, decision or idea, add_task adds an action item, ` +
     `done_task ticks one off, and read_notes shows it all. A "[Notepad]:" message tells you someone changed it. ` +
@@ -473,6 +517,7 @@ export class BotLink {
     this.search = true; // web and X search on; turned off if this session refuses them
     this.queued = null; // instructions for a reply to ask for once the current one ends
     this.joined = false; // has been ready at least once (so a later ready is a reconnect)
+    this.quietTools = 0; // tool-only replies in a row (no words spoken)
   }
 
   async connect(context) {
@@ -772,6 +817,8 @@ export class Call {
     this.preroll = [];
     this.lastLoud = -Infinity; // when the mic last went above BARGE_IN_LEVEL
     this.echoRisk = false; // bot audio was playing when Shashank's current speech started
+    this.echoText = ''; // what the bots were saying when that speech started (for the echo check)
+    this.cutBot = null; // the bot last cut off by speech that may turn out to be echo
     this.stuckTimer = null;
   }
 
@@ -872,6 +919,10 @@ export class Call {
     if (this.phase !== 'in-call' || !said || !ready.length) return false;
     this.interrupt();
     this.record(USER, said, null);
+    if (isStopCommand(said, ready.map((l) => l.bot.name))) {
+      this.stopAll(`You said "${said}": every bot is waiting for you`);
+      return true;
+    }
     this.hostSpoke(said);
     const named = findAddressee(said, ready.map((l) => l.bot));
     const target = named ? this.links.get(named) : ready.includes(this.ear) ? this.ear : ready[0];
@@ -880,13 +931,14 @@ export class Call {
     return true;
   }
 
-  /** The stop hotkey: every bot goes quiet now and waits for Shashank. */
-  stopAll() {
+  /** The stop hotkey (or Shashank saying "stop"): every bot goes quiet now and waits for him. */
+  stopAll(why = 'You stopped every bot') {
     if (this.phase !== 'in-call') return;
     this.interrupt();
-    for (const link of this.links.values()) link.clearReplyTimer();
     this.waitingForHost = true;
-    this.event('stop', 'You stopped every bot');
+    this.passes = 0;
+    this.cutBot = null;
+    this.event('stop', why);
   }
 
   /** Adds an entry to the call timeline the page shows. */
@@ -908,7 +960,7 @@ export class Call {
       return;
     }
     if (level >= BARGE_IN_LEVEL) this.lastLoud = this.d.now();
-    if (!this.userSpeaking && level < BARGE_IN_LEVEL && this.player.remainingMs() > 0) {
+    if (!this.userSpeaking && this.d.now() - this.lastLoud >= GATE_HOLD_MS && this.player.remainingMs() > 0) {
       this.preroll.push(int16);
       let total = this.preroll.reduce((n, c) => n + c.length, 0);
       while (total > (PREROLL_MS * SAMPLE_RATE) / 1000) total -= this.preroll.shift().length;
@@ -996,12 +1048,17 @@ export class Call {
     this.stopNext();
     const cut = this.player.flush();
     for (const [itemId, { botId, ms }] of cut) this.links.get(botId)?.truncate(itemId, ms);
+    this.cutBot = null;
     for (const link of this.links.values()) {
       // Pass on only the part of a reply Shashank heard, now, so it comes before whatever he says next.
       if (link.active && !link.discard) {
         const heardMs = cut.get(link.itemKey())?.ms ?? this.player.heardMs(link.itemKey());
         this.onBotCut(link, heardPart(cleanTranscript(link.text), heardMs, link.audioMs));
+        this.cutBot = link;
       }
+      // Nothing asked for before the cut may start after it.
+      link.clearReplyTimer();
+      link.queued = null;
       link.cancel();
     }
   }
@@ -1038,6 +1095,16 @@ export class Call {
     if (link !== this.ear || this.phase !== 'in-call') return;
     this.userSpeaking = true;
     this.echoRisk = this.player.remainingMs() > 0;
+    // What could be coming back through the speakers: the last bot lines and any reply being spoken now.
+    this.echoText = this.echoRisk
+      ? [
+          ...this.lines
+            .filter((l) => l.who !== USER)
+            .slice(-2)
+            .map((l) => l.text),
+          ...[...this.links.values()].filter((l) => l.active && !l.discard).map((l) => cleanTranscript(l.text)),
+        ].join(' ')
+      : '';
     this.armStuck();
     this.interrupt();
     // The listening bot's server stops its own reply when Shashank talks, and its next
@@ -1050,19 +1117,26 @@ export class Call {
     this.userSpeaking = false;
     this.clearStuck();
     // The echo check only runs if a bot's voice was playing when this speech started.
-    const recent = this.echoRisk
-      ? this.lines
-          .filter((l) => l.who !== USER)
-          .slice(-2)
-          .map((l) => l.text)
-          .join(' ')
-      : '';
+    const recent = this.echoRisk ? this.echoText : '';
     this.echoRisk = false;
-    if (isNoiseOrEcho(text, recent)) {
+    this.echoText = '';
+    const names = this.readyLinks().map((l) => l.bot.name);
+    const stop = isStopCommand(text, names);
+    if (!stop && isNoiseOrEcho(text, recent)) {
       link.suppress();
+      if (text.trim()) this.event('echo', `Ignored as speaker echo: "${text.trim()}"`);
+      // Echo cut a bot off by mistake: let the talk go on from where it stopped.
+      const cut = this.cutBot;
+      this.cutBot = null;
+      if (cut && this.links.get(cut.bot.id) === cut) this.nextTurn(cut, '', { kind: 'resume' });
       return;
     }
     this.record(USER, text.trim(), link);
+    if (stop) {
+      link.suppress();
+      this.stopAll(`You said "${text.trim()}": every bot is waiting for you`);
+      return;
+    }
     this.hostSpoke(text.trim());
     const named = findAddressee(text, this.readyLinks().map((l) => l.bot));
     const target = named ? this.links.get(named) : link;
@@ -1106,6 +1180,7 @@ export class Call {
   hostSpoke(text) {
     this.waitingForHost = false;
     this.passes = 0;
+    this.cutBot = null;
     if (!isDirection(text)) return;
     this.direction = [...this.direction, text].slice(-DIRECTION_MAX);
     this.event('direction', `Direction pinned: "${text}"`);
@@ -1218,6 +1293,10 @@ export class Call {
       return;
     }
     const said = text.trim();
+    const earlier = this.lines
+      .filter((l) => l.who !== USER && !l.cut)
+      .slice(-REPEAT_LOOKBACK)
+      .map((l) => l.text);
     if (said) {
       this.record(link.bot.name, said, link);
       // Keep Shashank's mic on the same bot while he is (maybe) mid-sentence,
@@ -1225,13 +1304,29 @@ export class Call {
       if (!this.userSpeaking && this.d.now() - this.lastLoud >= USER_ACTIVE_MS) this.setEar(link);
     }
     // After a tool like invite_bot the bot speaks again to say how it went; its turn decision waits until then.
-    if (followUp) {
-      if (!this.userSpeaking && this.phase === 'in-call') link.respond();
+    // A bot that only keeps using tools without saying anything gets a few rounds, then its turn ends.
+    link.quietTools = said || !followUp ? 0 : link.quietTools + 1;
+    const ending = link.turn && link.turn.kind !== 'hand';
+    if (followUp && !ending && link.quietTools <= MAX_QUIET_TOOL_ROUNDS) {
+      if (!this.userSpeaking && !this.waitingForHost && this.phase === 'in-call') link.respond();
       return;
     }
+    link.quietTools = 0;
     const turn = link.turn;
     link.turn = null;
     if (turn?.kind === 'leave') this.leaveSoon(link);
+    if (said && isRepeat(said, earlier)) {
+      // Going in circles: stop here rather than hope a bot calls wait_for_host.
+      this.waitingForHost = true;
+      this.event('loop', `${link.bot.name} repeated what was already said: waiting for you`);
+      return;
+    }
+    // A bot cut short of its tool rounds hands the turn on like any other.
+    this.nextTurn(link, said, turn ?? (followUp ? { kind: 'resume' } : null));
+  }
+
+  /** Who speaks after `link`: the bot it handed to or named, or the next in order. Nobody if the call should wait. */
+  nextTurn(link, said, turn) {
     if (!said && !turn) return;
     if (turn?.kind === 'wait') {
       this.waitingForHost = true;

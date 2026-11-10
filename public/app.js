@@ -237,6 +237,59 @@ class Mic extends AudioWorkletProcessor {
 }
 registerProcessor('mic', Mic);`;
 
+/** How long the echo-safe output may take to connect before plain output is used instead. */
+const LOOPBACK_TIMEOUT_MS = 3000;
+
+/**
+ * Bot voices go to the speakers through a local WebRTC loopback and an <audio> element, not straight from
+ * Web Audio. Chrome's echo canceller is reported to skip Web Audio output, so without this the mic hears the
+ * bots and they cut each other off or answer their own words.
+ */
+async function loopbackOutput(ctx) {
+  const dest = ctx.createMediaStreamDestination();
+  const a = new RTCPeerConnection();
+  const b = new RTCPeerConnection();
+  const el = new Audio();
+  const close = () => {
+    a.close();
+    b.close();
+    el.pause();
+    el.srcObject = null;
+  };
+  try {
+    a.onicecandidate = (e) => e.candidate && b.addIceCandidate(e.candidate).catch(() => {});
+    b.onicecandidate = (e) => e.candidate && a.addIceCandidate(e.candidate).catch(() => {});
+    const remote = new Promise((resolve) => {
+      b.ontrack = (e) => resolve(e.streams[0] ?? new MediaStream([e.track]));
+    });
+    const connected = new Promise((resolve, reject) => {
+      b.onconnectionstatechange = () => {
+        if (b.connectionState === 'connected') resolve();
+        else if (b.connectionState === 'failed') reject(new Error('loopback failed'));
+      };
+    });
+    for (const t of dest.stream.getAudioTracks()) a.addTrack(t, dest.stream);
+    await a.setLocalDescription(await a.createOffer());
+    await b.setRemoteDescription(a.localDescription);
+    await b.setLocalDescription(await b.createAnswer());
+    await a.setRemoteDescription(b.localDescription);
+    el.srcObject = await remote;
+    let timer;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('loopback timed out')), LOOPBACK_TIMEOUT_MS);
+    });
+    try {
+      await Promise.race([Promise.all([connected, el.play()]), timeout]);
+    } finally {
+      clearTimeout(timer);
+    }
+    return { node: dest, close };
+  } catch (err) {
+    close();
+    throw err;
+  }
+}
+
 async function startAudio() {
   const ctx = new AudioContext();
   try {
@@ -269,7 +322,13 @@ async function startAudio() {
       state.level = state.level * 0.7 + level * 0.3;
       state.call?.micAudio(floatTo16(resample(data, ctx.sampleRate, SAMPLE_RATE)), level);
     };
-    return { ctx, stream, nodes: [source, node, sink] };
+    let loopback = null;
+    try {
+      loopback = await loopbackOutput(ctx);
+    } catch (err) {
+      console.warn('Echo-safe output unavailable, playing bots directly:', err);
+    }
+    return { ctx, stream, nodes: [source, node, sink], out: loopback?.node ?? ctx.destination, loopback };
   } catch (err) {
     ctx.close();
     throw err;
@@ -282,6 +341,7 @@ function stopAudio() {
   if (!a) return;
   for (const n of a.nodes) n.disconnect();
   for (const t of a.stream.getTracks()) t.stop();
+  a.loopback?.close();
   a.ctx.close();
 }
 
@@ -297,7 +357,7 @@ async function join() {
     $('#lobby-error').textContent = err.message;
     return updateJoin();
   }
-  const { ctx } = state.audio;
+  const { ctx, out } = state.audio;
   state.call = new Call({
     mintVoice: (id) => api(`/api/bots/${encodeURIComponent(id)}/voice`, 'POST'),
     openSocket: (url, protocols) => new WebSocket(url, protocols),
@@ -308,7 +368,7 @@ async function join() {
         buf.copyToChannel(samples, 0);
         const src = ctx.createBufferSource();
         src.buffer = buf;
-        src.connect(ctx.destination);
+        src.connect(out);
         src.start(when);
         return {
           stop() {
@@ -330,6 +390,9 @@ async function join() {
     state.bots,
     state.memory,
   );
+  if (!state.audio.loopback) {
+    state.call.event('error', 'Echo protection could not start: use headphones, or the bots may hear themselves');
+  }
   $('#saved').hidden = true;
   $('#leave').disabled = false;
   $('#wrap-status').hidden = true;

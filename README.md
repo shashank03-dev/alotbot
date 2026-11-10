@@ -26,7 +26,7 @@ Open **http://127.0.0.1:8787**.
 
 1. **Sign in.** The first time, click *Sign in*. A tab opens with the same sign-in page the Grok Bot app uses. Log in with your Grok Bot account. The page updates by itself.
 2. **Pick bots.** Tick the bots you want, then *Join call*. Allow the microphone.
-3. **Talk.** Speak normally. The bot marked *Listening to you* hears you. Say a bot's name ("Shashank's X bot, what do you think?") to talk to that one. Or type in *Message all bots* and press Enter. Press **Esc** to stop every bot at once; they wait until you speak.
+3. **Talk.** Speak normally. The bot marked *Listening to you* hears you. Say a bot's name ("Shashank's X bot, what do you think?") to talk to that one. Or type in *Message all bots* and press Enter. Press **Esc**, or just say "stop" (or "wait", "hold on", "be quiet", "let me talk"), to stop every bot at once; they wait until you speak again.
 4. **See the notepad and the timeline** with their buttons. **Change who's in the call** with the People button. **Mute** with the mic button. **Leave** with the red button: one bot writes a summary and action items (up to 20 seconds), then the call is saved and you can download it.
 
 Set `PORT=9000` (or `HOST=localhost`) in the environment or a `.env` file to change where it listens. It only listens on this machine.
@@ -45,6 +45,8 @@ Set `PORT=9000` (or `HOST=localhost`) in the environment or a `.env` file to cha
 - **Current direction**: when you correct the bots (a line of 3+ words with "no", "wait", "stop", "actually" or "wrong"), your words are pinned in every bot's instructions as the current direction, newest last, up to 5. Bots that join or reconnect later get it too.
 - **Typing**: a typed message counts as you speaking. Whoever is talking is cut off, every bot gets it as `[Shashank (host)]: ...`, a correction is pinned, and the bot you name (or the listening bot) answers. Messages are cut to 1,000 characters.
 - **Stop hotkey**: **Esc** silences every bot, drops any queued turn, and the bots wait for you. If your focus is inside a side panel, Esc closes the panel instead.
+- **Saying or typing stop**: a short line that only tells the bots to stop ("stop", "wait", "hold on", "hang on a sec", "be quiet", "shut up", "let me talk", "okay guys, stop talking", up to 8 words, bot names allowed) works like Esc. Nobody answers it, and it is not pinned as a direction. A longer line like "wait, I meant the other plan" is a correction instead: it is pinned and the listening bot answers.
+- **Loop breakers**: the app stops the round itself, without waiting for a bot to use `wait_for_host`, when a bot says again what one of the last 6 bot lines already said. A bot that only uses notepad tools without speaking gets 3 rounds in a row, then the turn moves on. Anything asked for before you cut in (queued replies, reply nudges, the next bot's turn) is dropped when you cut in.
 - **Timeline**: the clock button shows the call as it happens, with times: joins and leaves, every line (cut-off lines marked), tool use, notepad changes, pinned direction, stops and errors. It keeps the last 500 entries.
 - **Stuck mic**: if the call thinks you are still talking but your mic has been quiet for 8 seconds and no words came through, it stops waiting and the listening bot answers.
 - Voices never overlap: all bot audio plays on one timeline.
@@ -63,13 +65,19 @@ Set `PORT=9000` (or `HOST=localhost`) in the environment or a `.env` file to cha
 - **Bots hear each other as text, not audio.** Another bot's speech reaches a bot as its exact words. Your speech reaches the listening bot as audio and the rest as text.
 - **Bots with no voice set** in the Grok Bot app use Grok's default voice, so two such bots sound the same. Set a voice for each bot in the Grok Bot app to tell them apart.
 - **Only the call's own tools.** Bots can't run their other Grok Bot tools (send tasks, search past chats) from this call. A bot can leave by itself, but can't remove another bot; only you can, from People.
-- **No turn limit means bots can talk for a long time** if none of them uses `pass` or `wait_for_host`. Each turn uses your plan. Talk or use the stop hotkey to cut them off.
+- **No turn limit means bots can talk for a long time** if none of them uses `pass` or `wait_for_host` and they don't repeat themselves. Each turn uses your plan. Say "stop" or press Esc to cut them off.
 - **Closing the tab doesn't save the call.** Only *Leave* writes the summary and saves it.
 - **Name matching is simple.** "Name a bot" works when the transcript contains the bot's name. If speech-to-text mishears it, the bot that was listening answers instead.
 
 ### Echo
 
-With speakers, a bot's voice can come back through your mic. The app asks the browser for echo cancellation and holds back quiet mic audio while a bot is speaking, so you need to speak up to cut in. A line that mostly repeats what a bot just said is dropped as echo, but only if a bot's voice was playing when you started talking, and never if it has "no", "wait", "stop", "actually" or "wrong" in it. Headphones avoid the problem entirely.
+With speakers, a bot's voice can come back through your mic. Then the bots cut themselves off and answer their own words as if you said them, and the talk loops. The app guards against this in three ways:
+
+- **Echo cancellation that covers the bots.** Chrome's echo canceller is reported to skip audio played through Web Audio ([Chromium bug 933677](https://crbug.com/933677), [write-up](https://focused.io/lab/echo-cancellation-with-web-audio-api-and-chromium)). So bot voices are sent through a local WebRTC loopback and played by an `<audio>` element, the known workaround. If the loopback can't start within 3 seconds, voices play directly and the Timeline says "Echo protection could not start: use headphones".
+- **Mic gate.** While a bot is speaking, quiet mic audio is held back. Once your mic is loud, everything is sent for the next 0.6 seconds, so the quieter parts of your words get through too.
+- **Echo check.** A line that mostly repeats what a bot was just saying is dropped, and the Timeline shows it as "Ignored as speaker echo". This runs only if a bot's voice was playing when you started talking. A line is kept if it has "no", "wait", "stop", "actually" or "wrong" and the bots didn't just say that word, because then only you could have said it. A stop command is never dropped. If echo cut a bot off, the next bot carries on.
+
+Whether the loopback actually removes the echo on your machine depends on Chrome and your OS, and has not been tested with real speakers. Headphones avoid the problem entirely.
 
 ## Sign-in and privacy
 
@@ -81,11 +89,11 @@ With speakers, a bot's voice can come back through your mic. The app asks the br
 ## Tests
 
 ```bash
-npm test          # 146 tests; fails below 100% line/branch/function coverage of src/ and public/core.js
+npm test          # 159 tests; fails below 100% line/branch/function coverage of src/ and public/core.js
 npm run typecheck
 ```
 
-Tests use a fake Grok Bot backend and fake voice sockets, so they never touch your account. The page (Notepad, Timeline, message box, Esc, saving and downloading a call, Search off, layouts from 320 px to 1280 px wide) was also checked in headless Chromium with fake bots and no account traffic. The turn tools, notepad, search, summary and memory have not yet been tried in a call against the real Grok Bot service.
+Tests use a fake Grok Bot backend and fake voice sockets, so they never touch your account. The page (Notepad, Timeline, message box, Esc, a spoken stop, the echo-safe loopback carrying bot audio and closing on Leave, its fallback, saving and downloading a call, Search off, layouts from 320 px to 1280 px wide) was also checked in headless Chromium with fake bots and no account traffic. The turn tools, notepad, search, summary and memory have not yet been tried in a call against the real Grok Bot service.
 
 Not covered by unit tests: `src/main.ts` (startup) and `public/app.js` (page and Web Audio glue). Both were checked with a real call in headless Chromium against the real Grok Bot service. That run used a fake mic playing a spoken line and confirmed: bots opened the call and talked among themselves, the spoken line was transcribed, the named bot answered, interrupting cut the speaking bot, adding and removing bots worked, a bot pulled another bot into the call when asked, and Leave closed every connection. Headless Chromium has no speakers, so actually *hearing* the audio was not checked there. Try it yourself.
 

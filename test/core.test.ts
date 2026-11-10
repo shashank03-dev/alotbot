@@ -37,6 +37,11 @@ import {
   SEARCH_TOOLS,
   TOOLS,
   isNoiseOrEcho,
+  isRepeat,
+  isStopCommand,
+  GATE_HOLD_MS,
+  STOP_MAX_WORDS,
+  MAX_QUIET_TOOL_ROUNDS,
   matchBot,
   MIN_UPTIME_FOR_RETRY_MS,
   NEXT_TURN_LEAD_MS,
@@ -77,7 +82,8 @@ test('findAddressee: first named bot wins; longest name breaks ties', () => {
 
 test('isNoiseOrEcho: empty speech and speaker echo are ignored, real speech is not', () => {
   assert.equal(isNoiseOrEcho('  ', ''), true);
-  assert.equal(isNoiseOrEcho('ok', 'ok sure'), false); // too short to call echo
+  assert.equal(isNoiseOrEcho('ok', 'ok sure'), true, 'a short line of the bot\'s own words is echo too');
+  assert.equal(isNoiseOrEcho('ok', ''), false, 'nothing was playing');
   assert.equal(isNoiseOrEcho('good to hear you what is on your mind', 'Hey Shashank, good to hear you. What is on your mind?'), true);
   assert.equal(isNoiseOrEcho('tell me about the weather today', 'Hey Shashank, good to hear you.'), false);
 });
@@ -858,10 +864,12 @@ test('hasCorrection matches whole correction words only', () => {
   for (const t of ['I know nothing', 'nonstop waiting', 'wrongly', '', 'actual numbers']) assert.equal(hasCorrection(t), false, t);
 });
 
-test('isNoiseOrEcho never drops a correction, even when it repeats the bot', () => {
-  const bot = 'No wait, the plan is to stop the old service and fix what is wrong';
-  assert.equal(isNoiseOrEcho('the plan is to stop the old service', bot), false);
-  assert.equal(isNoiseOrEcho('the plan is the old service', bot), true);
+test('isNoiseOrEcho keeps a correction word the bots did not say, and drops the bots\' own one coming back', () => {
+  const bot = 'Let us ship the old service today';
+  assert.equal(isNoiseOrEcho('no ship the old service', bot), false, '"no" was not said by the bot: the host said it');
+  assert.equal(isNoiseOrEcho('wrong', bot), false);
+  const echo = 'Actually, no, let us wait for Shashank on this one';
+  assert.equal(isNoiseOrEcho('actually no let us wait for shashank', echo), true, 'the bot\'s own correction words are echo');
   assert.equal(isNoiseOrEcho('the plan is the old service', ''), false, 'no bot audio: only empty speech is dropped');
   assert.equal(isNoiseOrEcho('', ''), true);
 });
@@ -1201,7 +1209,7 @@ test('leave_call: a bot already removed by the host is not removed twice; the la
   assert.deepEqual(call.view().bots.map((x: any) => x.id), ['a']);
 });
 
-test('turn tools combined with invite_bot wait for the follow-up reply', async () => {
+test('wait_for_host in the same reply as invite_bot is honoured at once', async () => {
   const { call, ws, ready, runTimers } = setup();
   call.join([bot('a'), bot('b')], [bot('a'), bot('b'), bot('c')]);
   await ready('a');
@@ -1211,11 +1219,10 @@ test('turn tools combined with invite_bot wait for the follow-up reply', async (
   ws('a').emit('response.function_call_arguments.done', { call_id: 'i', name: 'invite_bot', arguments: '{"name":"Bot C"}' });
   ws('a').emit('response.function_call_arguments.done', { call_id: 'w', name: 'wait_for_host', arguments: '{}' });
   ws('a').emit('response.done', { response: { status: 'completed' } });
-  assert.equal(ws('a').types().at(-1), 'response.create', 'speaks again about the invite');
-  assert.equal(call.waitingForHost, false, 'decision held until the follow-up');
-  speak(ws('a'), 'Bot C is coming.');
+  assert.notEqual(ws('a').types().at(-1), 'response.create', 'wait_for_host wins: no follow-up line');
   assert.equal(call.waitingForHost, true);
   runTimers();
+  assert.equal(creates(ws('b')), 0, 'and nobody takes a turn');
 });
 
 test('a turn decision in a reply the host cut off is dropped', async () => {
@@ -1666,12 +1673,12 @@ test('a typed message cuts off the bot talking; the bot answering waits for its 
   startReply(ws('a'), 'aaaa bbbb cccc dddd', 4, 'ia');
   audio.t = 2;
   const before = creates(ws('a'));
-  call.sendText('hold on');
+  call.sendText('one more thing');
   assert.ok(ws('a').types().includes('response.cancel'));
   assert.equal(creates(ws('a')), before, 'not asked while its cut reply is still ending');
   ws('a').emit('response.done', { response: { status: 'cancelled' } });
   assert.equal(creates(ws('a')), before + 1);
-  assert.deepEqual(ws('b').said().slice(-2), ['[Bot A (cut off by the host)]: aaaa bbbb', '[Shashank (host)]: hold on']);
+  assert.deepEqual(ws('b').said().slice(-2), ['[Bot A (cut off by the host)]: aaaa bbbb', '[Shashank (host)]: one more thing']);
 });
 
 test('a typed message is refused when empty, outside a call, with no bot ready, or capped when long', async () => {
@@ -1794,4 +1801,217 @@ test('timeline: stuck mic, refused search and every-bot-passed are shown; it kee
   assert.equal(call.timeline.length, TIMELINE_MAX);
   assert.equal(call.timeline.at(-1).text, `e${TIMELINE_MAX + 4}`);
   assert.equal(call.timeline.at(-1).seq, TIMELINE_MAX + 10);
+});
+
+// ---------- the host can always stop the bots; echo and loops can't keep them going ----------
+
+test('isStopCommand: short "stop talking" lines only', () => {
+  for (const t of ['stop', 'Wait!', 'hold on', 'hang on a sec', 'okay guys, stop talking please', 'be quiet', 'shut up', 'let me talk', 'no no stop', 'give me a second', "that's enough", 'My Bot, stop', 'everyone pause']) {
+    assert.equal(isStopCommand(t, ['My Bot']), true, t);
+  }
+  for (const t of ['', 'wait, I meant the other plan', 'stop the old service', 'no no no', 'ok', 'let us go', 'my bot stop', 'stop '.repeat(STOP_MAX_WORDS + 1)]) {
+    assert.equal(isStopCommand(t), false, t);
+  }
+});
+
+test('isRepeat: most key words of a line were already said', () => {
+  const earlier = ['We should launch the pricing page next Tuesday morning.', 'Hi.'];
+  assert.equal(isRepeat('So, launch the pricing page next Tuesday.', earlier), true);
+  assert.equal(isRepeat('What about hiring a designer for the launch?', earlier), false);
+  assert.equal(isRepeat('Yes, that is it.', earlier), false, 'too few key words to judge');
+  assert.equal(isRepeat('Great, launch pricing tuesday', ['Hi there.']), false, 'earlier line too short to judge');
+  assert.equal(isRepeat('anything at all here', []), false);
+});
+
+test('groupInstructions tells bots not to repeat themselves and to go quiet on stop', () => {
+  const text = groupInstructions('B', 'A', ['A']);
+  assert.match(text, /Never repeat a point already made in the call; if you have nothing new, pass\./);
+  assert.match(text, /When the host says stop or wait, every bot goes quiet until he speaks again\./);
+});
+
+test('a bot\'s own "wait for Shashank" coming back through the speakers does not restart the talk', async () => {
+  const { call, ws, ready, audio, runTimers } = setup();
+  call.join([bot('a'), bot('b')]);
+  await ready('a');
+  await ready('b');
+  const s = ws('a');
+  s.emit('response.created');
+  s.emit('response.output_item.added', { item: { id: 'ia' } });
+  s.emit('response.output_audio.delta', { delta: b64audio(3) });
+  s.emit('response.output_audio_transcript.done', { transcript: 'Actually, let us wait for Shashank on this one.' });
+  s.emit('response.function_call_arguments.done', { call_id: 'w', name: 'wait_for_host', arguments: '{}' });
+  s.emit('response.done', { response: { status: 'completed' } });
+  assert.equal(call.waitingForHost, true);
+  audio.t = 1; // still playing; the mic picks it up
+  s.emit('input_audio_buffer.speech_started');
+  s.emit('conversation.item.input_audio_transcription.completed', { transcript: 'actually let us wait for Shashank' });
+  assert.equal(call.waitingForHost, true, 'echo does not un-pause the call');
+  assert.deepEqual(call.direction, [], 'nor get pinned as the host\'s direction');
+  assert.equal(call.lines.filter((l: any) => l.who === USER).length, 0);
+  assert.equal(call.timeline.at(-1).text, 'Ignored as speaker echo: "actually let us wait for Shashank"');
+  assert.equal(call.links.get('a').suppressNext, true, 'its own reply to the echo never plays');
+  runTimers();
+  assert.equal(creates(ws('b')), 0);
+});
+
+test('saying "stop" over a bot: every bot goes quiet and waits, nobody answers it, and the next host line starts things again', async () => {
+  const { call, ws, ready, audio, runTimers } = setup();
+  call.join([bot('a'), bot('b')]);
+  await ready('a');
+  await ready('b');
+  speak(ws('a'), 'Bot B, what about the stop sign idea?', 3); // B is cued, and "stop" is in the bot's own words
+  audio.t = 1;
+  ws('a').emit('input_audio_buffer.speech_started');
+  ws('a').emit('response.created'); // the server's own reply to what it heard
+  ws('a').emit('conversation.item.input_audio_transcription.completed', { transcript: 'Stop!' });
+  assert.equal(call.waitingForHost, true);
+  assert.deepEqual(call.direction, [], 'a stop is not a direction');
+  assert.equal(ws('b').said().at(-1), '[Shashank (host)]: Stop!');
+  assert.ok(ws('a').types().includes('response.cancel'), 'the listener\'s reply is cancelled');
+  assert.equal(call.timeline.at(-1).text, 'You said "Stop!": every bot is waiting for you');
+  ws('a').emit('response.done', { response: { status: 'cancelled' } });
+  const before = creates(ws('a'));
+  runTimers();
+  assert.equal(creates(ws('b')), 0, 'B\'s cued turn is gone');
+  assert.equal(creates(ws('a')), before);
+  ws('a').emit('input_audio_buffer.speech_started');
+  ws('a').emit('conversation.item.input_audio_transcription.completed', { transcript: 'ok go on about pricing' });
+  assert.equal(call.waitingForHost, false);
+  runTimers();
+  assert.equal(creates(ws('a')), before + 1, 'the listener answers the next host line');
+});
+
+test('typing "stop" works like the stop hotkey', async () => {
+  const { call, ws, ready, runTimers } = setup();
+  call.join([bot('a'), bot('b')]);
+  await ready('a');
+  await ready('b');
+  speak(ws('a'), 'Bot B, go.', 2);
+  const before = creates(ws('a'));
+  assert.equal(call.sendText('wait'), true);
+  assert.equal(call.waitingForHost, true);
+  assert.deepEqual(call.lines.at(-1), { who: USER, text: 'wait' });
+  runTimers();
+  assert.equal(creates(ws('b')), 0);
+  assert.equal(creates(ws('a')), before, 'nobody answers a stop');
+});
+
+test('mic gate stays open a moment after a loud frame, so his quieter sounds get through', async () => {
+  const { call, ws, ready, setClock } = setup();
+  call.join([bot('a')]);
+  await ready('a');
+  speak(ws('a'), 'Long answer', 5);
+  const appends = () => ws('a').sent.filter((m) => m.type === 'input_audio_buffer.append').length;
+  setClock(10_000);
+  call.micAudio(new Int16Array([5]), 1);
+  assert.equal(appends(), 1);
+  setClock(10_000 + GATE_HOLD_MS - 1);
+  call.micAudio(new Int16Array([5]), 0);
+  assert.equal(appends(), 2, 'a quiet frame right after a loud one goes through');
+  setClock(10_000 + GATE_HOLD_MS);
+  call.micAudio(new Int16Array([5]), 0);
+  assert.equal(appends(), 2, 'held back again once the hold is over');
+});
+
+test('cutting in drops reply nudges and queued replies asked for before the cut', async () => {
+  const { call, ws, ready, runTimers } = setup();
+  call.join([bot('a'), bot('b')]);
+  await ready('a');
+  await ready('b');
+  call.links.get('b').expectReply();
+  ws('a').emit('response.created'); // A is giving its opener
+  call.links.get('a').respondWhenFree('later');
+  assert.equal(call.links.get('a').queued, 'later');
+  ws('a').emit('input_audio_buffer.speech_started');
+  assert.equal(call.links.get('a').queued, null);
+  const before = creates(ws('b'));
+  runTimers();
+  assert.equal(creates(ws('b')), before, 'B\'s old nudge never fires');
+});
+
+test('echo that cut a bot off: the talk goes on with the next bot', async () => {
+  const { call, ws, ready, audio, runTimers } = setup();
+  call.join([bot('a'), bot('b')]);
+  await ready('a');
+  await ready('b');
+  startReply(ws('b'), 'Pricing should start at ten dollars a month for everyone', 4, 'ib');
+  audio.t = 2;
+  ws('a').emit('input_audio_buffer.speech_started');
+  assert.equal(call.cutBot, call.links.get('b'));
+  ws('a').emit('conversation.item.input_audio_transcription.completed', { transcript: 'ten dollars a month' });
+  assert.equal(call.lines.filter((l: any) => l.who === USER).length, 0);
+  ws('b').emit('response.done', { response: { status: 'cancelled' } });
+  const before = creates(ws('a'));
+  runTimers();
+  assert.equal(creates(ws('a')), before + 1, 'A, next after B, takes the turn');
+});
+
+test('nothing resumes after echo when the cut bot has left, or after noise when nobody was cut', async () => {
+  const { call, ws, ready, audio } = setup();
+  call.join([bot('a'), bot('b')]);
+  await ready('a');
+  await ready('b');
+  startReply(ws('b'), 'aaaa bbbb', 2, 'ib');
+  audio.t = 1;
+  ws('a').emit('input_audio_buffer.speech_started');
+  call.removeBot('b');
+  ws('a').emit('conversation.item.input_audio_transcription.completed', { transcript: '' });
+  assert.equal(call.nextTimer, null);
+  assert.equal(call.cutBot, null);
+  ws('a').emit('input_audio_buffer.speech_started');
+  ws('a').emit('conversation.item.input_audio_transcription.completed', { transcript: '  ' });
+  assert.equal(call.nextTimer, null);
+  assert.equal(call.timeline.filter((e: any) => e.kind === 'echo').length, 0, 'empty speech is not logged as echo');
+});
+
+test('a bot repeating what was already said stops the round and waits for the host', async () => {
+  const { call, ws, ready, runTimers } = setup();
+  call.join([bot('a'), bot('b')]);
+  await ready('a');
+  await ready('b');
+  speak(ws('a'), 'We should launch the pricing page next Tuesday.');
+  runTimers();
+  speak(ws('b'), 'Agreed, launch the pricing page next Tuesday.');
+  assert.equal(call.waitingForHost, true);
+  assert.equal(call.timeline.at(-1).text, 'Bot B repeated what was already said: waiting for you');
+  assert.equal(ws('a').said().at(-1), '[Bot B]: Agreed, launch the pricing page next Tuesday.', 'the line was heard, so it is still passed on');
+  const before = creates(ws('a'));
+  runTimers();
+  assert.equal(creates(ws('a')), before);
+});
+
+test('a bot that keeps using tools without speaking gets a few rounds, then the turn moves on', async () => {
+  const { call, ws, ready, runTimers } = setup();
+  call.join([bot('a'), bot('b')]);
+  await ready('a');
+  await ready('b');
+  for (let i = 0; i < MAX_QUIET_TOOL_ROUNDS; i++) {
+    const before = creates(ws('a'));
+    useTool(ws('a'), 'write_note', { text: `note ${i}` });
+    assert.equal(creates(ws('a')), before + 1, 'asked to speak');
+  }
+  const before = creates(ws('a'));
+  useTool(ws('a'), 'write_note', { text: 'one too many' });
+  assert.equal(creates(ws('a')), before, 'no more follow-ups');
+  assert.equal(call.links.get('a').quietTools, 0);
+  runTimers();
+  assert.equal(creates(ws('b')), 1, 'the turn goes to B');
+});
+
+test('no tool follow-up while the call waits for the host, or when the bot also passed', async () => {
+  const { call, ws, ready } = setup();
+  call.join([bot('a'), bot('b')]);
+  await ready('a');
+  await ready('b');
+  call.waitingForHost = true;
+  const before = creates(ws('a'));
+  useTool(ws('a'), 'write_note', { text: 'x' });
+  assert.equal(creates(ws('a')), before);
+  call.waitingForHost = false;
+  ws('a').emit('response.created');
+  ws('a').emit('response.function_call_arguments.done', { call_id: 'n', name: 'write_note', arguments: '{"text":"y"}' });
+  ws('a').emit('response.function_call_arguments.done', { call_id: 'p', name: 'pass', arguments: '{}' });
+  ws('a').emit('response.done', { response: { status: 'completed' } });
+  assert.equal(creates(ws('a')), before, 'pass ends the turn: no follow-up');
+  assert.equal(call.passes, 1);
 });
