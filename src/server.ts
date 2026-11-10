@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import http from 'node:http';
 import { AuthStore, Login } from './auth.ts';
-import { API_URL, GrokBotClient, NotFoundError, SignedOutError, SITE_URL } from './grokbot.ts';
+import { API_URL, GrokBotClient, NotFoundError, SignedOutError, SITE_URL, ToolRefusedError, type ToolCall } from './grokbot.ts';
 import { BadInput, CallStore, LIMITS, parseMemory } from './memory.ts';
 
 class HttpError extends Error {
@@ -69,6 +69,25 @@ export async function readJson(req: http.IncomingMessage, limit: number): Promis
   }
 }
 
+/** Largest tool call body the page may send (send_task requests are capped at 2,000 characters by Grok Bot). */
+export const TOOL_BODY_LIMIT = 64_000;
+const LINE_KEYS = ['theyJustTalked', 'newsOwed', 'receiptOwed', 'alreadySpokeThisTurn'] as const;
+
+/** Checks a voice tool call from the page. Throws a 400 with the reason. */
+export function parseToolCall(raw: unknown): ToolCall {
+  const b = raw as Record<string, any> | null;
+  const bad = (why: string) => new HttpError(400, why);
+  if (!b || typeof b !== 'object' || Array.isArray(b)) throw bad('body must be an object');
+  const { callId, name, input, line } = b;
+  if (typeof callId !== 'string' || !/^[A-Za-z0-9_.:-]{1,128}$/.test(callId)) throw bad('callId must be 1-128 letters, digits or _.:-');
+  if (typeof name !== 'string' || !/^[a-z][a-z0-9_]{0,63}$/.test(name)) throw bad('name must be a tool name');
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw bad('input must be an object');
+  if (!line || typeof line !== 'object' || !LINE_KEYS.every((k) => typeof line[k] === 'boolean')) {
+    throw bad(`line must have true/false ${LINE_KEYS.join(', ')}`);
+  }
+  return { callId, name, input, line: Object.fromEntries(LINE_KEYS.map((k) => [k, line[k]])) as ToolCall['line'] };
+}
+
 function json(res: http.ServerResponse, status: number, body: unknown) {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
   res.end(JSON.stringify(body));
@@ -100,6 +119,20 @@ export function createApp(opts: AppOptions) {
       pattern: /^\/api\/bots\/([A-Za-z0-9_-]{1,64})\/voice$/,
       method: 'POST',
       handler: async (res, m) => json(res, 200, await grok.voiceSession(m[1])),
+    },
+    {
+      // A bot used one of its Grok Bot call tools (send_task, search_conversations): Grok Bot runs it.
+      pattern: /^\/api\/bots\/([A-Za-z0-9_-]{1,64})\/tool$/,
+      method: 'POST',
+      handler: async (res, m, req) => {
+        const call = parseToolCall(await readJson(req, TOOL_BODY_LIMIT));
+        try {
+          json(res, 200, await grok.harnessTool(m[1], call));
+        } catch (err) {
+          if (err instanceof ToolRefusedError) throw new HttpError(400, err.message);
+          throw err;
+        }
+      },
     },
     { pattern: /^\/api\/memory$/, method: 'GET', handler: (res) => json(res, 200, { memory: calls.readMemory() }) },
     {

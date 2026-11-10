@@ -56,6 +56,14 @@ export const MAX_QUIET_TOOL_ROUNDS = 3;
 export const FOCUS_IDLE_MS = 20000;
 /** A host line this long or shorter can be a "we're done" line ("thanks", "got it"). */
 export const CLOSING_MAX_WORDS = 6;
+/** A reply asked for that hasn't started after this long is given up on, and the talk moves on. */
+export const RESPONSE_START_MS = 10000;
+/** A reply that has started but sent nothing for this long is stopped, and the talk moves on. */
+export const RESPONSE_STALL_MS = 45000;
+/** A bot whose voice session isn't up this long after it was asked for is marked as failed. */
+export const CONNECT_TIMEOUT_MS = 15000;
+/** How long the page waits for Grok Bot to run a call tool (the server gives up at 20 s). */
+export const TOOL_TIMEOUT_MS = 25000;
 
 // ---------- text ----------
 
@@ -85,6 +93,37 @@ export function findAddressee(text, bots) {
 export function hasCorrection(text) {
   const words = new Set(normalize(text).split(' '));
   return CORRECTION_WORDS.some((w) => words.has(w));
+}
+
+/** Words a bot says when it really means to pass ("Pass.", "Nothing to add from me.", "(silence)"). */
+const FILLER_CORE = new Set(['pass', 'passing', 'passed', 'push', 'skip', 'skipping', 'skipped', 'silence', 'silent', 'silently', 'quiet', 'quietly', 'nothing', 'none', 'suggestion', 'suggestions', 'comment', 'comments']);
+const FILLER_OTHER = new Set([
+  'no', 'to', 'add', 'adding', 'more', 'from', 'me', 'i', 'im', 'ill', 'will', 'have', 'ive', 'got', 'here', 'for', 'now', 'this', 'that',
+  'thats', 'one', 'time', 'turn', 'my', 'ok', 'okay', 'hmm', 'um', 'uh', 'mm', 'yeah', 'sure', 'fine', 'the', 'a', 'tool', 'using', 'use',
+  'call', 'calling', 'wait', 'waiting', 'host', 'stay', 'staying', 'stays', 'remain', 'remaining', 'keep', 'keeping', 'thanks', 'thank', 'you', 'all', 'set', 'good', 'at', 'on',
+]);
+
+/** Text a bot spoke with stage directions removed ("*stays silent*", "(pause)", "[silence]"). */
+export function spokenWords(text) {
+  const bare = cleanTranscript(text).replace(/\[[^\]]*\]|\([^)]*\)|\*[^*]*\*/g, ' ');
+  return normalize(bare).split(' ').filter(Boolean);
+}
+
+/**
+ * True if a bot's line is only a spoken pass ("Pass.", "Silence.", "Nothing to add from me.") or only stage directions.
+ * Such a line is never passed on to the other bots, so they don't copy it. `names`: bot names, allowed in the line.
+ */
+export function isFiller(text, names = []) {
+  const words = spokenWords(text);
+  if (!words.length) return true;
+  const nameWords = new Set(names.flatMap((n) => normalize(n).split(' ')));
+  return words.some((w) => FILLER_CORE.has(w)) && words.every((w) => FILLER_CORE.has(w) || FILLER_OTHER.has(w) || nameWords.has(w));
+}
+
+/** True once a bot's words so far include one that can't be part of a spoken pass, so its voice can be played. */
+export function hasRealWords(text, names = []) {
+  const nameWords = new Set(names.flatMap((n) => normalize(n).split(' ')));
+  return spokenWords(text).some((w) => !FILLER_CORE.has(w) && !FILLER_OTHER.has(w) && !nameWords.has(w));
 }
 
 /** Every bot named in the text. A name inside a longer named one ("Bot" in "My Bot") doesn't count on its own. */
@@ -146,7 +185,7 @@ export function suggestionPrompt(focus) {
   return (
     `[Call]: ${USER}'s one-on-one with ${focus} just ended, and you listened to all of it. ` +
     `Speak only if you have a specific suggestion or correction that clearly helps ${USER} with that topic and you fully understand it; ` +
-    `then say it in one or two short sentences. Otherwise use the pass tool and say nothing at all. ` +
+    `then say it in one or two short sentences. Otherwise call the pass tool without speaking: no "pass", no "silence", no "nothing to add". ` +
     `Don't repeat or sum up what was said, and don't speak just to be polite.`
   );
 }
@@ -236,7 +275,10 @@ const fn = (name, description, properties = {}, required = []) => ({
 });
 
 /** Turn tools: bots decide who speaks next, when to stop, and when to go. */
-export const PASS_TOOL = fn('pass', 'Skip your turn when you have nothing useful to add. Say nothing out loud when you use it.');
+export const PASS_TOOL = fn(
+  'pass',
+  'Skip your turn when you have nothing useful to add. It is a silent action: produce no speech with it, and never say "pass", "silence" or that you have nothing to add.',
+);
 export const HAND_TO_TOOL = fn(
   'hand_to',
   'Give the next turn to one bot in the call. Use it after you finish speaking, instead of letting the turn go round.',
@@ -356,7 +398,27 @@ export function exportMarkdown(data, formatTime = (ms) => new Date(ms).toISOStri
   return out.join('\n');
 }
 
-export function groupInstructions(base, me, roster, invitable = [], direction = [], memory = null, focus = null) {
+/**
+ * Grok Bot's own call instructions are written for a one-to-one phone call. These rules adapt them to a group call.
+ * `canSendTasks`: the bot has its send_task tool here.
+ */
+export function groupRulesText(canSendTasks) {
+  return (
+    `\n\n# Group call rules (these override anything above)\n` +
+    `- This is a group call, not a one-to-one phone call. There is no end_the_call here: a goodbye, "stop" or "wait" from the host never ends the call. ` +
+    `"Stop" or "wait" means go quiet. Use leave_call only when the host asks you to leave.\n` +
+    `- Do not end a turn with a question just to keep the call going. Ask only when you need the host's answer.\n` +
+    `- Tools are silent actions. Never say a tool's name, never say "pass" or "silence", and never describe what you are doing with a tool.\n` +
+    `- No work_landed, work_overheard or user_message entries arrive on this call; ignore what the instructions above say about them.` +
+    (canSendTasks
+      ? `\n- send_task hands a job to your own agent, which has ${USER}'s computer, files, web, browser, mail and connected apps. ` +
+        `Its result does not come back on this call: it lands in your chat with ${USER}. Say that in a few words when you send a job. ` +
+        `If ${USER} asks for the result later, look for it with search_conversations, scope "this-chat".`
+      : '')
+  );
+}
+
+export function groupInstructions(base, me, roster, invitable = [], direction = [], memory = null, focus = null, canSendTasks = false) {
   const others = roster.filter((n) => n !== me);
   const who = others.length
     ? `The other Grok bots in the call: ${others.join(', ')}.`
@@ -383,7 +445,8 @@ export function groupInstructions(base, me, roster, invitable = [], direction = 
     `There is a shared notepad that every bot and ${USER} can see: write_note keeps a fact, decision or idea, add_task adds an action item, ` +
     `done_task ticks one off, and read_notes shows it all. A "[Notepad]:" message tells you someone changed it. ` +
     `You can search the web and X for current facts and posts; say in a few words that you are looking it up, and keep what you found short. ` +
-    `Your other Grok Bot tools are not available during this call; only the tools given here are.` +
+    `Only the tools given here are available during this call.` +
+    groupRulesText(canSendTasks) +
     lastCallText(memory) +
     directionText(direction) +
     focusText(me, focus)
@@ -588,6 +651,29 @@ export class BotLink {
     this.queued = null; // instructions for a reply to ask for once the current one ends
     this.joined = false; // has been ready at least once (so a later ready is a reconnect)
     this.quietTools = 0; // tool-only replies in a row (no words spoken)
+    this.harnessTools = []; // the bot's own Grok Bot call tools (send_task, search_conversations), run by Grok Bot
+    this.harness = true; // those tools are on; turned off if this session refuses them
+    this.lastError = ''; // why the voice setup was last refused
+    this.connectTimer = null;
+    this.watchTimer = null; // gives up on a reply that never starts or stalls
+    this.replySeq = 0;
+    this.pendingEventId = null; // event_id of the response.create waiting to start
+    this.holdNext = false; // the next reply is a turn the call started: hold its voice until it says something real
+    this.holding = false;
+    this.held = []; // [itemKey, samples] held back
+    this.toolsBusy = false; // waiting for Grok Bot to run one of the bot's call tools
+    this.sessionGen = 0; // bumped per connection, so late tool results for a dead session are dropped
+    this.tasksSent = new Set(); // send_task jobs already sent this call (normalized), so a job is never sent twice
+  }
+
+  /** Identifies this bot's part of the call to Grok Bot. */
+  get callId() {
+    return `${this.call.callId}-${this.bot.id}`;
+  }
+
+  /** True if `name` is one of the bot's Grok Bot call tools and they are on. */
+  isHarnessTool(name) {
+    return this.harness && this.harnessTools.some((t) => t.name === name);
   }
 
   async connect(context) {
@@ -595,15 +681,25 @@ export class BotLink {
     this.queue = [];
     this.status = this.retried ? 'reconnecting' : 'connecting';
     this.error = null;
+    this.lastError = '';
+    const gen = ++this.sessionGen;
     if (context) this.say(context);
+    // The whole setup, from asking Grok Bot for a session to the session being ready, gets CONNECT_TIMEOUT_MS.
+    this.clearConnectTimer();
+    this.connectTimer = this.call.d.setTimer(() => {
+      this.connectTimer = null;
+      this.fail(new Error(this.lastError ? `Voice setup was refused: ${this.lastError}` : 'Timed out connecting.'));
+    }, CONNECT_TIMEOUT_MS);
     let voice;
     try {
       voice = await this.call.d.mintVoice(this.bot.id);
     } catch (err) {
-      return this.fail(err);
+      if (gen === this.sessionGen) this.fail(err);
+      return;
     }
-    if (this.closed) return;
+    if (this.closed || gen !== this.sessionGen) return; // left the call, or already timed out
     this.base = voice.instructions;
+    this.harnessTools = Array.isArray(voice.tools) ? voice.tools : [];
     const ws = this.call.d.openSocket(voice.url, [`xai-client-secret.${voice.clientSecret}`]);
     this.ws = ws;
     ws.onopen = () => ws.send(JSON.stringify(this.sessionUpdate()));
@@ -619,7 +715,7 @@ export class BotLink {
       session: {
         ...(voice ? { voice } : {}),
         instructions: this.instructions(),
-        tools: this.search ? [...TOOLS, ...SEARCH_TOOLS] : TOOLS,
+        tools: [...TOOLS, ...(this.harness ? this.harnessTools : []), ...(this.search ? SEARCH_TOOLS : [])],
         turn_detection: { type: 'server_vad' },
         audio: {
           input: {
@@ -633,7 +729,7 @@ export class BotLink {
   }
 
   instructions() {
-    return groupInstructions(this.base, this.bot.name, this.call.roster(), this.call.invitable().map((b) => b.name), this.call.direction, this.call.memory, this.call.focus?.bot.name ?? null);
+    return groupInstructions(this.base, this.bot.name, this.call.roster(), this.call.invitable().map((b) => b.name), this.call.direction, this.call.memory, this.call.focus?.bot.name ?? null, this.isHarnessTool('send_task'));
   }
 
   send(msg) {
@@ -650,22 +746,87 @@ export class BotLink {
     this.suppressNext = false;
     this.clearReplyTimer();
     this.pending = true;
-    this.send(instructions ? { type: 'response.create', response: { instructions } } : { type: 'response.create' });
+    // Tagged, so an error about this request can be told apart from other errors.
+    this.pendingEventId = `reply-${this.bot.id}-${++this.replySeq}`;
+    this.send({ type: 'response.create', event_id: this.pendingEventId, ...(instructions ? { response: { instructions } } : {}) });
+    this.watch(RESPONSE_START_MS);
   }
 
-  /** Reply now, or as soon as the current reply has ended. */
+  /** Reply now, or as soon as the current reply (and any call tool it is waiting on) has ended. */
   respondWhenFree(instructions) {
-    if (this.active) this.queued = instructions;
+    if (this.active || this.pending || this.toolsBusy) this.queued = instructions ?? '';
     else this.respond(instructions);
+  }
+
+  /** Asks for the reply that was waiting for this one to end. */
+  flushQueued() {
+    if (this.queued === null || this.toolsBusy || !this.ready) return;
+    const q = this.queued;
+    this.queued = null;
+    this.respond(q);
+  }
+
+  /** (Re)starts the reply watchdog. */
+  watch(ms) {
+    this.clearWatch();
+    this.watchTimer = this.call.d.setTimer(() => this.onStall(), ms);
+  }
+
+  clearWatch() {
+    if (this.watchTimer !== null) this.call.d.clearTimer(this.watchTimer);
+    this.watchTimer = null;
+  }
+
+  clearConnectTimer() {
+    if (this.connectTimer !== null) this.call.d.clearTimer(this.connectTimer);
+    this.connectTimer = null;
+  }
+
+  /** A reply never started, or went silent mid-way: drop it so nobody waits on it forever. */
+  onStall() {
+    this.watchTimer = null;
+    if (this.active) {
+      // A reply we already cut off only needed its end confirmed; one that went quiet on its own loses its turn.
+      const cutOff = this.discard;
+      this.send({ type: 'response.cancel' });
+      this.active = false;
+      this.discard = true; // if it ever ends, it counts as cut off
+      this.holding = false;
+      this.held = [];
+      if (!cutOff) this.lost('went silent mid-reply');
+      else this.flushQueued();
+    } else if (this.pending) {
+      this.pending = false;
+      this.suppressNext = true; // if it starts late after all, it is cancelled
+      this.lost('never started its reply');
+    }
+  }
+
+  /** Its reply is gone. If Shashank was waiting on this bot, it answers him now; otherwise the turn moves on. */
+  lost(why) {
+    if (this.queued !== null) {
+      this.call.event('error', `${this.bot.name} ${why}: asking it again`);
+      this.flushQueued();
+    } else {
+      this.call.onReplyLost(this, why);
+    }
+  }
+
+  /** Plays the voice held back for this reply. */
+  release() {
+    this.holding = false;
+    for (const [key, samples] of this.held.splice(0)) this.call.player.enqueue(this.bot.id, key, samples);
   }
 
   /** Stop the current reply, or the one about to start. */
   cancel() {
     if (this.active) {
       this.discard = true;
+      this.held = [];
       this.send({ type: 'response.cancel' });
     } else if (this.pending) {
       this.suppressNext = true;
+      this.clearWatch();
     }
     this.pending = false;
   }
@@ -682,7 +843,7 @@ export class BotLink {
     this.clearReplyTimer();
     this.replyTimer = this.call.d.setTimer(() => {
       this.replyTimer = null;
-      if (!this.active && !this.pending && this.ready) this.respond();
+      if (!this.active && !this.pending && !this.toolsBusy && this.ready) this.respond();
     }, REPLY_GRACE_MS);
   }
 
@@ -722,6 +883,7 @@ export class BotLink {
     switch (e?.type) {
       case 'session.updated':
         if (this.ready) return;
+        this.clearConnectTimer();
         this.ready = true;
         this.readyAt = this.call.d.now();
         this.status = 'ready';
@@ -729,6 +891,7 @@ export class BotLink {
         return this.call.onReady(this);
       case 'response.created':
         this.clearReplyTimer();
+        this.watch(RESPONSE_STALL_MS);
         this.pending = false;
         this.active = true;
         this.text = '';
@@ -736,42 +899,77 @@ export class BotLink {
         this.discard = false;
         this.audioMs = 0;
         this.toolCalls = [];
+        this.holding = this.holdNext;
+        this.holdNext = false;
+        this.held = [];
         if (this.suppressNext) {
           this.suppressNext = false;
           this.cancel();
         }
         return;
       case 'response.output_item.added':
+        if (this.active) this.watch(RESPONSE_STALL_MS);
         this.itemId = e.item?.id ?? null;
         return;
       case 'response.output_audio.delta': {
         if (typeof e.delta !== 'string') return;
+        if (this.active) this.watch(RESPONSE_STALL_MS);
         const pcm = fromBase64(e.delta);
         this.audioMs += (pcm.length / SAMPLE_RATE) * 1000;
-        if (!this.discard) this.call.player.enqueue(this.bot.id, this.itemKey(), pcm16ToFloat(pcm));
+        if (this.discard) return;
+        if (this.holding) this.held.push([this.itemKey(), pcm16ToFloat(pcm)]);
+        else this.call.player.enqueue(this.bot.id, this.itemKey(), pcm16ToFloat(pcm));
         return;
       }
       case 'response.output_audio_transcript.delta':
-        if (typeof e.delta === 'string') this.text += e.delta;
+        if (typeof e.delta !== 'string') return;
+        if (this.active) this.watch(RESPONSE_STALL_MS);
+        this.text += e.delta;
+        if (this.holding && hasRealWords(this.text, this.call.roster())) this.release();
         return;
       case 'response.output_audio_transcript.done':
-        if (typeof e.transcript === 'string') this.text = e.transcript;
+        if (typeof e.transcript !== 'string') return;
+        this.text = e.transcript;
+        if (this.holding && hasRealWords(this.text, this.call.roster())) this.release();
         return;
       case 'response.function_call_arguments.done':
+        if (this.active) this.watch(RESPONSE_STALL_MS);
         if (typeof e.call_id === 'string' && typeof e.name === 'string') {
           this.toolCalls.push({ callId: e.call_id, name: e.name, args: typeof e.arguments === 'string' ? e.arguments : '{}' });
         }
         return;
       case 'response.done': {
+        this.clearWatch();
         const heard = !this.discard;
         this.active = false;
         this.discard = false;
         const status = heard ? (e.response?.status ?? 'completed') : 'cancelled';
         const calls = this.toolCalls.splice(0);
         const ran = heard && status === 'completed';
-        const text = heard ? cleanTranscript(this.text) : '';
+        const names = this.call.roster();
+        let text = heard ? cleanTranscript(this.text) : '';
+        const filler = text !== '' && isFiller(text, names);
+        if (this.holding) {
+          // Nothing real was said while its voice was held: play it now, or drop a spoken "pass" unheard.
+          if (ran && text && !filler) this.release();
+          this.holding = false;
+          this.held = [];
+        }
+        if (filler) {
+          // A spoken "Pass." or "Silence." is a pass. It is never passed on, or the other bots start saying it too.
+          if (ran) {
+            this.turn ??= { kind: 'pass' };
+            this.call.event('tool', `${this.bot.name} passed (it said "${text}" out loud; not passed on)`);
+          }
+          text = '';
+        }
         let followUp = false;
+        const remote = [];
         for (const c of calls) {
+          if (ran && this.isHarnessTool(c.name)) {
+            remote.push(c);
+            continue;
+          }
           let output = 'Not done: this reply was cut off before anyone heard it.';
           if (ran) {
             const r = this.call.onToolCall(this, c);
@@ -779,32 +977,48 @@ export class BotLink {
             // 'if-quiet': a bot that only wrote something and said nothing gets to speak, so the talk goes on.
             followUp ||= r.followUp === true || (r.followUp === 'if-quiet' && !text);
           }
-          this.send({ type: 'conversation.item.create', item: { type: 'function_call_output', call_id: c.callId, output } });
+          this.sendToolOutput(c.callId, output);
+        }
+        if (remote.length) {
+          void this.runRemote(remote, text, followUp);
+          return;
         }
         this.call.onBotDone(this, text, status, followUp);
-        if (this.queued !== null) {
-          const q = this.queued;
-          this.queued = null;
-          this.respond(q);
-        }
+        this.flushQueued();
         return;
       }
       case 'input_audio_buffer.speech_started':
         return this.call.onSpeechStart(this);
       case 'conversation.item.input_audio_transcription.completed':
         return this.call.onTranscript(this, typeof e.transcript === 'string' ? e.transcript : '');
-      case 'error':
+      case 'error': {
+        const message = typeof e.error?.message === 'string' && e.error.message ? e.error.message : 'unknown error';
         // Before the session is set up, an error means our setup was refused (the session keeps its old one).
-        // Search is the part most likely to be refused, so try once more without it.
-        if (!this.ready && this.search && this.ws) {
-          this.search = false;
-          this.ws.send(JSON.stringify(this.sessionUpdate()));
-          this.call.event('error', `${this.bot.name}: web and X search were refused, joining without them`);
+        // Try again without the parts most likely to be refused: search first, then the bot's own call tools.
+        if (!this.ready && this.ws) {
+          this.lastError = message;
+          if (this.search) {
+            this.search = false;
+            this.ws.send(JSON.stringify(this.sessionUpdate()));
+            this.call.event('error', `${this.bot.name}: web and X search were refused, joining without them`);
+          } else if (this.harness && this.harnessTools.length) {
+            this.harness = false;
+            this.ws.send(JSON.stringify(this.sessionUpdate()));
+            this.call.event('error', `${this.bot.name}: its Grok Bot tools were refused, joining without them`);
+          } else {
+            this.fail(new Error(`Voice setup was refused: ${message}`));
+          }
           return;
         }
-        // e.g. a reply asked for while one is running, or cancelling one that already ended
-        this.pending = false;
+        // The reply we asked for was refused: don't wait for it.
+        if (this.pending && e.error?.event_id === this.pendingEventId) {
+          this.pending = false;
+          this.clearWatch();
+          this.lost(`could not start a reply (${message})`);
+        }
+        // Anything else (e.g. cancelling a reply that already ended) changes nothing.
         return;
+      }
       default:
         return;
     }
@@ -813,30 +1027,78 @@ export class BotLink {
   onClose(ws) {
     if (ws !== this.ws || this.closed) return;
     const wasUp = this.ready && this.call.d.now() - this.readyAt >= MIN_UPTIME_FOR_RETRY_MS;
-    this.ready = false;
-    this.active = false;
-    this.pending = false;
-    this.clearReplyTimer();
+    const busy = this.stopEverything();
     if (!this.retried || wasUp) {
       this.retried = true;
-      this.call.onDropped(this);
+      this.call.onDropped(this, busy);
     } else {
-      this.fail(new Error('Connection lost.'));
+      this.fail(new Error('Connection lost.'), busy);
     }
   }
 
-  fail(err) {
+  /** Forgets every reply, held voice, tool wait and timer of this connection. Returns true if the bot was mid-turn. */
+  stopEverything() {
+    const busy = this.active || this.pending || this.toolsBusy;
     this.ready = false;
+    this.active = false;
+    this.pending = false;
+    this.toolsBusy = false;
+    this.holding = false;
+    this.held = [];
+    this.queued = null;
+    this.sessionGen++;
+    this.clearReplyTimer();
+    this.clearWatch();
+    this.clearConnectTimer();
+    return busy;
+  }
+
+  fail(err, busy = false) {
+    busy = this.stopEverything() || busy;
     this.status = 'error';
     this.error = err?.message || 'Could not connect.';
-    this.call.onFailed(this);
+    const ws = this.ws;
+    this.ws = null; // its close event is ours, not a drop
+    ws?.close();
+    this.call.onFailed(this, busy);
   }
 
   close() {
     this.closed = true;
-    this.ready = false;
-    this.clearReplyTimer();
+    this.stopEverything();
     if (this.ws) this.ws.close();
+  }
+
+  sendToolOutput(callId, output) {
+    this.send({ type: 'conversation.item.create', item: { type: 'function_call_output', call_id: callId, output } });
+  }
+
+  /**
+   * The reply used the bot's own Grok Bot tools: its words count now, but its turn waits until Grok Bot answers,
+   * so the bot never speaks again before it has the result.
+   */
+  async runRemote(calls, text, followUp) {
+    const gen = this.sessionGen;
+    const callGen = this.call.gen;
+    const theyJustTalked = this.call.lines.at(-1)?.who === USER;
+    this.toolsBusy = true;
+    const said = this.call.onBotSaid(this, text, 'completed');
+    const line = { theyJustTalked, newsOwed: false, receiptOwed: false, alreadySpokeThisTurn: text !== '' };
+    const results = await Promise.all(calls.map((c) => this.call.runHarnessTool(this, c, line)));
+    if (gen !== this.sessionGen) return; // the connection dropped or closed meanwhile; that session is gone
+    this.toolsBusy = false;
+    calls.forEach((c, i) => {
+      this.sendToolOutput(c.callId, results[i].output);
+      followUp ||= results[i].followUp === true || (results[i].followUp === 'if-quiet' && !text);
+    });
+    // If the host cut in meanwhile, the call has moved on: only a reply the host asked for (queued) is given.
+    if (said !== null && callGen === this.call.gen) {
+      this.call.onTurnDone(this, said, followUp);
+    } else {
+      this.turn = null; // its turn decision belonged to the moment that has passed
+      this.quietTools = 0;
+    }
+    this.flushQueued();
   }
 }
 
@@ -894,6 +1156,7 @@ export class Call {
     this.focusClosing = false; // Shashank said he's done: suggestions follow the bot's last reply
     this.focusTimer = null;
     this.suggesting = null; // after a one-on-one: { from, queue, current } asking the others for a suggestion
+    this.callId = ''; // identifies this call to Grok Bot when a bot uses its own tools
   }
 
   /**
@@ -906,6 +1169,7 @@ export class Call {
     this.phase = 'in-call';
     this.available = available;
     this.startedAt = this.d.now();
+    this.callId = globalThis.crypto.randomUUID();
     if (memory) {
       this.memory = memory;
       this.notes = memory.notes.map((n) => ({ ...n }));
@@ -1079,7 +1343,7 @@ export class Call {
         let status = l.status;
         if (l.ready) {
           if (speaking === id) status = 'speaking';
-          else if (l.pending || (l.active && !l.discard)) status = 'thinking';
+          else if (l.pending || l.toolsBusy || (l.active && !l.discard)) status = 'thinking';
           else if (this.ear === l) status = 'listening';
           else if (this.focus && this.focus !== l) status = 'quiet';
           else status = 'idle';
@@ -1161,13 +1425,63 @@ export class Call {
     }
   }
 
-  onDropped(link) {
+  /** A bot's connection dropped: it reconnects; meanwhile the mic and its turn go to the others. */
+  onDropped(link, busy = false) {
+    this.event('error', `${link.bot.name} lost its connection: reconnecting`);
+    if (this.ear === link && this.readyLinks().length) this.setEar(this.readyLinks()[0]);
+    if (busy) this.moveOn(link);
     void link.connect(this.lines.length ? contextText(this.lines.slice(-CONTEXT_LINES)) : null);
   }
 
-  onFailed(link) {
+  onFailed(link, busy = false) {
     this.event('error', `${link.bot.name}: ${link.error}`);
     if (this.ear === link) this.setEar(this.readyLinks()[0] ?? null);
+    if (this.focus === link) this.setFocus(null);
+    if (busy) this.moveOn(link);
+  }
+
+  /** A bot's reply was lost (refused, never started, or stalled): the talk goes on without it. */
+  onReplyLost(link, why) {
+    this.event('error', `${link.bot.name} ${why}: moving on`);
+    this.moveOn(link);
+  }
+
+  /** Hands on the turn of a bot that can't finish it, unless Shashank is talking or the call is ending. */
+  moveOn(link) {
+    if (this.phase === 'in-call' && !this.userSpeaking) this.afterTurn(link, '', { kind: 'resume' });
+  }
+
+  /** Runs one of a bot's own Grok Bot tools. Returns { output, followUp } like onToolCall. Never throws. */
+  async runHarnessTool(link, { name, args }, line) {
+    let input = null;
+    try {
+      input = JSON.parse(args);
+    } catch {
+      // bad arguments: sent as none, and Grok Bot says what is missing
+    }
+    if (!input || typeof input !== 'object' || Array.isArray(input)) input = {};
+    const job = name === 'send_task' ? normalize(String(input.request ?? '')) : '';
+    if (job && link.tasksSent.has(job)) {
+      return { output: 'Not sent again: that same job is already under way. Its result lands in your chat with the host.', followUp: 'if-quiet' };
+    }
+    if (name === 'send_task') this.event('task', `${link.bot.name} sent a job to its agent: "${cleanNote(input.request, 200)}"`);
+    else if (name === 'search_conversations') this.event('tool', `${link.bot.name} searched its past chats for "${cleanNote(input.query, 100)}"`);
+    else this.event('tool', `${link.bot.name} used ${name}`);
+    try {
+      const r = await this.d.callTool(link.bot.id, { callId: link.callId, name, input, line });
+      if (r.kind === 'served') {
+        if (job) link.tasksSent.add(job);
+        // A job's receipt only needs words if the bot said none; a search result always needs telling.
+        return { output: JSON.stringify(r.output ?? {}), followUp: name === 'send_task' ? 'if-quiet' : true };
+      }
+      const why = typeof r.output?.error === 'string' ? r.output.error : r.kind.replace('_', ' ');
+      this.event('error', `${link.bot.name}: ${name} was refused (${why})`);
+      return { output: `Not done: ${why}.`, followUp: 'if-quiet' };
+    } catch (err) {
+      const why = err?.message || 'no answer';
+      this.event('error', `${link.bot.name}: ${name} failed (${why})`);
+      return { output: `Not done: ${why}. Tell ${USER} in a few words that it did not go through.`, followUp: 'if-quiet' };
+    }
   }
 
   onSpeechStart(link) {
@@ -1219,11 +1533,12 @@ export class Call {
     }
     this.hostSpoke(text.trim());
     const target = this.hostTarget(text.trim(), link);
-    if (target === link) {
+    if (target === link && !link.toolsBusy) {
       link.expectReply();
     } else {
+      // Another bot answers, or this one answers once its tool is done: its own automatic reply never plays.
       link.suppress();
-      target.respond();
+      target.respondWhenFree();
       this.setEar(target);
     }
   }
@@ -1372,21 +1687,37 @@ export class Call {
   }
 
   onBotDone(link, text, status, followUp = false) {
+    const said = this.onBotSaid(link, text, status);
+    if (said !== null) this.onTurnDone(link, said, followUp);
+  }
+
+  /** Passes on what a bot said. Returns the line ('' for none), or null if the reply doesn't count (cut off, or the bot left). */
+  onBotSaid(link, text, status) {
     if (status !== 'completed' || !this.links.has(link.bot.id)) {
       link.turn = null;
-      return;
+      return null;
     }
     const said = text.trim();
     const earlier = this.lines
       .filter((l) => l.who !== USER && !l.cut)
       .slice(-REPEAT_LOOKBACK)
       .map((l) => l.text);
+    link.repeated = said !== '' && isRepeat(said, earlier);
     if (said) {
       this.record(link.bot.name, said, link);
       // Keep Shashank's mic on the same bot while he is (maybe) mid-sentence,
       // or his words get split between two bots.
       // In a one-on-one the mic stays with that bot, whoever else says something.
       if (!this.userSpeaking && this.d.now() - this.lastLoud >= USER_ACTIVE_MS && (!this.focus || this.focus === link)) this.setEar(link);
+    }
+    return said;
+  }
+
+  /** A bot's reply (and any tool it used) is over: decide who speaks next. */
+  onTurnDone(link, said, followUp) {
+    if (!this.links.has(link.bot.id) || this.phase !== 'in-call') {
+      link.turn = null;
+      return;
     }
     // After a tool like invite_bot the bot speaks again to say how it went; its turn decision waits until then.
     // A bot that only keeps using tools without saying anything gets a few rounds, then its turn ends.
@@ -1400,7 +1731,7 @@ export class Call {
     const turn = link.turn;
     link.turn = null;
     if (turn?.kind === 'leave') this.leaveSoon(link);
-    if (said && !this.focus && !this.suggesting && isRepeat(said, earlier)) {
+    if (link.repeated && !this.focus && !this.suggesting) {
       // Going in circles: stop here rather than hope a bot calls wait_for_host.
       this.waitingForHost = true;
       this.event('loop', `${link.bot.name} repeated what was already said: waiting for you`);
@@ -1540,9 +1871,14 @@ export class Call {
     this.nextTimer = this.d.setTimer(
       () => {
         this.nextTimer = null;
+        if (gen !== this.gen || this.userSpeaking || this.waitingForHost) return;
+        // It dropped, failed or is leaving since it was picked: the turn goes past it.
+        if (!next.ready || next.leaving) return this.afterTurn(next, '', { kind: 'resume' });
         // Skip a bot that is already about to speak (e.g. a newly invited bot saying hello).
-        if (gen !== this.gen || !next.ready || this.userSpeaking || this.waitingForHost || next.pending || next.active) return;
+        if (next.pending || next.active || next.toolsBusy) return;
         prepare?.();
+        // A turn the call started may well be a pass: its voice is held until it says something real.
+        next.holdNext = true;
         next.respond();
       },
       Math.max(0, this.player.remainingMs() - NEXT_TURN_LEAD_MS),

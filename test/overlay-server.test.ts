@@ -17,6 +17,7 @@ const TOKEN = 't'.repeat(40);
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'grok-call-srv-'));
 after(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
+const SEND_TASK = { type: 'function', name: 'send_task', description: 'Send a job.', parameters: { type: 'object', properties: { request: { type: 'string' } }, required: ['request'] } };
 const agent = (id: string, name: string) => ({ id, name, kind: 'GROK_BOT_AGENT_KIND_AGENT', avatarShape: 'blob', avatarColor: 'blue', voiceSpeed: 1 });
 
 // ---------- pure parts ----------
@@ -88,7 +89,8 @@ async function start(signedIn = true, viewMs: number | null = 5): Promise<Harnes
   const up = await mock((r, res) => {
     const method = r.url.split('/').pop()!;
     if (method === 'ListGrokBotAgents') return sendJson(res, 200, { agents });
-    if (method === 'VoiceCallHarnessSession') return sendJson(res, 200, { instructions: `I am ${r.body.agentName}.` });
+    if (method === 'VoiceCallHarnessSession') return sendJson(res, 200, { instructions: `I am ${r.body.agentName}.`, tools: [SEND_TASK] });
+    if (method === 'VoiceCallHarnessTool') return sendJson(res, 200, { kind: 'VOICE_CALL_HARNESS_TOOL_OUTCOME_KIND_SERVED', output: { queued: r.body.input.request } });
     if (method === 'MintSandVoiceCallSecret') return sendJson(res, 200, { clientSecret: 's', model: 'm', websocketUrl: 'wss://voice.test/rt' });
     if (method === 'SetGrokBotAgentVoice') {
       Object.assign(agents.find((a) => a.id === r.body.id)!, { voiceId: r.body.voiceId });
@@ -284,6 +286,23 @@ test('a call: view, transcript and tasks are pushed; bot audio comes as frames; 
   await c.ok('state');
   const ear = [a, h.sockets.get('b')!].find((s) => s.sent.some((m) => m.type === 'input_audio_buffer.append'));
   assert.ok(ear, 'mic audio was forwarded to a bot');
+});
+
+test("a bot's own Grok Bot tools run through Grok Bot during the call", async () => {
+  const h = await start();
+  const c = await connect(h);
+  await inCall(h, c);
+  const a = h.sockets.get('a')!;
+  const update = a.sent.find((m) => m.type === 'session.update');
+  assert.ok(update.session.tools.some((t: any) => t.name === 'send_task'), 'the bot was given send_task');
+  reply(a, 'On it.', [['send_task', { request: 'Draft the launch post' }]]);
+  for (let i = 0; i < 40 && !a.outputs().length; i++) await new Promise((r) => setTimeout(r, 5));
+  const sent = h.up.requests.find((r) => r.url.endsWith('/VoiceCallHarnessTool'));
+  assert.ok(sent, 'the tool call went to Grok Bot');
+  assert.equal(sent.body.agentId, 'a');
+  assert.equal(sent.body.name, 'send_task');
+  assert.deepEqual(sent.body.input, { request: 'Draft the launch post' });
+  assert.deepEqual(JSON.parse(a.outputs()[0]), { queued: 'Draft the launch post' });
 });
 
 test('say: to everyone, or to one bot by name (a one-on-one)', async () => {

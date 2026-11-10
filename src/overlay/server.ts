@@ -7,7 +7,7 @@ import { performance } from 'node:perf_hooks';
 import { WebSocket, WebSocketServer, type RawData } from 'ws';
 import { floatTo16, USER } from '../../public/core.js';
 import { AuthStore, Login } from '../auth.ts';
-import { API_URL, type Bot, NotFoundError, SignedOutError, SITE_URL } from '../grokbot.ts';
+import { API_URL, type Bot, NotFoundError, SignedOutError, SITE_URL, type ToolCall } from '../grokbot.ts';
 import { OverlayCall, overlayMarkdown } from './call.ts';
 import { BadSetting, COLORS, LANGUAGES, OverlayGrokClient, parseNewBot, parseVoiceSettings, PICKER_SHAPES, SHAPES, SPEEDS, VOICES } from './grok.ts';
 import { OverlayStore } from './store.ts';
@@ -266,6 +266,8 @@ export function createOverlayServer(opts: OverlayOptions) {
       if (picked.length !== new Set(raw).size) throw new NotFoundError('Some of those bots are not on this account any more.');
       const call = new OverlayCall({
         mintVoice: (id: string) => grok.voiceSession(id),
+        // A bot used one of its own Grok Bot call tools (send_task, search_conversations): Grok Bot runs it.
+        callTool: (id: string, req: ToolCall) => grok.harnessTool(id, req),
         openSocket,
         audio: {
           now: () => clock() + AUDIO_LEAD_S,

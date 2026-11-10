@@ -11,10 +11,16 @@ import {
   clientHeaders,
   errorDetail,
   GrokBotClient,
+  harnessTools,
   NotFoundError,
   SignedOutError,
+  ToolRefusedError,
 } from '../src/grokbot.ts';
 import { deadUrl, mock, sendJson, type Mock } from './helpers.ts';
+
+const SEND_TASK = { type: 'function', name: 'send_task', description: 'Send a job.', parameters: { type: 'object', properties: { request: { type: 'string' } }, required: ['request'] } };
+const HANG_UP = { type: 'function', name: 'end_the_call', description: 'Hang up.', parameters: { type: 'object', properties: {} } };
+const LINE = { theyJustTalked: true, newsOwed: false, receiptOwed: false, alreadySpokeThisTurn: false };
 
 /** The checksum function exactly as it ships in the Grok Bot app (main-app.cjs). */
 function appChecksum(machineId: string, now: number): string {
@@ -79,6 +85,8 @@ type Behavior = {
   refresh: (body: any) => [number, unknown];
   mint: unknown;
   harness: unknown;
+  tool: (body: any) => [number, unknown];
+  toolDelayMs: number;
   fail?: [number, string];
 };
 let up: Mock;
@@ -91,7 +99,9 @@ beforeEach(async () => {
     agents: { agents: AGENTS },
     refresh: () => [200, { access_token: 'good', refresh_token: 'ref2' }],
     mint: { clientSecret: 'sec', expiresAtUnixSeconds: '1794298888', model: 'grok-voice-3.0', websocketUrl: 'wss://voice.test/v1/realtime?enable_async_updates=true' },
-    harness: { instructions: 'Be My Bot.', tools: [] },
+    harness: { instructions: 'Be My Bot.', tools: [SEND_TASK, HANG_UP] },
+    tool: (_body: any): [number, unknown] => [200, { kind: 'VOICE_CALL_HARNESS_TOOL_OUTCOME_KIND_SERVED', output: { receipt: 'under way' } }],
+    toolDelayMs: 0,
   };
   up = await mock((req, res) => {
     if (req.url === '/oauth/token') {
@@ -106,6 +116,10 @@ beforeEach(async () => {
     if (method === 'ListGrokBotAgents') return sendJson(res, 200, b.agents);
     if (method === 'VoiceCallHarnessSession') return sendJson(res, 200, b.harness);
     if (method === 'MintSandVoiceCallSecret') return sendJson(res, 200, b.mint);
+    if (method === 'VoiceCallHarnessTool') {
+      const [s, body] = b.tool(req.body);
+      return void setTimeout(() => sendJson(res, s, body), b.toolDelayMs);
+    }
     sendJson(res, 404, {});
   });
 });
@@ -199,6 +213,7 @@ test('voiceSession: bot instructions plus a realtime socket secret', async () =>
     url: 'wss://voice.test/v1/realtime?enable_async_updates=true&model=grok-voice-3.0',
     expiresAt: 1794298888,
     instructions: 'Be My Bot.',
+    tools: [SEND_TASK],
   });
   const harness = up.requests.find((r) => r.url.endsWith('/VoiceCallHarnessSession'))!;
   assert.deepEqual(harness.body, { agentId: '2', agentName: "Shashank's Bot", userName: 'Shashank' });
@@ -218,6 +233,7 @@ test('voiceSession: tolerates missing harness text and expiry', async () => {
   const v = await client().grok.voiceSession('1');
   assert.equal(v.instructions, '');
   assert.equal(v.expiresAt, 0);
+  assert.deepEqual(v.tools, []);
 });
 
 test('voiceSession: refuses an unusable socket secret', async () => {
@@ -237,4 +253,63 @@ test('voiceSession: refuses an unusable socket secret', async () => {
 test('defaults: real Grok Bot API and global fetch', () => {
   const grok = new GrokBotClient({ store: new AuthStore(path.join(tmp, 'unused')) });
   assert.ok(grok instanceof GrokBotClient);
+});
+
+test('harnessTools keeps well-formed function tools and drops hang-up', () => {
+  const ok = { type: 'function', name: 'search_conversations', description: 'd', parameters: { type: 'object' } };
+  assert.deepEqual(harnessTools(null), []);
+  assert.deepEqual(harnessTools({}), []);
+  assert.deepEqual(
+    harnessTools([
+      ok,
+      null,
+      HANG_UP,
+      { ...ok, type: 'mcp' },
+      { ...ok, name: '' },
+      { ...ok, description: 3 },
+      { ...ok, parameters: null },
+      { ...ok, parameters: 'x' },
+      { ...ok, parameters: [] },
+      { ...ok, extra: 'dropped' },
+    ]),
+    [ok, ok],
+  );
+});
+
+test('harnessTool forwards a call tool to Grok Bot and maps the outcome', async () => {
+  const { grok } = client();
+  await grok.voiceSession('1');
+  const call = { callId: 'c-1', name: 'send_task', input: { request: 'check mail' }, line: LINE };
+  assert.deepEqual(await grok.harnessTool('1', call), { kind: 'served', output: { receipt: 'under way' } });
+  assert.deepEqual(up.requests.at(-1)!.body, { agentId: '1', ...call });
+  b.tool = () => [200, { kind: 'VOICE_CALL_HARNESS_TOOL_OUTCOME_KIND_INVALID_INPUT', output: { error: 'missing request' } }];
+  assert.deepEqual(await grok.harnessTool('1', call), { kind: 'invalid_input', output: { error: 'missing request' } });
+  b.tool = () => [200, { kind: 'VOICE_CALL_HARNESS_TOOL_OUTCOME_KIND_UNKNOWN_TOOL' }];
+  assert.deepEqual(await grok.harnessTool('1', call), { kind: 'unknown_tool', output: null });
+  b.tool = () => [200, { kind: 'VOICE_CALL_HARNESS_TOOL_OUTCOME_KIND_UNSPECIFIED' }];
+  await assert.rejects(grok.harnessTool('1', call), /VoiceCallHarnessTool returned an unusable answer/);
+  b.tool = () => [200, null];
+  await assert.rejects(grok.harnessTool('1', call), /unusable answer/);
+  b.tool = () => [500, { message: 'boom' }];
+  await assert.rejects(grok.harnessTool('1', call), /VoiceCallHarnessTool failed \(HTTP 500: boom\)/);
+});
+
+test('harnessTool only forwards tools that bot was given, and only after its voice session', async () => {
+  const { grok } = client();
+  const call = { callId: 'c-1', name: 'send_task', input: {}, line: LINE };
+  await assert.rejects(grok.harnessTool('1', call), (e: any) => e instanceof ToolRefusedError && /voice session with this bot first/.test(e.message));
+  await grok.voiceSession('1');
+  for (const name of ['end_the_call', 'run_anything']) {
+    await assert.rejects(grok.harnessTool('1', { ...call, name }), (e: any) => e instanceof ToolRefusedError && /not one of this bot's call tools/.test(e.message));
+  }
+  assert.equal(up.requests.filter((r) => r.url.endsWith('/VoiceCallHarnessTool')).length, 0, 'nothing was forwarded');
+});
+
+test('harnessTool gives up when Grok Bot is too slow', async () => {
+  const store = new AuthStore(path.join(tmp, `d${dirN++}`));
+  store.write({ accessToken: 'good', refreshToken: 'ref', machineId: 'mid' } as any);
+  const grok = new GrokBotClient({ store, apiUrl: up.url, toolTimeoutMs: 50 });
+  await grok.voiceSession('1');
+  b.toolDelayMs = 300;
+  await assert.rejects(grok.harnessTool('1', { callId: 'c', name: 'send_task', input: {}, line: LINE }), /VoiceCallHarnessTool did not answer within 0.05 s/);
 });
