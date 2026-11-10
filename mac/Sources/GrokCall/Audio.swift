@@ -17,6 +17,7 @@ final class AudioIO {
     private let player = AVAudioPlayerNode()
     private let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: AudioFrames.sampleRate, channels: 1, interleaved: false)!
     private var converter: AVAudioConverter?
+    private var micMono: AVAudioFormat?
     private var micBuffer: [Float] = []
     private let frameSize = 960
     private var running = false
@@ -57,37 +58,58 @@ final class AudioIO {
     func start(clock: ClockMap) throws {
         guard !running else { return }
         self.clock = clock
+        do { try setUp() } catch {
+            tearDown() // a failed start must leave nothing behind, or the next Join trips over the old mic tap
+            throw error
+        }
+        running = true
+    }
+
+    private func setUp() throws {
         let input = engine.inputNode
         do { try input.setVoiceProcessingEnabled(true) } catch { throw AudioError.start("echo cancellation is unavailable (\(error.localizedDescription))") }
+        // With voice processing on, the mic arrives as several channels; channel 0 is the cleaned-up voice.
         let inFormat = input.outputFormat(forBus: 0)
         guard inFormat.channelCount > 0, inFormat.sampleRate > 0 else { throw AudioError.noMic }
-        guard let conv = AVAudioConverter(from: inFormat, to: format) else { throw AudioError.start("unsupported mic format \(inFormat)") }
+        guard let mono = AVAudioFormat(standardFormatWithSampleRate: inFormat.sampleRate, channels: 1),
+              let conv = AVAudioConverter(from: mono, to: format) else { throw AudioError.start("unsupported mic format \(inFormat)") }
         converter = conv
+        micMono = mono
         engine.attach(player)
         engine.connect(player, to: engine.mainMixerNode, format: format)
+        // Voice processing needs the speaker side in a format it can pair with the mic, or the engine won't start.
+        engine.connect(engine.mainMixerNode, to: engine.outputNode, format: mono)
+        input.removeTap(onBus: 0)
         input.installTap(onBus: 0, bufferSize: 2048, format: inFormat) { [weak self] buf, _ in self?.micTap(buf) }
         engine.prepare()
         do { try engine.start() } catch { throw AudioError.start(error.localizedDescription) }
         player.play()
-        running = true
+    }
+
+    private func tearDown() {
+        engine.inputNode.removeTap(onBus: 0)
+        player.stop()
+        engine.stop()
+        if player.engine != nil { engine.detach(player) }
+        converter = nil
     }
 
     func stop() {
         guard running else { return }
         running = false
-        engine.inputNode.removeTap(onBus: 0)
-        player.stop()
-        engine.stop()
-        engine.detach(player)
+        tearDown()
         lock.lock(); chunks.removeAll(); stopped.removeAll(); lock.unlock()
         micBuffer.removeAll()
         micLevel = 0
     }
 
     private func micTap(_ buf: AVAudioPCMBuffer) {
-        guard let conv = converter else { return }
-        let ratio = format.sampleRate / buf.format.sampleRate
-        let cap = AVAudioFrameCount(Double(buf.frameLength) * ratio + 32)
+        guard let conv = converter, let mono = micMono, let src = buf.floatChannelData,
+              let one = AVAudioPCMBuffer(pcmFormat: mono, frameCapacity: buf.frameLength) else { return }
+        one.frameLength = buf.frameLength
+        one.floatChannelData![0].update(from: src[0], count: Int(buf.frameLength))
+        let ratio = format.sampleRate / mono.sampleRate
+        let cap = AVAudioFrameCount(Double(one.frameLength) * ratio + 32)
         guard let out = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: cap) else { return }
         var given = false
         var err: NSError?
@@ -95,7 +117,7 @@ final class AudioIO {
             if given { status.pointee = .noDataNow; return nil }
             given = true
             status.pointee = .haveData
-            return buf
+            return one
         }
         guard err == nil, let ch = out.floatChannelData?[0] else { return }
         micBuffer.append(contentsOf: UnsafeBufferPointer(start: ch, count: Int(out.frameLength)))
