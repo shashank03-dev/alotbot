@@ -3,7 +3,11 @@ import { test } from 'node:test';
 import {
   BARGE_IN_LEVEL,
   Call,
+  cleanNote,
   CORRECTION_WORDS,
+  NOTE_MAX_CHARS,
+  NOTEPAD_MAX,
+  notepadText,
   DIRECTION_MAX,
   directionText,
   isDirection,
@@ -138,7 +142,7 @@ class FakeSocket {
     return this.sent.map((m) => m.type);
   }
   said() {
-    return this.sent.filter((m) => m.type === 'conversation.item.create').map((m) => m.item.content[0].text);
+    return this.sent.filter((m) => m.type === 'conversation.item.create' && m.item.type === 'message').map((m) => m.item.content[0].text);
   }
 }
 
@@ -748,7 +752,7 @@ test('invite refusals: unknown bot, already in the call, bad arguments, unknown 
     'Bot B is already in the call.',
     'There is no Grok Bot called "". Bots you can invite: Bot C.',
     'There is no Grok Bot called "". Bots you can invite: Bot C.',
-    'Unknown tool "end_the_call". Tools in this call: invite_bot, pass, hand_to, wait_for_host, leave_call.',
+    'Unknown tool "end_the_call". Tools in this call: invite_bot, pass, hand_to, wait_for_host, leave_call, write_note, read_notes, add_task, done_task.',
   ]);
   assert.equal(mints.length, 2, 'nobody new was minted');
   // with nobody left to invite, the refusal says so
@@ -1035,7 +1039,7 @@ const creates = (s: FakeSocket) => s.types().filter((x: string) => x === 'respon
 test('groupInstructions explains the turn tools', () => {
   const text = groupInstructions('B', 'A', ['A', 'C']);
   for (const name of ['hand_to', 'pass', 'wait_for_host', 'leave_call']) assert.match(text, new RegExp(name));
-  assert.deepEqual(TOOLS.map((t: any) => t.name), ['invite_bot', 'pass', 'hand_to', 'wait_for_host', 'leave_call']);
+  assert.deepEqual(TOOLS.map((t: any) => t.name), ['invite_bot', 'pass', 'hand_to', 'wait_for_host', 'leave_call', 'write_note', 'read_notes', 'add_task', 'done_task']);
   for (const t of TOOLS) assert.equal((t as any).type, 'function');
 });
 
@@ -1272,4 +1276,105 @@ test('only the newest DIRECTION_MAX corrections are kept, and leaving clears the
   assert.equal(call.direction.at(-1), `no, do step ${DIRECTION_MAX + 1}`);
   call.leave();
   assert.deepEqual(call.direction, []);
+});
+
+// ---------- shared notepad ----------
+
+test('notepadText shows notes and tasks, or says it is empty', () => {
+  assert.equal(notepadText([], []), 'The notepad is empty.');
+  assert.equal(notepadText([{ text: 'Price is $10', by: 'Bot A' }], []), 'Notes:\n- Price is $10 (Bot A)');
+  assert.equal(
+    notepadText([], [
+      { id: 1, text: 'Email Sam', by: 'Bot A', done: false, doneBy: null },
+      { id: 2, text: 'Book room', by: 'Bot A', done: true, doneBy: 'Bot B' },
+    ]),
+    'Tasks:\n- [ ] 1. Email Sam (added by Bot A)\n- [x] 2. Book room (done by Bot B)',
+  );
+  assert.equal(notepadText([{ text: 'n', by: 'X' }], [{ id: 1, text: 't', by: 'X', done: false, doneBy: null }]), 'Notes:\n- n (X)\nTasks:\n- [ ] 1. t (added by X)');
+});
+
+test('cleanNote trims, joins lines and caps length', () => {
+  assert.equal(cleanNote('  a\n\n b  '), 'a b');
+  assert.equal(cleanNote(undefined), '');
+  assert.equal(cleanNote(42), '42');
+  assert.equal(cleanNote('x'.repeat(NOTE_MAX_CHARS + 50)).length, NOTE_MAX_CHARS);
+});
+
+test('groupInstructions explains the notepad', () => {
+  const text = groupInstructions('B', 'A', ['A']);
+  for (const name of ['write_note', 'add_task', 'done_task', 'read_notes', '"[Notepad]:"']) assert.ok(text.includes(name), name);
+});
+
+test('write_note and add_task: on the notepad, the others are told, the page sees it', async () => {
+  const { call, ws, ready } = setup();
+  call.join([bot('a'), bot('b')]);
+  await ready('a');
+  await ready('b');
+  const v0 = call.view().notepadVersion;
+  useTool(ws('a'), 'write_note', { text: ' Launch is in May. ' }, 'Noting that.');
+  assert.equal(outputs(ws('a')).at(-1).output, 'Note written.');
+  assert.notEqual(ws('a').types().at(-1), 'response.create', 'it spoke already: no follow-up');
+  assert.deepEqual(ws('b').said().slice(-2), ['[Notepad]: Bot A wrote a note: "Launch is in May."', '[Bot A]: Noting that.']);
+  useTool(ws('b'), 'add_task', { text: 'Email the designer' });
+  assert.equal(outputs(ws('b')).at(-1).output, 'Task 1 added.');
+  assert.equal(ws('b').types().at(-1), 'response.create', 'wrote silently: gets to speak');
+  assert.equal(ws('a').said().at(-1), '[Notepad]: Bot B added task 1: "Email the designer"');
+  useTool(ws('b'), 'add_task', { text: 'Book a room' }, 'And a room.');
+  const v = call.view();
+  assert.deepEqual(v.notes, [{ text: 'Launch is in May.', by: 'Bot A' }]);
+  assert.deepEqual(v.tasks.map((t: any) => [t.id, t.text, t.by, t.done]), [[1, 'Email the designer', 'Bot B', false], [2, 'Book a room', 'Bot B', false]]);
+  assert.equal(v.notepadVersion, v0 + 3);
+});
+
+test('empty or full notepad writes are refused', async () => {
+  const { call, ws, ready } = setup();
+  call.join([bot('a')]);
+  await ready('a');
+  useTool(ws('a'), 'write_note', { text: '   ' }, 'Hmm.');
+  assert.equal(outputs(ws('a')).at(-1).output, 'Nothing written: the text was empty.');
+  useTool(ws('a'), 'add_task', 'bad json', 'Hmm.');
+  assert.equal(outputs(ws('a')).at(-1).output, 'Nothing written: the text was empty.');
+  call.notes = Array.from({ length: NOTEPAD_MAX }, (_, i) => ({ text: `n${i}`, by: 'X' }));
+  useTool(ws('a'), 'write_note', { text: 'one more' }, 'Hmm.');
+  assert.equal(outputs(ws('a')).at(-1).output, `Nothing written: the notepad is full (${NOTEPAD_MAX} items).`);
+  assert.equal(call.notes.length, NOTEPAD_MAX);
+});
+
+test('done_task: ticks a task, accepts "#2" or "2", refuses unknown or done ones', async () => {
+  const { call, ws, ready } = setup();
+  call.join([bot('a'), bot('b')]);
+  await ready('a');
+  await ready('b');
+  useTool(ws('a'), 'add_task', { text: 'One' }, 'x');
+  useTool(ws('a'), 'add_task', { text: 'Two' }, 'x');
+  useTool(ws('b'), 'done_task', { id: '#2' }, 'Done with two.');
+  assert.equal(outputs(ws('b')).at(-1).output, 'Task 2 marked done.');
+  assert.ok(ws('a').said().includes('[Notepad]: Bot B marked task 2 done: "Two"'));
+  assert.deepEqual(call.tasks[1], { id: 2, text: 'Two', by: 'Bot A', done: true, doneBy: 'Bot B' });
+  useTool(ws('b'), 'done_task', { id: 2 }, 'x');
+  assert.equal(outputs(ws('b')).at(-1).output, 'Task 2 is already done.');
+  useTool(ws('b'), 'done_task', { id: 9 }, 'x');
+  assert.equal(outputs(ws('b')).at(-1).output, 'There is no task 9. Open tasks: 1.');
+  useTool(ws('b'), 'done_task', {}, 'x');
+  assert.equal(outputs(ws('b')).at(-1).output, 'There is no task . Open tasks: 1.');
+  useTool(ws('b'), 'done_task', { id: 1 }, 'x');
+  useTool(ws('b'), 'done_task', { id: 7 }, 'x');
+  assert.equal(outputs(ws('b')).at(-1).output, 'There is no task 7. Open tasks: none.');
+  // new ids keep counting up after the highest
+  useTool(ws('a'), 'add_task', { text: 'Three' }, 'x');
+  assert.equal(call.tasks.at(-1).id, 3);
+});
+
+test('read_notes returns the notepad and the bot speaks with it', async () => {
+  const { call, ws, ready } = setup();
+  call.join([bot('a')]);
+  await ready('a');
+  useTool(ws('a'), 'read_notes', {}, 'Let me check.');
+  assert.equal(outputs(ws('a')).at(-1).output, 'The notepad is empty.');
+  assert.equal(ws('a').types().at(-1), 'response.create', 'always speaks after reading');
+  useTool(ws('a'), 'write_note', { text: 'Budget 5k' }, 'ok');
+  useTool(ws('a'), 'read_notes', {});
+  assert.equal(outputs(ws('a')).at(-1).output, 'Notes:\n- Budget 5k (Bot A)');
+  call.leave();
+  assert.deepEqual([call.notes, call.tasks], [[], []]);
 });

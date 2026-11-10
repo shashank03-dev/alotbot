@@ -44,6 +44,7 @@ Set `PORT=9000` (or `HOST=localhost`) in the environment or a `.env` file to cha
 - **Stuck mic**: if the call thinks you are still talking but your mic has been quiet for 8 seconds and no words came through, it stops waiting and the listening bot answers.
 - Voices never overlap: all bot audio plays on one timeline.
 - A bot that drops reconnects by itself with the conversation so far. A bot added mid-call also gets the conversation so far.
+- **Shared notepad**: bots use `write_note`, `add_task`, `done_task` and `read_notes`. The other bots get a short `[Notepad]: ...` line when it changes. You see it under the Notepad button (a dot means something changed), with the current direction pinned at the top. A note or task is cut to 500 characters, and the notepad holds up to 200 items.
 - **Pulling a bot in**: every bot in the call has one tool, `invite_bot`, and knows which of your bots aren't in the call yet. When a bot uses it, that bot joins (its tile appears), gets the conversation so far, is told who pulled it in, and says hello; the bot that invited it confirms out loud. Asking for a bot that doesn't exist or is already in the call is refused and the bot is told why. An invite inside a reply that got cut off is not carried out.
 
 ## Limits, stated plainly
@@ -85,7 +86,7 @@ src/auth.ts        sign-in (browser login + polling) and the saved sign-in
 src/grokbot.ts     Grok Bot calls: list bots, voice session per bot, token refresh
 src/server.ts      local HTTP server: page, /api/state, /api/login, /api/bots, /api/bots/:id/voice
 public/index.html  the call page (styles + layout)
-public/app.js      page logic: sign-in, bot picker, mic and speakers, call grid, People panel
+public/app.js      page logic: sign-in, bot picker, mic and speakers, call grid, People and Notepad panels
 public/core.js     call engine: voice sessions, turn-taking, bot-to-bot, interrupting, playback queue
 test/              node:test suites with fake backends
 ```

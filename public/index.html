@@ -150,19 +150,40 @@
   .round:active { transform: scale(.94); }
   .round svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   #mute[aria-pressed="true"] { background: #fff; color: #0b0d12; }
-  #people-btn[aria-expanded="true"] { background: color-mix(in srgb, var(--accent) 30%, var(--surface-2)); }
+  #people-btn[aria-expanded="true"], #notes-btn[aria-expanded="true"] { background: color-mix(in srgb, var(--accent) 30%, var(--surface-2)); }
+  #notes-btn { position: relative; }
+  #notes-btn[data-unseen="true"]::after {
+    content: ""; position: absolute; top: 12px; right: 12px; width: 9px; height: 9px; border-radius: 50%;
+    background: var(--accent); box-shadow: 0 0 0 2px var(--surface-2);
+  }
   #leave { background: var(--danger); width: 72px; border-radius: 999px; }
   #leave:hover { background: #dc2626; }
   #leave svg { fill: currentColor; stroke: none; }
 
-  /* ---------- people panel ---------- */
-  #people {
+  /* ---------- side panels ---------- */
+  #people, #notes {
     position: fixed; top: 16px; right: 16px; bottom: 96px; width: min(360px, calc(100% - 32px));
     background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 16px;
     display: flex; flex-direction: column; gap: 12px; z-index: 5; box-shadow: 0 20px 60px rgb(0 0 0 / .5);
   }
   .panel-head { display: flex; align-items: center; justify-content: space-between; }
   .panel-head h2 { margin: 0; font-size: 1.05rem; }
+  #notes-body { overflow-y: auto; display: grid; gap: 18px; align-content: start; }
+  #notes-body h3 { margin: 0 0 8px; font-size: .78rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+  #notes-body ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  #notes-body li {
+    display: grid; gap: 2px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2);
+    line-height: 1.4; overflow-wrap: anywhere;
+  }
+  #notes-body li small { color: var(--muted); font-size: .78rem; }
+  #direction li { background: color-mix(in srgb, var(--accent) 14%, var(--surface-2)); box-shadow: inset 3px 0 0 var(--accent); }
+  #tasks li.task { padding-left: 34px; position: relative; }
+  #tasks li.task::before {
+    content: ""; position: absolute; left: 12px; top: 12px; width: 12px; height: 12px; border-radius: 4px; border: 2px solid var(--line);
+  }
+  #tasks li.done::before { background: var(--accent); border-color: var(--accent); }
+  #tasks li.done span { text-decoration: line-through; color: var(--muted); }
+  #notes-empty { color: var(--muted); margin: 0; }
   #people-list { display: grid; gap: 8px; overflow-y: auto; align-content: start; }
   .switch { width: 40px; height: 24px; border-radius: 999px; background: var(--line); position: relative; flex: none; transition: background .15s; }
   .switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform .15s var(--ease); }
@@ -180,7 +201,7 @@
     .label { flex-direction: column; align-items: flex-start; gap: 4px; }
     .label .name { max-width: 100%; }
     .label .status { padding-left: 4px; }
-    #people { top: auto; left: 12px; right: 12px; bottom: 88px; width: auto; max-height: 60vh; }
+    #people, #notes { top: auto; left: 12px; right: 12px; bottom: 88px; width: auto; max-height: 60vh; }
   }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition: none !important; }
@@ -222,6 +243,7 @@
     <nav class="controls" aria-label="Call controls">
       <button id="mute" class="round" type="button" aria-pressed="false" aria-label="Mute microphone"></button>
       <button id="people-btn" class="round" type="button" aria-expanded="false" aria-controls="people" aria-label="People: choose bots in the call"></button>
+      <button id="notes-btn" class="round" type="button" aria-expanded="false" aria-controls="notes" aria-label="Notepad: direction, notes and tasks" data-unseen="false"></button>
       <button id="leave" class="round" type="button" aria-label="Leave call"></button>
     </nav>
     <aside id="people" aria-label="People in the call" hidden>
@@ -230,6 +252,18 @@
         <button id="people-close" class="ghost" type="button">Done</button>
       </div>
       <div id="people-list"></div>
+    </aside>
+    <aside id="notes" aria-label="Shared notepad" hidden>
+      <div class="panel-head">
+        <h2>Notepad</h2>
+        <button id="notes-close" class="ghost" type="button">Done</button>
+      </div>
+      <div id="notes-body">
+        <section id="direction" hidden><h3>Current direction</h3><ul></ul></section>
+        <section id="tasks" hidden><h3>Tasks</h3><ul></ul></section>
+        <section id="notes-list" hidden><h3>Notes</h3><ul></ul></section>
+        <p id="notes-empty">Nothing here yet. Bots write notes and tasks here, and your corrections are pinned at the top.</p>
+      </div>
     </aside>
   </main>
 

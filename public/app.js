@@ -11,6 +11,8 @@ const state = {
   level: 0,
   tiles: new Map(),
   frame: 0,
+  panel: null, // 'people' | 'notes' | null
+  notesSeen: -1, // notepad state last drawn: `${notepadVersion}|${direction.length}`
 };
 
 // ---------- helpers ----------
@@ -71,6 +73,7 @@ const ICONS = {
   mic: '<path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Z"/><path d="M19 11a7 7 0 0 1-14 0M12 18v3"/>',
   micOff: '<path d="M15 9.4V6a3 3 0 0 0-5.7-1.3M9 9v3a3 3 0 0 0 5.1 2.1M19 11a7 7 0 0 1-1.1 3.8M5 11a7 7 0 0 0 11.4 5.4M12 18v3M3 3l18 18"/>',
   people: '<path d="M16 19v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1"/><circle cx="9.5" cy="7.5" r="3.5"/><path d="M21 19v-1a4 4 0 0 0-3-3.9M15.5 4.1a3.5 3.5 0 0 1 0 6.8"/>',
+  notes: '<path d="M8 3h8l4 4v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h2"/><path d="M8 3v3h8V3M8 12h8M8 16h5"/>',
   leave: '<path d="M4.5 14.2c-1-.9-1-2.4 0-3.3 4.2-3.9 10.8-3.9 15 0 1 .9 1 2.4 0 3.3l-1.6 1.4a1.5 1.5 0 0 1-2 0l-1.4-1.3a1.5 1.5 0 0 1-.4-1.5l.3-1a9 9 0 0 0-4.8 0l.3 1a1.5 1.5 0 0 1-.4 1.5l-1.4 1.3a1.5 1.5 0 0 1-2 0Z"/>',
 };
 
@@ -312,7 +315,8 @@ async function join() {
   );
   state.tiles.clear();
   $('#grid').innerHTML = '';
-  setPeople(false);
+  state.notesSeen = -1;
+  setPanel(null);
   show('call');
   renderMute();
   state.frame = requestAnimationFrame(renderCall);
@@ -323,7 +327,7 @@ function leave() {
   state.call?.leave();
   state.call = null;
   stopAudio();
-  setPeople(false);
+  setPanel(null);
   show('lobby');
   renderPicker();
 }
@@ -416,20 +420,46 @@ function renderCall() {
   }
   grid.dataset.count = String(Math.min(view.bots.length + 1, 7));
   $('#empty-hint').hidden = view.bots.length > 0;
-  if (!$('#people').hidden) renderPeople(view);
+  if (state.panel === 'people') renderPeople(view);
+  const notesKey = `${view.notepadVersion}|${view.direction.length}`;
+  if (notesKey !== state.notesSeen) {
+    if (state.panel === 'notes') renderNotes(view);
+    else $('#notes-btn').dataset.unseen = String(state.notesSeen !== -1 && hasNotepad(view));
+    if (state.panel === 'notes' || state.notesSeen === -1) state.notesSeen = notesKey;
+  }
   state.frame = requestAnimationFrame(renderCall);
 }
 
 // ---------- per-bot selection during the call ----------
 
-function setPeople(open) {
-  $('#people').hidden = !open;
-  $('#people-btn').setAttribute('aria-expanded', String(open));
-  if (open) {
+/** Opens one side panel ('people' or 'notes'), or closes both with null. */
+function setPanel(name) {
+  state.panel = name;
+  for (const p of ['people', 'notes']) {
+    $(`#${p}`).hidden = p !== name;
+    $(`#${p}-btn`).setAttribute('aria-expanded', String(p === name));
+  }
+  if (name === 'people') {
     $('#people-list').innerHTML = '';
     renderPeople(state.call.view());
-    $('#people-close').focus();
   }
+  if (name === 'notes') {
+    const view = state.call.view();
+    renderNotes(view);
+    state.notesSeen = `${view.notepadVersion}|${view.direction.length}`;
+    $('#notes-btn').dataset.unseen = 'false';
+  }
+  if (name) $(`#${name}-close`).focus();
+}
+
+function togglePanel(name) {
+  setPanel(state.panel === name ? null : name);
+}
+
+function closePanel() {
+  const open = state.panel;
+  setPanel(null);
+  $(`#${open}-btn`).focus();
 }
 
 function renderPeople(view) {
@@ -465,6 +495,43 @@ function renderPeople(view) {
   }
 }
 
+// ---------- shared notepad ----------
+
+function hasNotepad(view) {
+  return view.direction.length + view.notes.length + view.tasks.length > 0;
+}
+
+function listItem(text, meta, cls = '') {
+  const li = document.createElement('li');
+  if (cls) li.className = cls;
+  const p = document.createElement('span');
+  p.textContent = text;
+  li.append(p);
+  if (meta) {
+    const m = document.createElement('small');
+    m.textContent = meta;
+    li.append(m);
+  }
+  return li;
+}
+
+function renderNotes(view) {
+  const section = (id, items) => {
+    $(`#${id}`).hidden = !items.length;
+    const list = $(`#${id} ul`);
+    list.replaceChildren(...items);
+  };
+  section('direction', view.direction.map((d, i, all) => listItem(d, i === all.length - 1 ? 'Latest' : '')));
+  section(
+    'tasks',
+    view.tasks.map((t) =>
+      listItem(`${t.id}. ${t.text}`, t.done ? `Done by ${t.doneBy}` : `Added by ${t.by}`, t.done ? 'task done' : 'task'),
+    ),
+  );
+  section('notes-list', view.notes.map((n) => listItem(n.text, n.by)));
+  $('#notes-empty').hidden = hasNotepad(view);
+}
+
 // ---------- wiring ----------
 
 $('#signin-btn').onclick = signIn;
@@ -473,16 +540,13 @@ $('#mute').onclick = toggleMute;
 $('#leave').onclick = leave;
 $('#leave').innerHTML = icon('leave');
 $('#people-btn').innerHTML = icon('people');
-$('#people-btn').onclick = () => setPeople($('#people').hidden);
-$('#people-close').onclick = () => {
-  setPeople(false);
-  $('#people-btn').focus();
-};
+$('#people-btn').onclick = () => togglePanel('people');
+$('#people-close').onclick = closePanel;
+$('#notes-btn').innerHTML = icon('notes');
+$('#notes-btn').onclick = () => togglePanel('notes');
+$('#notes-close').onclick = closePanel;
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && !$('#people').hidden) {
-    setPeople(false);
-    $('#people-btn').focus();
-  }
+  if (e.key === 'Escape' && state.panel) closePanel();
 });
 window.addEventListener('pagehide', () => state.call?.leave());
 

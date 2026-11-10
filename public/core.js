@@ -26,6 +26,10 @@ export const HOST = `${USER} (host)`;
 export const CORRECTION_WORDS = ['no', 'wait', 'stop', 'actually', 'wrong'];
 /** Host corrections kept in the pinned "current direction" note (newest last). */
 export const DIRECTION_MAX = 5;
+/** Longest note or task text a bot can write; longer text is cut to this. */
+export const NOTE_MAX_CHARS = 500;
+/** Most notes plus tasks the notepad holds. */
+export const NOTEPAD_MAX = 200;
 /** A correction this short ("no", "wait, stop") is a nudge, not a new direction to pin. */
 export const DIRECTION_MIN_WORDS = 3;
 
@@ -126,7 +130,49 @@ export const LEAVE_CALL_TOOL = fn(
   `Leave this call yourself, when ${USER} asks you to or when you are no longer needed. Say a short goodbye before you use it.`,
 );
 
-export const TOOLS = [INVITE_TOOL, PASS_TOOL, HAND_TO_TOOL, WAIT_FOR_HOST_TOOL, LEAVE_CALL_TOOL];
+/** Shared notepad tools: everyone in the call, and Shashank on his screen, sees the same notepad. */
+const textParam = (what) => ({ text: { type: 'string', description: what } });
+export const WRITE_NOTE_TOOL = fn('write_note', 'Write a short note on the shared notepad: a fact, decision or idea worth keeping.', textParam('The note, one or two sentences.'), ['text']);
+export const READ_NOTES_TOOL = fn('read_notes', 'Read the shared notepad: every note and task so far.');
+export const ADD_TASK_TOOL = fn('add_task', 'Add an action item to the shared notepad.', textParam('The task, starting with a verb.'), ['text']);
+export const DONE_TASK_TOOL = fn(
+  'done_task',
+  'Mark a task on the shared notepad as done.',
+  { id: { type: 'integer', description: 'The task number, as shown by read_notes.' } },
+  ['id'],
+);
+
+export const TOOLS = [
+  INVITE_TOOL,
+  PASS_TOOL,
+  HAND_TO_TOOL,
+  WAIT_FOR_HOST_TOOL,
+  LEAVE_CALL_TOOL,
+  WRITE_NOTE_TOOL,
+  READ_NOTES_TOOL,
+  ADD_TASK_TOOL,
+  DONE_TASK_TOOL,
+];
+
+/** The notepad as plain text, for read_notes. */
+export function notepadText(notes, tasks) {
+  if (!notes.length && !tasks.length) return 'The notepad is empty.';
+  const parts = [];
+  if (notes.length) parts.push(`Notes:\n${notes.map((n) => `- ${n.text} (${n.by})`).join('\n')}`);
+  if (tasks.length) {
+    const line = (t) => `- [${t.done ? 'x' : ' '}] ${t.id}. ${t.text} (${t.done ? `done by ${t.doneBy}` : `added by ${t.by}`})`;
+    parts.push(`Tasks:\n${tasks.map(line).join('\n')}`);
+  }
+  return parts.join('\n');
+}
+
+/** Note or task text from tool arguments: trimmed, one line, capped. */
+export function cleanNote(text) {
+  return String(text ?? '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, NOTE_MAX_CHARS);
+}
 
 export function groupInstructions(base, me, roster, invitable = [], direction = []) {
   const others = roster.filter((n) => n !== me);
@@ -149,6 +195,8 @@ export function groupInstructions(base, me, roster, invitable = [], direction = 
     `Manage turns with your tools: hand_to gives the next turn to one bot, pass skips your turn when you have nothing to add, ` +
     `wait_for_host stops the bots and waits for ${USER} (use it when the topic is done or you are going in circles), ` +
     `and leave_call takes you out of the call. ` +
+    `There is a shared notepad that every bot and ${USER} can see: write_note keeps a fact, decision or idea, add_task adds an action item, ` +
+    `done_task ticks one off, and read_notes shows it all. A "[Notepad]:" message tells you someone changed it. ` +
     `Your other Grok Bot tools are not available during this call; only the tools given here are.` +
     directionText(direction)
   );
@@ -524,19 +572,21 @@ export class BotLink {
         const status = heard ? (e.response?.status ?? 'completed') : 'cancelled';
         const calls = this.toolCalls.splice(0);
         const ran = heard && status === 'completed';
+        const text = heard ? cleanTranscript(this.text) : '';
         let followUp = false;
         for (const c of calls) {
           let output = 'Not done: this reply was cut off before anyone heard it.';
           if (ran) {
             const r = this.call.onToolCall(this, c);
             output = r.output;
-            followUp ||= r.followUp;
+            // 'if-quiet': a bot that only wrote something and said nothing gets to speak, so the talk goes on.
+            followUp ||= r.followUp === true || (r.followUp === 'if-quiet' && !text);
           }
           this.send({ type: 'conversation.item.create', item: { type: 'function_call_output', call_id: c.callId, output } });
         }
         if (!heard && this.heardMs > 0) this.call.onBotCut(this, heardPart(cleanTranscript(this.text), this.heardMs, this.audioMs));
         this.heardMs = 0;
-        return this.call.onBotDone(this, heard ? cleanTranscript(this.text) : '', status, followUp);
+        return this.call.onBotDone(this, text, status, followUp);
       }
       case 'input_audio_buffer.speech_started':
         return this.call.onSpeechStart(this);
@@ -607,6 +657,9 @@ export class Call {
     this.order = [];
     this.lines = [];
     this.direction = []; // pinned host corrections, newest last
+    this.notes = []; // shared notepad: { text, by }
+    this.tasks = []; // { id, text, by, done, doneBy }
+    this.notepadVersion = 0; // bumped on every notepad change, so the page redraws only then
     this.ear = null; // the bot hearing Shashank's mic right now
     this.opened = false;
     this.muted = false;
@@ -703,6 +756,9 @@ export class Call {
       userSpeaking: this.userSpeaking,
       waitingForHost: this.waitingForHost,
       direction: this.direction,
+      notes: this.notes,
+      tasks: this.tasks,
+      notepadVersion: this.notepadVersion,
       bots: this.order.map((id) => {
         const l = this.links.get(id);
         let status = l.status;
@@ -894,9 +950,47 @@ export class Call {
       case LEAVE_CALL_TOOL.name:
         link.turn = { kind: 'leave' };
         return { output: 'You are leaving the call.', followUp: false };
+      case WRITE_NOTE_TOOL.name:
+      case ADD_TASK_TOOL.name: {
+        const text = cleanNote(a.text);
+        if (!text) return { output: 'Nothing written: the text was empty.', followUp: 'if-quiet' };
+        if (this.notes.length + this.tasks.length >= NOTEPAD_MAX) {
+          return { output: `Nothing written: the notepad is full (${NOTEPAD_MAX} items).`, followUp: 'if-quiet' };
+        }
+        const by = link.bot.name;
+        if (name === WRITE_NOTE_TOOL.name) {
+          this.notes = [...this.notes, { text, by }];
+          this.notepadChanged(link, `${by} wrote a note: "${text}"`);
+          return { output: 'Note written.', followUp: 'if-quiet' };
+        }
+        const id = this.tasks.reduce((m, t) => Math.max(m, t.id), 0) + 1;
+        this.tasks = [...this.tasks, { id, text, by, done: false, doneBy: null }];
+        this.notepadChanged(link, `${by} added task ${id}: "${text}"`);
+        return { output: `Task ${id} added.`, followUp: 'if-quiet' };
+      }
+      case READ_NOTES_TOOL.name:
+        return { output: notepadText(this.notes, this.tasks), followUp: true };
+      case DONE_TASK_TOOL.name: {
+        const id = Number(String(a.id ?? '').replace(/^#/, ''));
+        const task = this.tasks.find((t) => t.id === id);
+        if (!task) {
+          const open = this.tasks.filter((t) => !t.done).map((t) => t.id).join(', ') || 'none';
+          return { output: `There is no task ${a.id ?? ''}. Open tasks: ${open}.`, followUp: 'if-quiet' };
+        }
+        if (task.done) return { output: `Task ${id} is already done.`, followUp: 'if-quiet' };
+        this.tasks = this.tasks.map((t) => (t === task ? { ...t, done: true, doneBy: link.bot.name } : t));
+        this.notepadChanged(link, `${link.bot.name} marked task ${id} done: "${task.text}"`);
+        return { output: `Task ${id} marked done.`, followUp: 'if-quiet' };
+      }
       default:
         return { output: `Unknown tool "${name}". Tools in this call: ${TOOLS.map((t) => t.name).join(', ')}.`, followUp: false };
     }
+  }
+
+  /** Tell the other bots what changed on the notepad, and let the page redraw it. */
+  notepadChanged(from, what) {
+    this.notepadVersion++;
+    for (const link of this.links.values()) if (link !== from) link.say(`[Notepad]: ${what}`);
   }
 
   invite(link, wanted) {
