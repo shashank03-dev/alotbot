@@ -52,6 +52,10 @@ export const STOP_MAX_WORDS = 8;
 export const REPEAT_LOOKBACK = 6;
 /** Tool-only replies (a note, a task, read_notes) a bot gets in a row before its turn simply ends. */
 export const MAX_QUIET_TOOL_ROUNDS = 3;
+/** In a one-on-one, this much quiet from Shashank after the bot's reply means the conversation is over. */
+export const FOCUS_IDLE_MS = 20000;
+/** A host line this long or shorter can be a "we're done" line ("thanks", "got it"). */
+export const CLOSING_MAX_WORDS = 6;
 
 // ---------- text ----------
 
@@ -81,6 +85,70 @@ export function findAddressee(text, bots) {
 export function hasCorrection(text) {
   const words = new Set(normalize(text).split(' '));
   return CORRECTION_WORDS.some((w) => words.has(w));
+}
+
+/** Every bot named in the text. A name inside a longer named one ("Bot" in "My Bot") doesn't count on its own. */
+export function namedBots(text, bots) {
+  let hay = ` ${normalize(text)} `;
+  const found = [];
+  for (const b of [...bots].sort((x, y) => normalize(y.name).length - normalize(x.name).length)) {
+    const name = normalize(b.name);
+    if (!name || !hay.includes(` ${name} `)) continue;
+    found.push(b.id);
+    hay = hay.split(` ${name} `).join('  ');
+  }
+  return found;
+}
+
+const GROUP_WORDS = ['everyone', 'everybody', 'guys', 'anyone', 'anybody', 'folks', 'yall', 'you all', 'all of you'];
+
+/** True if the host is talking to every bot ("everyone", "guys", "all of you"). */
+export function isGroupAddress(text) {
+  const hay = ` ${normalize(text)} `;
+  return GROUP_WORDS.some((w) => hay.includes(` ${w} `));
+}
+
+const CLOSING_KEYS = new Set(['thanks', 'thank', 'thx', 'done', 'perfect', 'bye', 'appreciate', 'helpful']);
+const CLOSING_PHRASES = ['thats all', 'thats it', 'got it', 'makes sense', 'all good', 'im good'];
+const CLOSING_FILLER = new Set([
+  'ok', 'okay', 'cool', 'great', 'nice', 'awesome', 'alright', 'good', 'so', 'much', 'very', 'a', 'lot', 'you', 'that', 'thats', 'was',
+  'it', 'all', 'for', 'now', 'the', 'help', 'really', 'got', 'makes', 'sense', 'im', 'i', 'yeah', 'yes', 'sounds', 'man',
+  'everyone', 'everybody', 'guys',
+]);
+
+/** True if a short host line says the conversation is done ("thanks", "got it, thanks", "that's all"). `names`: bot names, allowed as filler. */
+export function isClosing(text, names = []) {
+  const norm = normalize(text);
+  const words = norm.split(' ').filter(Boolean);
+  if (!words.length || words.length > CLOSING_MAX_WORDS) return false;
+  const nameWords = new Set(names.flatMap((n) => normalize(n).split(' ')));
+  const keyed = words.some((w) => CLOSING_KEYS.has(w)) || CLOSING_PHRASES.some((p) => ` ${norm} `.includes(` ${p} `));
+  return keyed && words.every((w) => CLOSING_KEYS.has(w) || CLOSING_FILLER.has(w) || nameWords.has(w));
+}
+
+/** What the bots are told about a one-on-one between Shashank and `focus` (a bot name), from `me`'s side. */
+export function focusText(me, focus) {
+  if (!focus) return '';
+  if (focus === me) {
+    return (
+      `\n\n# One-on-one right now\n${USER} is talking with you one-on-one. The other bots are listening and stay quiet. ` +
+      `Answer ${USER} directly and keep it a two-way conversation; don't hand the turn to another bot or bring others in unless ${USER} asks.`
+    );
+  }
+  return (
+    `\n\n# One-on-one right now\n${USER} is talking with ${focus} one-on-one. Stay completely silent: don't answer or comment, ` +
+    `even when the topic is yours. When it is over you may be asked whether you have a suggestion.`
+  );
+}
+
+/** The one-off note asking a bot that listened to a one-on-one for a suggestion. */
+export function suggestionPrompt(focus) {
+  return (
+    `[Call]: ${USER}'s one-on-one with ${focus} just ended, and you listened to all of it. ` +
+    `Speak only if you have a specific suggestion or correction that clearly helps ${USER} with that topic and you fully understand it; ` +
+    `then say it in one or two short sentences. Otherwise use the pass tool and say nothing at all. ` +
+    `Don't repeat or sum up what was said, and don't speak just to be polite.`
+  );
 }
 
 /** True if a host line is a correction worth pinning as the current direction. */
@@ -288,7 +356,7 @@ export function exportMarkdown(data, formatTime = (ms) => new Date(ms).toISOStri
   return out.join('\n');
 }
 
-export function groupInstructions(base, me, roster, invitable = [], direction = [], memory = null) {
+export function groupInstructions(base, me, roster, invitable = [], direction = [], memory = null, focus = null) {
   const others = roster.filter((n) => n !== me);
   const who = others.length
     ? `The other Grok bots in the call: ${others.join(', ')}.`
@@ -309,14 +377,16 @@ export function groupInstructions(base, me, roster, invitable = [], direction = 
     `Manage turns with your tools: hand_to gives the next turn to one bot, pass skips your turn when you have nothing to add, ` +
     `wait_for_host stops the bots and waits for ${USER} (use it when the topic is done or you are going in circles), ` +
     `Never repeat a point already made in the call; if you have nothing new, pass. ` +
-    `When the host says stop or wait, every bot goes quiet until he speaks again. ` +
+    `When the host says stop or wait, every bot goes quiet until the host speaks again. ` +
+    `When the host names one bot, that is a one-on-one: only that bot answers, and the others stay silent until it is over. ` +
     `and leave_call takes you out of the call. ` +
     `There is a shared notepad that every bot and ${USER} can see: write_note keeps a fact, decision or idea, add_task adds an action item, ` +
     `done_task ticks one off, and read_notes shows it all. A "[Notepad]:" message tells you someone changed it. ` +
     `You can search the web and X for current facts and posts; say in a few words that you are looking it up, and keep what you found short. ` +
     `Your other Grok Bot tools are not available during this call; only the tools given here are.` +
     lastCallText(memory) +
-    directionText(direction)
+    directionText(direction) +
+    focusText(me, focus)
   );
 }
 
@@ -563,7 +633,7 @@ export class BotLink {
   }
 
   instructions() {
-    return groupInstructions(this.base, this.bot.name, this.call.roster(), this.call.invitable().map((b) => b.name), this.call.direction, this.call.memory);
+    return groupInstructions(this.base, this.bot.name, this.call.roster(), this.call.invitable().map((b) => b.name), this.call.direction, this.call.memory, this.call.focus?.bot.name ?? null);
   }
 
   send(msg) {
@@ -820,6 +890,10 @@ export class Call {
     this.echoText = ''; // what the bots were saying when that speech started (for the echo check)
     this.cutBot = null; // the bot last cut off by speech that may turn out to be echo
     this.stuckTimer = null;
+    this.focus = null; // the bot in a one-on-one with Shashank: only it talks
+    this.focusClosing = false; // Shashank said he's done: suggestions follow the bot's last reply
+    this.focusTimer = null;
+    this.suggesting = null; // after a one-on-one: { from, queue, current } asking the others for a suggestion
   }
 
   /**
@@ -883,6 +957,7 @@ export class Call {
     if (this.phase === 'idle') return;
     this.stopNext();
     this.clearStuck();
+    this.clearFocusIdle();
     this.onSummary?.();
     for (const link of this.links.values()) link.close();
     this.player.flush();
@@ -905,6 +980,7 @@ export class Call {
     this.order = this.order.filter((x) => x !== id);
     this.player.flush(id);
     if (this.ear === link) this.setEar(this.readyLinks()[0] ?? null);
+    if (this.focus === link) this.setFocus(null);
     this.rosterChanged();
     this.event('leave', `${link.bot.name} left the call`);
   }
@@ -924,8 +1000,7 @@ export class Call {
       return true;
     }
     this.hostSpoke(said);
-    const named = findAddressee(said, ready.map((l) => l.bot));
-    const target = named ? this.links.get(named) : ready.includes(this.ear) ? this.ear : ready[0];
+    const target = this.hostTarget(said, ready.includes(this.ear) ? this.ear : ready[0]);
     this.setEar(target);
     target.respondWhenFree();
     return true;
@@ -938,6 +1013,8 @@ export class Call {
     this.waitingForHost = true;
     this.passes = 0;
     this.cutBot = null;
+    this.suggesting = null;
+    this.clearFocusIdle();
     this.event('stop', why);
   }
 
@@ -991,6 +1068,7 @@ export class Call {
       muted: this.muted,
       userSpeaking: this.userSpeaking,
       waitingForHost: this.waitingForHost,
+      focus: this.focus?.bot.name ?? null,
       direction: this.direction,
       notes: this.notes,
       tasks: this.tasks,
@@ -1003,6 +1081,7 @@ export class Call {
           if (speaking === id) status = 'speaking';
           else if (l.pending || (l.active && !l.discard)) status = 'thinking';
           else if (this.ear === l) status = 'listening';
+          else if (this.focus && this.focus !== l) status = 'quiet';
           else status = 'idle';
         }
         return { id, name: l.bot.name, color: l.bot.color, shape: l.bot.shape, status, error: l.error, search: l.search };
@@ -1106,6 +1185,7 @@ export class Call {
         ].join(' ')
       : '';
     this.armStuck();
+    this.clearFocusIdle();
     this.interrupt();
     // The listening bot's server stops its own reply when Shashank talks, and its next
     // reply will be to him, so don't mark that one for cancelling.
@@ -1128,7 +1208,7 @@ export class Call {
       // Echo cut a bot off by mistake: let the talk go on from where it stopped.
       const cut = this.cutBot;
       this.cutBot = null;
-      if (cut && this.links.get(cut.bot.id) === cut) this.nextTurn(cut, '', { kind: 'resume' });
+      if (cut && this.links.get(cut.bot.id) === cut) this.afterTurn(cut, '', { kind: 'resume' });
       return;
     }
     this.record(USER, text.trim(), link);
@@ -1138,8 +1218,7 @@ export class Call {
       return;
     }
     this.hostSpoke(text.trim());
-    const named = findAddressee(text, this.readyLinks().map((l) => l.bot));
-    const target = named ? this.links.get(named) : link;
+    const target = this.hostTarget(text.trim(), link);
     if (target === link) {
       link.expectReply();
     } else {
@@ -1181,6 +1260,8 @@ export class Call {
     this.waitingForHost = false;
     this.passes = 0;
     this.cutBot = null;
+    this.suggesting = null;
+    this.clearFocusIdle();
     if (!isDirection(text)) return;
     this.direction = [...this.direction, text].slice(-DIRECTION_MAX);
     this.event('direction', `Direction pinned: "${text}"`);
@@ -1203,6 +1284,9 @@ export class Call {
         this.event('tool', `${link.bot.name} passed`);
         return { output: 'You passed this turn.', followUp: false };
       case HAND_TO_TOOL.name: {
+        if (this.focus === link) {
+          return { output: `${USER} is talking with you one-on-one, so the other bots stay quiet until it is over. Keep talking with ${USER}.`, followUp: false };
+        }
         const others = this.readyLinks().filter((l) => l !== link);
         const wanted = String(a.name ?? '');
         const id = matchBot(wanted, others.map((l) => l.bot));
@@ -1301,7 +1385,8 @@ export class Call {
       this.record(link.bot.name, said, link);
       // Keep Shashank's mic on the same bot while he is (maybe) mid-sentence,
       // or his words get split between two bots.
-      if (!this.userSpeaking && this.d.now() - this.lastLoud >= USER_ACTIVE_MS) this.setEar(link);
+      // In a one-on-one the mic stays with that bot, whoever else says something.
+      if (!this.userSpeaking && this.d.now() - this.lastLoud >= USER_ACTIVE_MS && (!this.focus || this.focus === link)) this.setEar(link);
     }
     // After a tool like invite_bot the bot speaks again to say how it went; its turn decision waits until then.
     // A bot that only keeps using tools without saying anything gets a few rounds, then its turn ends.
@@ -1315,14 +1400,114 @@ export class Call {
     const turn = link.turn;
     link.turn = null;
     if (turn?.kind === 'leave') this.leaveSoon(link);
-    if (said && isRepeat(said, earlier)) {
+    if (said && !this.focus && !this.suggesting && isRepeat(said, earlier)) {
       // Going in circles: stop here rather than hope a bot calls wait_for_host.
       this.waitingForHost = true;
       this.event('loop', `${link.bot.name} repeated what was already said: waiting for you`);
       return;
     }
     // A bot cut short of its tool rounds hands the turn on like any other.
-    this.nextTurn(link, said, turn ?? (followUp ? { kind: 'resume' } : null));
+    this.afterTurn(link, said, turn ?? (followUp ? { kind: 'resume' } : null));
+  }
+
+  /** A bot's turn is over: carry on the suggestion round, the one-on-one, or the group talk. */
+  afterTurn(link, said, turn) {
+    if (this.suggesting) return this.nextSuggestion(link, turn);
+    if (this.focus) return this.focusTurnDone(link);
+    this.nextTurn(link, said, turn);
+  }
+
+  /**
+   * Who answers a host line, and what it does to the one-on-one: naming one bot starts (or moves) it, a line
+   * with no name stays in it, "thanks"-style lines end it, and naming several bots or everyone ends it.
+   */
+  hostTarget(text, fallback) {
+    const ready = this.readyLinks();
+    if (this.focus && !ready.includes(this.focus)) this.setFocus(null);
+    const named = namedBots(text, ready.map((l) => l.bot)).map((id) => this.links.get(id));
+    const first = findAddressee(text, ready.map((l) => l.bot));
+    if (this.focus && (!named.length || (named.length === 1 && named[0] === this.focus))) {
+      if (isClosing(text, ready.map((l) => l.bot.name))) {
+        this.focusClosing = true;
+        this.event('focus', `You wrapped up with ${this.focus.bot.name}`);
+        return this.focus;
+      }
+      if (!isGroupAddress(text)) {
+        this.focusClosing = false;
+        return this.focus;
+      }
+    }
+    if (named.length === 1 && ready.length > 1 && !isGroupAddress(text)) {
+      this.setFocus(named[0]);
+      return named[0];
+    }
+    if (this.focus) this.setFocus(null);
+    return first ? this.links.get(first) : fallback;
+  }
+
+  /** Starts, moves or ends (null) the one-on-one, and tells every bot. */
+  setFocus(link) {
+    const was = this.focus;
+    this.focus = link;
+    this.focusClosing = false;
+    this.clearFocusIdle();
+    if (link) this.event('focus', `One-on-one with ${link.bot.name}: the other bots stay quiet`);
+    else this.event('focus', `One-on-one with ${was.bot.name} ended: talking with everyone again`);
+    for (const l of this.links.values()) l.updateInstructions();
+  }
+
+  /** The one-on-one bot finished a reply: if Shashank wrapped up, the others get their say; else wait for him. */
+  focusTurnDone(link) {
+    if (link !== this.focus) return;
+    if (this.focusClosing) return this.startSuggestions();
+    this.armFocusIdle();
+  }
+
+  armFocusIdle() {
+    this.clearFocusIdle();
+    this.focusTimer = this.d.setTimer(() => {
+      this.focusTimer = null;
+      const f = this.focus;
+      // Still mid-conversation: he is talking, or the bot is.
+      if (this.userSpeaking || f.active || f.pending || this.d.now() - this.lastLoud < USER_ACTIVE_MS) return this.armFocusIdle();
+      this.event('focus', `No reply for a while: the one-on-one with ${f.bot.name} is over`);
+      this.startSuggestions();
+    }, this.player.remainingMs() + FOCUS_IDLE_MS);
+  }
+
+  clearFocusIdle() {
+    if (this.focusTimer !== null) this.d.clearTimer(this.focusTimer);
+    this.focusTimer = null;
+  }
+
+  /** The one-on-one is over: each other bot, in turn, may add a suggestion or pass. */
+  startSuggestions() {
+    const from = this.focus;
+    this.focus = null;
+    this.focusClosing = false;
+    this.clearFocusIdle();
+    for (const l of this.links.values()) l.updateInstructions();
+    this.suggesting = { from: from.bot.name, queue: this.readyLinks().filter((l) => l !== from), current: null };
+    this.event('focus', `The others may now add a suggestion about your talk with ${from.bot.name}`);
+    this.nextSuggestion(null, null);
+  }
+
+  /** `done` finished its turn in the suggestion round: ask the next bot, or end the round and wait for Shashank. */
+  nextSuggestion(done, turn) {
+    const round = this.suggesting;
+    if (done !== round.current) return; // not the bot whose turn it is (e.g. a late reply)
+    if (turn?.kind === 'wait') round.queue = [];
+    const ready = this.readyLinks();
+    round.queue = round.queue.filter((l) => ready.includes(l)); // skip bots that left or dropped meanwhile
+    const next = round.queue.shift();
+    if (!next) {
+      this.suggesting = null;
+      this.waitingForHost = true;
+      this.event('focus', 'Suggestions done: waiting for you');
+      return;
+    }
+    round.current = next;
+    this.cueTurn(next, () => next.say(suggestionPrompt(round.from)));
   }
 
   /** Who speaks after `link`: the bot it handed to or named, or the next in order. Nobody if the call should wait. */
@@ -1345,13 +1530,20 @@ export class Call {
     const target = turn?.kind === 'hand' ? others.find((l) => l.bot.id === turn.target) : null;
     const named = findAddressee(said, others.map((l) => l.bot));
     const next = target ?? (named ? this.links.get(named) : this.after(link, others));
+    this.cueTurn(next);
+  }
+
+  /** Asks `next` to speak shortly before the current voice ends, unless Shashank cuts in first. `prepare` runs just before. */
+  cueTurn(next, prepare) {
     const gen = this.gen;
     this.stopNext();
     this.nextTimer = this.d.setTimer(
       () => {
         this.nextTimer = null;
         // Skip a bot that is already about to speak (e.g. a newly invited bot saying hello).
-        if (gen === this.gen && next.ready && !this.userSpeaking && !this.waitingForHost && !next.pending && !next.active) next.respond();
+        if (gen !== this.gen || !next.ready || this.userSpeaking || this.waitingForHost || next.pending || next.active) return;
+        prepare?.();
+        next.respond();
       },
       Math.max(0, this.player.remainingMs() - NEXT_TURN_LEAD_MS),
     );

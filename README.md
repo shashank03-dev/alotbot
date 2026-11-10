@@ -5,7 +5,7 @@ A group voice call with your own Grok Bots.
 - **Join and leave** the call.
 - **Pick which bots are in it**: any subset, before the call and during it (People panel).
 - **Hear them**: each bot speaks in its own Grok voice (the voice set in the Grok Bot app).
-- **Talk with them**: your mic goes to the bot you're talking to; name a bot to talk to that one.
+- **Talk with them**: your mic goes to the bot you're talking to. Name a bot and it's a one-on-one: only that bot answers until you're done, then the others may add a suggestion.
 - **They talk to each other**: each bot hears what the others say and they keep the conversation going, taking turns on their own.
 - **Correct them**: what you say or type comes first, and corrections are pinned for every bot.
 - **Shared notepad, timeline, web and X search**, and a saved summary that the next call starts from.
@@ -45,6 +45,12 @@ Set `PORT=9000` (or `HOST=localhost`) in the environment or a `.env` file to cha
 - **Current direction**: when you correct the bots (a line of 3+ words with "no", "wait", "stop", "actually" or "wrong"), your words are pinned in every bot's instructions as the current direction, newest last, up to 5. Bots that join or reconnect later get it too.
 - **Typing**: a typed message counts as you speaking. Whoever is talking is cut off, every bot gets it as `[Shashank (host)]: ...`, a correction is pinned, and the bot you name (or the listening bot) answers. Messages are cut to 1,000 characters.
 - **Stop hotkey**: **Esc** silences every bot, drops any queued turn, and the bots wait for you. If your focus is inside a side panel, Esc closes the panel instead.
+- **One-on-one**: name one bot ("My Bot, what's the plan?") and only that bot talks with you. Follow-ups without a name go to it too. The other bots keep listening, so they know what was said, but stay silent; their tiles say *Staying quiet*. It ends when:
+  - you wrap up ("thanks", "got it", "that's all", "perfect", up to 6 words), or you say nothing for 20 seconds after the bot's reply. Then each other bot, in turn, may add one short suggestion, but only if it has a specific one it fully understands; otherwise it passes silently. After that the call waits for you.
+  - you name another bot: the one-on-one moves to that bot.
+  - you talk to everyone ("everyone", "guys", "all of you") or name two or more bots: back to group talk, with no suggestion round.
+  - the bot leaves or drops.
+  In a one-on-one the bot can't hand the turn to another bot. Esc or "stop" keeps the one-on-one but stops its 20-second clock.
 - **Saying or typing stop**: a short line that only tells the bots to stop ("stop", "wait", "hold on", "hang on a sec", "be quiet", "shut up", "let me talk", "okay guys, stop talking", up to 8 words, bot names allowed) works like Esc. Nobody answers it, and it is not pinned as a direction. A longer line like "wait, I meant the other plan" is a correction instead: it is pinned and the listening bot answers.
 - **Loop breakers**: the app stops the round itself, without waiting for a bot to use `wait_for_host`, when a bot says again what one of the last 6 bot lines already said. A bot that only uses notepad tools without speaking gets 3 rounds in a row, then the turn moves on. Anything asked for before you cut in (queued replies, reply nudges, the next bot's turn) is dropped when you cut in.
 - **Timeline**: the clock button shows the call as it happens, with times: joins and leaves, every line (cut-off lines marked), tool use, notepad changes, pinned direction, stops and errors. It keeps the last 500 entries.
@@ -89,11 +95,11 @@ Whether the loopback actually removes the echo on your machine depends on Chrome
 ## Tests
 
 ```bash
-npm test          # 159 tests; fails below 100% line/branch/function coverage of src/ and public/core.js
+npm test          # 173 tests; fails below 100% line/branch/function coverage of src/ and public/core.js
 npm run typecheck
 ```
 
-Tests use a fake Grok Bot backend and fake voice sockets, so they never touch your account. The page (Notepad, Timeline, message box, Esc, a spoken stop, the echo-safe loopback carrying bot audio and closing on Leave, its fallback, saving and downloading a call, Search off, layouts from 320 px to 1280 px wide) was also checked in headless Chromium with fake bots and no account traffic. The turn tools, notepad, search, summary and memory have not yet been tried in a call against the real Grok Bot service.
+Tests use a fake Grok Bot backend and fake voice sockets, so they never touch your account. The page (Notepad, Timeline, message box, Esc, a spoken stop, a one-on-one and its suggestion round, the echo-safe loopback carrying bot audio and closing on Leave, its fallback, saving and downloading a call, Search off, layouts from 320 px to 1280 px wide) was also checked in headless Chromium with fake bots and no account traffic. The turn tools, notepad, search, summary and memory have not yet been tried in a call against the real Grok Bot service.
 
 Not covered by unit tests: `src/main.ts` (startup) and `public/app.js` (page and Web Audio glue). Both were checked with a real call in headless Chromium against the real Grok Bot service. That run used a fake mic playing a spoken line and confirmed: bots opened the call and talked among themselves, the spoken line was transcribed, the named bot answered, interrupting cut the speaking bot, adding and removing bots worked, a bot pulled another bot into the call when asked, and Leave closed every connection. Headless Chromium has no speakers, so actually *hearing* the audio was not checked there. Try it yourself.
 

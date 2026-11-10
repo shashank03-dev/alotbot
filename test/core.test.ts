@@ -42,6 +42,13 @@ import {
   GATE_HOLD_MS,
   STOP_MAX_WORDS,
   MAX_QUIET_TOOL_ROUNDS,
+  FOCUS_IDLE_MS,
+  CLOSING_MAX_WORDS,
+  namedBots,
+  isGroupAddress,
+  isClosing,
+  focusText,
+  suggestionPrompt,
   matchBot,
   MIN_UPTIME_FOR_RETRY_MS,
   NEXT_TURN_LEAD_MS,
@@ -426,7 +433,7 @@ test('Shashank names a bot while the listener is already replying: that reply is
   ws('a').emit('response.created');
   ws('a').emit('conversation.item.input_audio_transcription.completed', { transcript: 'Bot B answer this one' });
   assert.ok(ws('a').types().includes('response.cancel'));
-  assert.equal(call.view().bots[0].status, 'idle');
+  assert.equal(call.view().bots[0].status, 'quiet', 'naming B starts a one-on-one with B');
 });
 
 test('barge-in: Shashank talking over a bot silences it and cuts its reply where he stopped hearing it', async () => {
@@ -1826,7 +1833,7 @@ test('isRepeat: most key words of a line were already said', () => {
 test('groupInstructions tells bots not to repeat themselves and to go quiet on stop', () => {
   const text = groupInstructions('B', 'A', ['A']);
   assert.match(text, /Never repeat a point already made in the call; if you have nothing new, pass\./);
-  assert.match(text, /When the host says stop or wait, every bot goes quiet until he speaks again\./);
+  assert.match(text, /When the host says stop or wait, every bot goes quiet until the host speaks again\./);
 });
 
 test('a bot\'s own "wait for Shashank" coming back through the speakers does not restart the talk', async () => {
@@ -2014,4 +2021,278 @@ test('no tool follow-up while the call waits for the host, or when the bot also 
   ws('a').emit('response.done', { response: { status: 'completed' } });
   assert.equal(creates(ws('a')), before, 'pass ends the turn: no follow-up');
   assert.equal(call.passes, 1);
+});
+
+// ---------- one-on-one: only the bot Shashank names talks; the others may suggest once it is over ----------
+
+/** Shashank says `text` into the mic, heard by bot socket `s`. */
+function hostSays(s: FakeSocket, text: string) {
+  s.emit('input_audio_buffer.speech_started');
+  s.emit('conversation.item.input_audio_transcription.completed', { transcript: text });
+}
+/** Runs one pending timer by id. */
+function fire(timers: { fn: () => void; id: number; done: boolean }[], id: number) {
+  const t = timers.find((x) => x.id === id)!;
+  assert.equal(t.done, false, 'timer still pending');
+  t.done = true;
+  t.fn();
+}
+const three = async () => {
+  const t = setup();
+  t.call.join([bot('a'), bot('b'), bot('c')]);
+  await t.ready('a');
+  await t.ready('b');
+  await t.ready('c');
+  return t;
+};
+
+test('namedBots finds every bot named, without counting a name inside a longer one', () => {
+  const bots = [{ id: 'm', name: 'My Bot' }, { id: 'b', name: 'Bot' }, { id: 'x', name: 'X' }, { id: 'e', name: '' }];
+  assert.deepEqual(namedBots('My Bot, what do you think?', bots), ['m']);
+  assert.deepEqual(namedBots('My Bot and Bot, compare', bots), ['m', 'b']);
+  assert.deepEqual(namedBots('x and my bot', bots), ['m', 'x']);
+  assert.deepEqual(namedBots('nobody here', bots), []);
+});
+
+test('isGroupAddress: talking to every bot', () => {
+  for (const t of ['Everyone, thoughts?', 'what do you guys think', 'does anyone know', 'all of you, listen', 'what do you all say', "y'all ready"]) assert.equal(isGroupAddress(t), true, t);
+  for (const t of ['that is all', 'tell me about it', '']) assert.equal(isGroupAddress(t), false, t);
+});
+
+test('isClosing: short "we are done" lines only', () => {
+  for (const t of ['Thanks!', 'Thank you so much', 'got it, thanks', "That's all", 'perfect', 'Bot A, thanks', 'ok cool thanks guys', 'that makes sense']) {
+    assert.equal(isClosing(t, ['Bot A']), true, t);
+  }
+  for (const t of ['', 'ok', 'great', 'thanks but what about teams', 'got it what next', 'thank you very much for all the help'.slice(0, 200)]) {
+    assert.equal(isClosing(t), false, t);
+  }
+  assert.ok('thank you very much for all the help'.split(' ').length > CLOSING_MAX_WORDS);
+});
+
+test('focusText and suggestionPrompt: what each side of a one-on-one is told', () => {
+  assert.equal(focusText('A', null), '');
+  assert.match(focusText('A', 'A'), /talking with you one-on-one\. The other bots are listening and stay quiet/);
+  assert.match(focusText('B', 'A'), /talking with A one-on-one\. Stay completely silent/);
+  assert.match(groupInstructions('x', 'B', ['A', 'B'], [], [], null, 'A' as any), /# One-on-one right now/);
+  assert.match(groupInstructions('x', 'B', ['A', 'B']), /When the host names one bot, that is a one-on-one/);
+  const p = suggestionPrompt('Bot A');
+  assert.match(p, /^\[Call\]: Shashank's one-on-one with Bot A just ended/);
+  assert.match(p, /Otherwise use the pass tool and say nothing at all/);
+});
+
+test('one-on-one: only the named bot talks, follow-ups stay with it, then "thanks" opens a suggestion round and the call waits', async () => {
+  const { call, ws, timers } = await three();
+  hostSays(ws('a'), 'Bot A, how should we price the app?');
+  assert.equal(call.focus, call.links.get('a'));
+  assert.equal(call.view().focus, 'Bot A');
+  assert.match(lastInstructions(ws('a')), /talking with you one-on-one/);
+  assert.match(lastInstructions(ws('b')), /talking with Bot A one-on-one\. Stay completely silent/);
+  assert.equal(call.timeline.find((e: any) => e.kind === 'focus').text, 'One-on-one with Bot A: the other bots stay quiet');
+  speak(ws('a'), 'Start at five dollars a month.', 2);
+  assert.equal(call.nextTimer, null, 'no other bot is cued');
+  assert.deepEqual(call.view().bots.map((b: any) => b.status), ['speaking', 'quiet', 'quiet']);
+  assert.equal(timers.find((t) => t.id === call.focusTimer)!.ms, 2000 + FOCUS_IDLE_MS);
+  // a follow-up with no name stays in the one-on-one
+  hostSays(ws('a'), 'and for teams?');
+  assert.equal(call.focus, call.links.get('a'));
+  assert.equal(call.focusTimer, null, 'him talking resets the quiet clock');
+  speak(ws('a'), 'Teams pay twenty.', 1);
+  assert.equal(call.nextTimer, null);
+  // he wraps up; A answers, then the others get their turn to suggest
+  hostSays(ws('a'), 'Got it, thanks');
+  assert.equal(call.focusClosing, true);
+  assert.equal(call.timeline.at(-1).text, 'You wrapped up with Bot A');
+  speak(ws('a'), 'Happy to help.', 1);
+  assert.ok(call.focus === null);
+  assert.doesNotMatch(lastInstructions(ws('b')), /One-on-one right now/);
+  assert.equal(call.timeline.at(-1).text, 'The others may now add a suggestion about your talk with Bot A');
+  assert.equal(creates(ws('b')), 0);
+  fire(timers, call.nextTimer);
+  assert.equal(ws('b').said().at(-1), suggestionPrompt('Bot A'));
+  assert.equal(creates(ws('b')), 1);
+  useTool(ws('b'), 'pass', {});
+  fire(timers, call.nextTimer);
+  assert.equal(ws('c').said().at(-1), suggestionPrompt('Bot A'));
+  speak(ws('c'), 'Consider a free tier for students.');
+  assert.ok(call.suggesting === null);
+  assert.equal(call.waitingForHost, true);
+  assert.equal(call.timeline.at(-1).text, 'Suggestions done: waiting for you');
+  assert.equal(call.nextTimer, null);
+  assert.equal(call.passes, 0, 'passing in the round does not count toward "every bot passed"');
+});
+
+test('one-on-one ends by itself after a quiet spell, unless he or the bot is still going', async () => {
+  const { call, ws, timers, setClock } = await three();
+  hostSays(ws('a'), 'Bot A, a question');
+  speak(ws('a'), 'Sure, go ahead.');
+  const a = call.links.get('a');
+  call.userSpeaking = true;
+  fire(timers, call.focusTimer);
+  assert.notEqual(call.focusTimer, null, 'he is talking: wait again');
+  call.userSpeaking = false;
+  a.active = true;
+  fire(timers, call.focusTimer);
+  a.active = false;
+  a.pending = true;
+  fire(timers, call.focusTimer);
+  a.pending = false;
+  setClock(100_000);
+  call.micAudio(new Int16Array(10), 1); // loud a moment ago
+  fire(timers, call.focusTimer);
+  assert.ok(call.focus, 'still in the one-on-one');
+  setClock(100_000 + USER_ACTIVE_MS);
+  fire(timers, call.focusTimer);
+  assert.ok(call.focus === null);
+  assert.equal(call.timeline.at(-2).text, 'No reply for a while: the one-on-one with Bot A is over');
+  assert.ok(call.suggesting);
+});
+
+test('addressing everyone or several bots ends the one-on-one and the group talk comes back', async () => {
+  const { call, ws, timers } = await three();
+  hostSays(ws('a'), 'Bot A, what do you think?');
+  speak(ws('a'), 'I like it.');
+  hostSays(ws('a'), 'What do you all think, everyone?');
+  assert.ok(call.focus === null);
+  assert.equal(call.timeline.at(-1).text.startsWith('One-on-one with Bot A ended'), true);
+  speak(ws('a'), 'I still like it.');
+  fire(timers, call.nextTimer);
+  assert.equal(creates(ws('b')), 1, 'the round goes on to B');
+  // two bots named: no one-on-one; the first named answers
+  hostSays(ws('a'), 'Bot C and Bot B, compare these');
+  assert.ok(call.focus === null);
+  assert.equal(call.ear, call.links.get('c'));
+  // one bot named but talking to everyone: no one-on-one either
+  hostSays(ws('c'), 'Bot B, and everyone else, listen up');
+  assert.ok(call.focus === null);
+  // several named while in a one-on-one ends it
+  hostSays(ws('b'), 'Bot B, one thing');
+  assert.equal(call.focus, call.links.get('b'));
+  hostSays(ws('b'), 'Bot A and Bot C, you too');
+  assert.ok(call.focus === null);
+});
+
+test('naming another bot moves the one-on-one to it; a lone bot never gets one', async () => {
+  const { call, ws } = await three();
+  hostSays(ws('a'), 'Bot A, hi');
+  hostSays(ws('a'), 'Bot B, your view?');
+  assert.equal(call.focus, call.links.get('b'));
+  assert.equal(call.ear, call.links.get('b'));
+  assert.equal(call.timeline.filter((e: any) => e.kind === 'focus').length, 2);
+  hostSays(ws('b'), 'Bot B, thanks'); // naming the same bot again while wrapping up
+  assert.equal(call.focusClosing, true);
+  hostSays(ws('b'), 'oh wait, one more thing');
+  assert.equal(call.focusClosing, false, 'he kept going');
+
+  const solo = setup();
+  solo.call.join([bot('a')]);
+  await solo.ready('a');
+  hostSays(solo.ws('a'), 'Bot A, hi');
+  assert.equal(solo.call.focus, null);
+});
+
+test('in a one-on-one the bot cannot hand the turn away, and another bot speaking does not take the mic', async () => {
+  const { call, ws } = await three();
+  hostSays(ws('a'), 'Bot A, plan this with me');
+  useTool(ws('a'), 'hand_to', { name: 'Bot B' }, 'Let me ask B.');
+  assert.match(outputs(ws('a')).at(-1).output, /talking with you one-on-one, so the other bots stay quiet/);
+  assert.equal(call.nextTimer, null);
+  speak(ws('c'), 'Hello, I just joined.'); // e.g. a bot A pulled in
+  assert.equal(call.ear, call.links.get('a'));
+  assert.equal(call.focus, call.links.get('a'));
+});
+
+test('one-on-one ends quietly when its bot leaves or drops', async () => {
+  const { call, ws } = await three();
+  hostSays(ws('a'), 'Bot A, hi');
+  call.removeBot('a');
+  assert.ok(call.focus === null);
+  assert.ok(call.timeline.some((e: any) => e.text === 'One-on-one with Bot A ended: talking with everyone again'));
+  hostSays(ws('b'), 'Bot B, hi');
+  ws('b').onclose!(); // dropped: reconnecting
+  assert.equal(call.sendText('anyone there?'), true);
+  assert.ok(call.focus === null);
+  assert.ok(call.suggesting === null);
+});
+
+test('suggestion round: wait_for_host ends it; late replies, bots that left, the host and the stop key are handled', async () => {
+  let t = await three();
+  const toRound = (x: typeof t) => {
+    hostSays(x.ws('a'), 'Bot A, hi');
+    hostSays(x.ws('a'), 'thanks');
+    speak(x.ws('a'), 'Bye.');
+    fire(x.timers, x.call.nextTimer); // B is asked
+  };
+  toRound(t);
+  speak(t.ws('c'), 'A late line.'); // not C's turn yet: the round doesn't move
+  assert.equal(t.call.suggesting.current, t.call.links.get('b'));
+  useTool(t.ws('b'), 'wait_for_host', {});
+  assert.ok(t.call.suggesting === null);
+  assert.equal(t.call.waitingForHost, true);
+
+  t = await three();
+  toRound(t);
+  t.call.removeBot('c');
+  useTool(t.ws('b'), 'pass', {});
+  assert.ok(t.call.suggesting === null, 'C left: nobody else to ask');
+
+  t = await three();
+  toRound(t);
+  hostSays(t.ws('a'), 'actually, new topic'); // the mic is still on A
+  assert.ok(t.call.suggesting === null, 'he took over');
+
+  t = await three();
+  toRound(t);
+  t.call.stopAll();
+  assert.ok(t.call.suggesting === null);
+
+  // nobody else left to ask when the one-on-one ends
+  t = await three();
+  hostSays(t.ws('a'), 'Bot A, hi');
+  t.call.removeBot('b');
+  t.call.removeBot('c');
+  hostSays(t.ws('a'), 'thanks');
+  speak(t.ws('a'), 'Bye.');
+  assert.ok(t.call.suggesting === null);
+  assert.equal(t.call.waitingForHost, true);
+});
+
+test('echo cutting the one-on-one bot restarts the quiet clock; echo cutting a suggester moves the round on', async () => {
+  const { call, ws, timers, audio } = await three();
+  hostSays(ws('a'), 'Bot A, explain pricing');
+  startReply(ws('a'), 'Pricing starts at five dollars for everyone', 4, 'ia');
+  audio.t = 2;
+  hostSays(ws('a'), 'five dollars for everyone');
+  assert.notEqual(call.focusTimer, null);
+  ws('a').emit('response.done', { response: { status: 'cancelled' } });
+  hostSays(ws('a'), 'thanks');
+  speak(ws('a'), 'Welcome.');
+  fire(timers, call.nextTimer);
+  startReply(ws('b'), 'You could add yearly plans with a discount', 4, 'ib');
+  audio.t += 1;
+  hostSays(ws('a'), 'yearly plans with a discount');
+  assert.equal(call.suggesting.current, call.links.get('c'));
+});
+
+test('typing to one bot starts a one-on-one; typing "thanks" wraps it up; the stop key keeps it but stops the clock', async () => {
+  const { call, ws } = await three();
+  call.sendText('Bot B, quick question about launch');
+  assert.equal(call.focus, call.links.get('b'));
+  speak(ws('b'), 'Sure.');
+  assert.notEqual(call.focusTimer, null);
+  call.stopAll();
+  assert.equal(call.focusTimer, null);
+  assert.equal(call.focus, call.links.get('b'));
+  call.sendText('thank you');
+  assert.equal(call.focusClosing, true);
+  call.leave();
+  assert.ok(call.focus === null);
+});
+
+test('leaving mid one-on-one clears its quiet clock', async () => {
+  const { call, ws, timers } = await three();
+  hostSays(ws('a'), 'Bot A, hi');
+  speak(ws('a'), 'Hi.');
+  const id = call.focusTimer;
+  call.leave();
+  assert.equal(timers.find((x) => x.id === id)!.done, true);
 });

@@ -473,6 +473,7 @@ const STATUS_TEXT = {
   speaking: 'Speaking',
   thinking: 'Thinking…',
   listening: 'Listening to you',
+  quiet: 'Staying quiet',
   idle: '',
 };
 
