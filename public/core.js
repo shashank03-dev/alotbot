@@ -4,8 +4,6 @@
 
 export const USER = 'Shashank';
 export const SAMPLE_RATE = 24000;
-/** Bot turns in a row (bots talking among themselves) before they wait for Shashank. */
-export const MAX_BOT_TURNS = 6;
 /** Cue the next bot this long before the current voice finishes, to hide its start-up delay. */
 export const NEXT_TURN_LEAD_MS = 1200;
 /** If the listening bot has not started its reply this long after Shashank stops, ask it to. */
@@ -85,6 +83,32 @@ export const INVITE_TOOL = {
   },
 };
 
+const fn = (name, description, properties = {}, required = []) => ({
+  type: 'function',
+  name,
+  description,
+  parameters: { type: 'object', properties, required },
+});
+
+/** Turn tools: bots decide who speaks next, when to stop, and when to go. */
+export const PASS_TOOL = fn('pass', 'Skip your turn when you have nothing useful to add. Say nothing out loud when you use it.');
+export const HAND_TO_TOOL = fn(
+  'hand_to',
+  'Give the next turn to one bot in the call. Use it after you finish speaking, instead of letting the turn go round.',
+  { name: { type: 'string', description: 'Exact name of a bot in the call.' } },
+  ['name'],
+);
+export const WAIT_FOR_HOST_TOOL = fn(
+  'wait_for_host',
+  `Stop the bots talking among themselves and wait for ${USER} to speak. Use it when the topic is done, when you need ${USER}'s input, or when the bots are going in circles.`,
+);
+export const LEAVE_CALL_TOOL = fn(
+  'leave_call',
+  `Leave this call yourself, when ${USER} asks you to or when you are no longer needed. Say a short goodbye before you use it.`,
+);
+
+export const TOOLS = [INVITE_TOOL, PASS_TOOL, HAND_TO_TOOL, WAIT_FOR_HOST_TOOL, LEAVE_CALL_TOOL];
+
 export function groupInstructions(base, me, roster, invitable = []) {
   const others = roster.filter((n) => n !== me);
   const who = others.length
@@ -102,7 +126,11 @@ export function groupInstructions(base, me, roster, invitable = []) {
     `A line tagged "(cut off by the host)" is only the part the host heard before cutting that speaker off. ` +
     `Speak only as yourself and never say a "[Name]:" prefix. Keep each turn to one to three short spoken sentences. ` +
     `To ask someone to answer, say their name. ${invite} ` +
-    `Your other tools are not available during this call; invite_bot is the only one.`
+    `Bots take turns on their own. After you speak, the turn goes to the bot you name, or round the call in order. ` +
+    `Manage turns with your tools: hand_to gives the next turn to one bot, pass skips your turn when you have nothing to add, ` +
+    `wait_for_host stops the bots and waits for ${USER} (use it when the topic is done or you are going in circles), ` +
+    `and leave_call takes you out of the call. ` +
+    `Your other Grok Bot tools are not available during this call; only the tools given here are.`
   );
 }
 
@@ -299,6 +327,8 @@ export class BotLink {
     this.heardMs = 0; // set when Shashank cuts this reply off: how much of it he heard
     this.replyTimer = null;
     this.toolCalls = [];
+    this.turn = null; // what this bot decided with a turn tool: { kind, target? }
+    this.leaving = false; // used leave_call; removed once its goodbye has played
   }
 
   async connect(context) {
@@ -330,7 +360,7 @@ export class BotLink {
       session: {
         ...(voice ? { voice } : {}),
         instructions: this.instructions(),
-        tools: [INVITE_TOOL],
+        tools: TOOLS,
         turn_detection: { type: 'server_vad' },
         audio: {
           input: {
@@ -474,13 +504,19 @@ export class BotLink {
         const status = heard ? (e.response?.status ?? 'completed') : 'cancelled';
         const calls = this.toolCalls.splice(0);
         const ran = heard && status === 'completed';
+        let followUp = false;
         for (const c of calls) {
-          const output = ran ? this.call.onToolCall(this, c) : 'Not done: this reply was cut off before anyone heard it.';
+          let output = 'Not done: this reply was cut off before anyone heard it.';
+          if (ran) {
+            const r = this.call.onToolCall(this, c);
+            output = r.output;
+            followUp ||= r.followUp;
+          }
           this.send({ type: 'conversation.item.create', item: { type: 'function_call_output', call_id: c.callId, output } });
         }
         if (!heard && this.heardMs > 0) this.call.onBotCut(this, heardPart(cleanTranscript(this.text), this.heardMs, this.audioMs));
         this.heardMs = 0;
-        return this.call.onBotDone(this, heard ? cleanTranscript(this.text) : '', status, ran && calls.length > 0);
+        return this.call.onBotDone(this, heard ? cleanTranscript(this.text) : '', status, followUp);
       }
       case 'input_audio_buffer.speech_started':
         return this.call.onSpeechStart(this);
@@ -554,7 +590,8 @@ export class Call {
     this.opened = false;
     this.muted = false;
     this.userSpeaking = false;
-    this.botTurns = 0;
+    this.waitingForHost = false; // a bot used wait_for_host (or every bot passed): no bot turns until Shashank speaks
+    this.passes = 0; // passes in a row
     this.gen = 0;
     this.nextTimer = null;
     this.preroll = [];
@@ -633,7 +670,7 @@ export class Call {
   }
 
   readyLinks() {
-    return this.order.map((id) => this.links.get(id)).filter((l) => l.ready);
+    return this.order.map((id) => this.links.get(id)).filter((l) => l.ready && !l.leaving);
   }
 
   /** What the page draws: one entry per bot in the call. */
@@ -643,6 +680,7 @@ export class Call {
       phase: this.phase,
       muted: this.muted,
       userSpeaking: this.userSpeaking,
+      waitingForHost: this.waitingForHost,
       bots: this.order.map((id) => {
         const l = this.links.get(id);
         let status = l.status;
@@ -755,7 +793,7 @@ export class Call {
       return;
     }
     this.record(USER, text.trim(), link);
-    this.botTurns = 0;
+    this.hostSpoke();
     const named = findAddressee(text, this.readyLinks().map((l) => l.bot));
     const target = named ? this.links.get(named) : link;
     if (target === link) {
@@ -794,15 +832,49 @@ export class Call {
     this.record(link.bot.name, part, link, true);
   }
 
-  /** A bot used a tool. Returns what the bot is told back. */
+  /** Shashank said something: bots may take turns again. */
+  hostSpoke() {
+    this.waitingForHost = false;
+    this.passes = 0;
+  }
+
+  /** A bot used a tool. Returns { output: what the bot is told, followUp: it should speak again }. */
   onToolCall(link, { name, args }) {
-    if (name !== INVITE_TOOL.name) return `Unknown tool "${name}". The only tool in this call is invite_bot.`;
-    let wanted = '';
+    let a = {};
     try {
-      wanted = String(JSON.parse(args)?.name ?? '');
+      a = JSON.parse(args) ?? {};
     } catch {
-      // bad arguments: treated as no name
+      // bad arguments: treated as none
     }
+    switch (name) {
+      case INVITE_TOOL.name:
+        return { output: this.invite(link, String(a.name ?? '')), followUp: true };
+      case PASS_TOOL.name:
+        link.turn = { kind: 'pass' };
+        return { output: 'You passed this turn.', followUp: false };
+      case HAND_TO_TOOL.name: {
+        const others = this.readyLinks().filter((l) => l !== link);
+        const wanted = String(a.name ?? '');
+        const id = matchBot(wanted, others.map((l) => l.bot));
+        if (!id) {
+          const list = others.map((l) => l.bot.name).join(', ') || 'nobody';
+          return { output: `No bot called "${wanted}" can take the turn. Bots in the call: ${list}. The turn goes on as usual.`, followUp: false };
+        }
+        link.turn = { kind: 'hand', target: id };
+        return { output: `${this.links.get(id).bot.name} speaks next.`, followUp: false };
+      }
+      case WAIT_FOR_HOST_TOOL.name:
+        link.turn = { kind: 'wait' };
+        return { output: `The bots now wait for ${USER} to speak.`, followUp: false };
+      case LEAVE_CALL_TOOL.name:
+        link.turn = { kind: 'leave' };
+        return { output: 'You are leaving the call.', followUp: false };
+      default:
+        return { output: `Unknown tool "${name}". Tools in this call: ${TOOLS.map((t) => t.name).join(', ')}.`, followUp: false };
+    }
+  }
+
+  invite(link, wanted) {
     const id = matchBot(wanted, this.available);
     const list = this.invitable().map((b) => b.name).join(', ') || 'nobody';
     if (!id) return `There is no Grok Bot called "${wanted}". Bots you can invite: ${list}.`;
@@ -813,8 +885,11 @@ export class Call {
     return `${bot.name} is joining the call now. Tell everyone in one short line.`;
   }
 
-  onBotDone(link, text, status, usedTool = false) {
-    if (status !== 'completed' || !this.links.has(link.bot.id)) return;
+  onBotDone(link, text, status, followUp = false) {
+    if (status !== 'completed' || !this.links.has(link.bot.id)) {
+      link.turn = null;
+      return;
+    }
     const said = text.trim();
     if (said) {
       this.record(link.bot.name, said, link);
@@ -822,27 +897,51 @@ export class Call {
       // or his words get split between two bots.
       if (!this.userSpeaking && this.d.now() - this.lastLoud >= USER_ACTIVE_MS) this.setEar(link);
     }
-    // After a tool call the bot speaks again to say how it went; the next turn is cued after that.
-    if (usedTool) {
+    // After a tool like invite_bot the bot speaks again to say how it went; its turn decision waits until then.
+    if (followUp) {
       if (!this.userSpeaking) link.respond();
       return;
     }
-    if (!said) return;
-    this.botTurns++;
+    const turn = link.turn;
+    link.turn = null;
+    if (turn?.kind === 'leave') this.leaveSoon(link);
+    if (!said && !turn) return;
+    if (turn?.kind === 'wait') {
+      this.waitingForHost = true;
+      return;
+    }
+    if (said) this.passes = 0;
+    else if (turn?.kind === 'pass') this.passes++;
     const others = this.readyLinks().filter((l) => l !== link);
-    if (!others.length || this.botTurns >= MAX_BOT_TURNS || this.userSpeaking) return;
-    const named = findAddressee(text, others.map((l) => l.bot));
-    const next = named ? this.links.get(named) : this.after(link, others);
+    if (this.passes > 0 && this.passes >= others.length + 1) {
+      // Every bot passed in a row: nobody has anything to add.
+      this.waitingForHost = true;
+      return;
+    }
+    if (!others.length || this.userSpeaking || this.waitingForHost) return;
+    const target = turn?.kind === 'hand' ? others.find((l) => l.bot.id === turn.target) : null;
+    const named = findAddressee(said, others.map((l) => l.bot));
+    const next = target ?? (named ? this.links.get(named) : this.after(link, others));
     const gen = this.gen;
     this.stopNext();
     this.nextTimer = this.d.setTimer(
       () => {
         this.nextTimer = null;
         // Skip a bot that is already about to speak (e.g. a newly invited bot saying hello).
-        if (gen === this.gen && next.ready && !this.userSpeaking && !next.pending && !next.active) next.respond();
+        if (gen === this.gen && next.ready && !this.userSpeaking && !this.waitingForHost && !next.pending && !next.active) next.respond();
       },
       Math.max(0, this.player.remainingMs() - NEXT_TURN_LEAD_MS),
     );
+  }
+
+  /** A bot used leave_call: remove it once its goodbye has played. */
+  leaveSoon(link) {
+    link.leaving = true;
+    this.d.setTimer(() => {
+      if (this.links.get(link.bot.id) !== link) return;
+      this.removeBot(link.bot.id);
+      for (const l of this.links.values()) l.say(`[Call]: ${link.bot.name} left the call.`);
+    }, this.player.remainingMs());
   }
 
   /** Next bot in call order after `link`, among `others`. */

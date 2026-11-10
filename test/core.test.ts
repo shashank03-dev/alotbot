@@ -17,9 +17,9 @@ import {
   fromBase64,
   groupInstructions,
   INVITE_TOOL,
+  TOOLS,
   isNoiseOrEcho,
   matchBot,
-  MAX_BOT_TURNS,
   MIN_UPTIME_FOR_RETRY_MS,
   NEXT_TURN_LEAD_MS,
   normalize,
@@ -300,18 +300,17 @@ test('a bot that names another hands the turn to that bot', async () => {
   assert.equal(ws('a').types().filter((x: string) => x === 'response.create').length, 2);
 });
 
-test('bots stop after MAX_BOT_TURNS and wait for Shashank', async () => {
+test('there is no fixed turn limit: bots keep talking until one of them stops it', async () => {
   const { call, ws, ready, timers, runTimers } = setup();
   call.join([bot('a'), bot('b')]);
   await ready('a');
   await ready('b');
-  for (let i = 0; i < MAX_BOT_TURNS; i++) {
+  for (let i = 0; i < 20; i++) {
     speak(ws(i % 2 ? 'b' : 'a'), `turn ${i}`);
+    assert.equal(timers.filter((t) => !t.done).length, 1, `turn ${i} cues the next bot`);
     runTimers();
   }
-  const pending = timers.filter((t) => !t.done).length;
-  assert.equal(pending, 0, 'no further bot turn is cued');
-  assert.equal(call.botTurns, MAX_BOT_TURNS);
+  assert.equal(ws('a').types().filter((x: string) => x === 'response.create').length, 11);
 });
 
 test('a single bot answers and then waits', async () => {
@@ -417,7 +416,6 @@ test('barge-in: Shashank talking over a bot silences it and cuts its reply where
   ws('b').emit('response.created'); // B is also generating
   ws('b').emit('response.done', { response: { status: 'completed' } }); // with no words: ignored
   ws('b').types();
-  call.botTurns = 3;
   ws('a').emit('response.done', { response: { status: 'completed' } }); // text empty: ignored
   audio.t = 1.25;
   // B was cued but hasn't started
@@ -701,7 +699,8 @@ test('every bot gets the invite tool and the list of bots it can pull in', async
   await flush();
   ws('a').onopen!();
   const update = ws('a').sent[0].session;
-  assert.deepEqual(update.tools, [INVITE_TOOL]);
+  assert.deepEqual(update.tools, TOOLS);
+  assert.deepEqual(update.tools[0], INVITE_TOOL);
   assert.match(update.instructions, /Bots you can invite: Bot B, Bot C\./);
 });
 
@@ -746,7 +745,7 @@ test('invite refusals: unknown bot, already in the call, bad arguments, unknown 
     'Bot B is already in the call.',
     'There is no Grok Bot called "". Bots you can invite: Bot C.',
     'There is no Grok Bot called "". Bots you can invite: Bot C.',
-    'Unknown tool "end_the_call". The only tool in this call is invite_bot.',
+    'Unknown tool "end_the_call". Tools in this call: invite_bot, pass, hand_to, wait_for_host, leave_call.',
   ]);
   assert.equal(mints.length, 2, 'nobody new was minted');
   // with nobody left to invite, the refusal says so
@@ -1024,4 +1023,190 @@ test('stuck timer: cleared by a transcript, harmless after leaving, and fine wit
   assert.equal(call.view().userSpeaking, false);
   call.leave();
   assert.equal(call.stuckTimer, null);
+});
+
+// ---------- bots managing turns ----------
+
+const creates = (s: FakeSocket) => s.types().filter((x: string) => x === 'response.create').length;
+
+test('groupInstructions explains the turn tools', () => {
+  const text = groupInstructions('B', 'A', ['A', 'C']);
+  for (const name of ['hand_to', 'pass', 'wait_for_host', 'leave_call']) assert.match(text, new RegExp(name));
+  assert.deepEqual(TOOLS.map((t: any) => t.name), ['invite_bot', 'pass', 'hand_to', 'wait_for_host', 'leave_call']);
+  for (const t of TOOLS) assert.equal((t as any).type, 'function');
+});
+
+test('hand_to gives the next turn to that bot, over a name in the words and over round-robin', async () => {
+  const { call, ws, ready, runTimers } = setup();
+  call.join([bot('a'), bot('b'), bot('c')]);
+  for (const id of ['a', 'b', 'c']) await ready(id);
+  useTool(ws('a'), 'hand_to', { name: 'Bot C' }, 'Bot B made a point. Over to someone else.');
+  assert.equal(outputs(ws('a')).at(-1).output, 'Bot C speaks next.');
+  assert.notEqual(ws('a').types().at(-1), 'response.create', 'no follow-up reply after a turn tool');
+  runTimers();
+  assert.equal(creates(ws('c')), 1);
+  assert.equal(creates(ws('b')), 0);
+});
+
+test('hand_to with an unknown bot, itself, or bad arguments: refused, turn goes on as usual', async () => {
+  const { call, ws, ready, runTimers } = setup();
+  call.join([bot('a'), bot('b')]);
+  await ready('a');
+  await ready('b');
+  useTool(ws('a'), 'hand_to', { name: 'Grok Prime' }, 'Hmm.');
+  assert.equal(outputs(ws('a')).at(-1).output, 'No bot called "Grok Prime" can take the turn. Bots in the call: Bot B. The turn goes on as usual.');
+  runTimers();
+  assert.equal(creates(ws('b')), 1, 'round-robin');
+  useTool(ws('a'), 'hand_to', { name: 'Bot A' }, 'Me again.');
+  assert.match(outputs(ws('a')).at(-1).output, /No bot called "Bot A"/);
+  useTool(ws('a'), 'hand_to', 'not json', 'Ok.');
+  assert.match(outputs(ws('a')).at(-1).output, /No bot called ""/);
+  call.removeBot('b');
+  useTool(ws('a'), 'hand_to', { name: 'Bot B' }, 'Alone.');
+  assert.match(outputs(ws('a')).at(-1).output, /Bots in the call: nobody\./);
+});
+
+test('a hand_to target that left before its turn: falls back to round-robin', async () => {
+  const { call, ws, ready, runTimers } = setup();
+  call.join([bot('a'), bot('b'), bot('c')]);
+  for (const id of ['a', 'b', 'c']) await ready(id);
+  ws('a').emit('response.created');
+  ws('a').emit('response.output_audio_transcript.done', { transcript: 'Thoughts?' });
+  ws('a').emit('response.function_call_arguments.done', { call_id: 'h', name: 'hand_to', arguments: '{"name":"Bot C"}' });
+  // C drops out as the tool output is being made: simulate by removing it right after the tool ran
+  const orig = call.onToolCall.bind(call);
+  call.onToolCall = (l: any, c: any) => {
+    const r = orig(l, c);
+    call.removeBot('c');
+    return r;
+  };
+  ws('a').emit('response.done', { response: { status: 'completed' } });
+  runTimers();
+  assert.equal(creates(ws('b')), 1);
+});
+
+test('pass: the bot says nothing and the turn moves on; when every bot passes, they wait for the host', async () => {
+  const { call, ws, ready, runTimers, timers } = setup();
+  call.join([bot('a'), bot('b'), bot('c')]);
+  for (const id of ['a', 'b', 'c']) await ready(id);
+  speak(ws('a'), 'What does everyone think?');
+  runTimers();
+  useTool(ws('b'), 'pass', {});
+  assert.equal(outputs(ws('b')).at(-1).output, 'You passed this turn.');
+  assert.equal(call.passes, 1);
+  runTimers();
+  assert.equal(creates(ws('c')), 1, 'C is up after B passed');
+  useTool(ws('c'), 'pass', {});
+  runTimers();
+  useTool(ws('a'), 'pass', {});
+  assert.equal(call.waitingForHost, true, 'three passes in a row');
+  assert.equal(timers.filter((t) => !t.done).length, 0);
+  assert.equal(call.view().waitingForHost, true);
+  // a real line resets the count
+  call.hostSpoke();
+  useTool(ws('a'), 'pass', {});
+  speak(ws('b'), 'I have something.');
+  assert.equal(call.passes, 0);
+});
+
+test('a solo bot that passes waits for the host', async () => {
+  const { call, ws, ready, timers } = setup();
+  call.join([bot('a')]);
+  await ready('a');
+  useTool(ws('a'), 'pass', {});
+  assert.equal(call.waitingForHost, true);
+  assert.equal(timers.filter((t) => !t.done).length, 0);
+});
+
+test('wait_for_host stops bot turns until the host speaks', async () => {
+  const { call, ws, ready, timers, runTimers } = setup();
+  call.join([bot('a'), bot('b')]);
+  await ready('a');
+  await ready('b');
+  speak(ws('a'), 'Bot B, quick one.');
+  useTool(ws('b'), 'wait_for_host', {}, 'Let us check with Shashank.');
+  assert.equal(outputs(ws('b')).at(-1).output, 'The bots now wait for Shashank to speak.');
+  assert.equal(call.waitingForHost, true);
+  // a queued cue from before is skipped too
+  runTimers();
+  assert.equal(creates(ws('b')), 0);
+  // another bot finishing a line does not restart the chatter
+  speak(ws('a'), 'Agreed.');
+  assert.equal(timers.filter((t) => !t.done).length, 0);
+  // an echo-dropped line does not count as the host speaking
+  ws('a').emit('conversation.item.input_audio_transcription.completed', { transcript: '' });
+  assert.equal(call.waitingForHost, true);
+  ws('a').emit('response.created'); // the server's auto-reply to that noise is cancelled
+  ws('a').emit('response.done', { response: { status: 'cancelled' } });
+  ws('a').emit('conversation.item.input_audio_transcription.completed', { transcript: 'ok go on both of you' });
+  assert.equal(call.waitingForHost, false);
+  speak(ws('a'), 'Sure.');
+  assert.equal(timers.filter((t) => !t.done).length, 1, 'bots take turns again');
+});
+
+test('leave_call: the bot says goodbye, leaves once it has played, and the others are told', async () => {
+  const { call, ws, ready, timers, runTimers } = setup();
+  call.join([bot('a'), bot('b'), bot('c')]);
+  for (const id of ['a', 'b', 'c']) await ready(id);
+  ws('b').emit('response.created');
+  ws('b').emit('response.output_item.added', { item: { id: 'ib' } });
+  ws('b').emit('response.output_audio.delta', { delta: b64audio(2) });
+  ws('b').emit('response.output_audio_transcript.done', { transcript: 'Goodbye all.' });
+  ws('b').emit('response.function_call_arguments.done', { call_id: 'l', name: 'leave_call', arguments: '{}' });
+  ws('b').emit('response.done', { response: { status: 'completed' } });
+  assert.equal(outputs(ws('b')).at(-1).output, 'You are leaving the call.');
+  const leaveTimer = timers.find((t) => t.ms === 2000)!;
+  assert.ok(leaveTimer, 'leaves after its 2 s goodbye');
+  assert.equal(call.links.get('b').leaving, true);
+  assert.ok(!call.readyLinks().some((l: any) => l.bot.id === 'b'), 'not offered turns or the mic while leaving');
+  runTimers();
+  assert.deepEqual(call.view().bots.map((x: any) => x.id), ['a', 'c']);
+  assert.equal(ws('b').closed, true);
+  assert.equal(ws('a').said().at(-1), '[Call]: Bot B left the call.');
+  assert.equal(creates(ws('c')), 1, 'the turn still went on to C');
+});
+
+test('leave_call: a bot already removed by the host is not removed twice; the last bot leaving ends nothing else', async () => {
+  const { call, ws, ready, timers } = setup();
+  call.join([bot('a'), bot('b')]);
+  await ready('a');
+  await ready('b');
+  useTool(ws('a'), 'leave_call', {}, 'Bye.');
+  call.removeBot('a');
+  call.addBot(bot('a')); // re-added: a new link with the same id
+  timers.filter((t) => !t.done).forEach((t) => t.fn());
+  assert.deepEqual(call.view().bots.map((x: any) => x.id), ['b', 'a']);
+  useTool(ws('b'), 'leave_call', {});
+  timers.filter((t) => !t.done).forEach((t) => {
+    t.done = true;
+    t.fn();
+  });
+  assert.deepEqual(call.view().bots.map((x: any) => x.id), ['a']);
+});
+
+test('turn tools combined with invite_bot wait for the follow-up reply', async () => {
+  const { call, ws, ready, runTimers } = setup();
+  call.join([bot('a'), bot('b')], [bot('a'), bot('b'), bot('c')]);
+  await ready('a');
+  await ready('b');
+  ws('a').emit('response.created');
+  ws('a').emit('response.output_audio_transcript.done', { transcript: 'Getting Bot C.' });
+  ws('a').emit('response.function_call_arguments.done', { call_id: 'i', name: 'invite_bot', arguments: '{"name":"Bot C"}' });
+  ws('a').emit('response.function_call_arguments.done', { call_id: 'w', name: 'wait_for_host', arguments: '{}' });
+  ws('a').emit('response.done', { response: { status: 'completed' } });
+  assert.equal(ws('a').types().at(-1), 'response.create', 'speaks again about the invite');
+  assert.equal(call.waitingForHost, false, 'decision held until the follow-up');
+  speak(ws('a'), 'Bot C is coming.');
+  assert.equal(call.waitingForHost, true);
+  runTimers();
+});
+
+test('a turn decision in a reply the host cut off is dropped', async () => {
+  const { call, ws, ready } = setup();
+  call.join([bot('a'), bot('b')]);
+  await ready('a');
+  await ready('b');
+  useTool(ws('a'), 'wait_for_host', {}, 'Wait.', 'cancelled');
+  assert.equal(call.waitingForHost, false);
+  assert.equal(call.links.get('a').turn, null);
 });

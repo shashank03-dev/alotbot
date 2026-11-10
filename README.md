@@ -34,7 +34,11 @@ Set `PORT=9000` (or `HOST=localhost`) in the environment or a `.env` file to cha
 - On join, each picked bot gets its own live voice session (Grok voice, `grok-voice-3.0`), with that bot's own voice-call instructions from Grok Bot plus a note that it's in a group call and who else is there.
 - The first bot to connect opens the call with one short line.
 - **Your mic** goes to one bot at a time: the last bot that spoke, or the bot you named. Grok voice sessions always reply to audio they hear, so sending your voice to every bot would make them all answer at once. The other bots get your words as text: `[Shashank (host)]: ...`. Every bot is told that what the host says comes before the current topic.
-- **Bot to bot**: when a bot finishes, the others get its words as `[Bot name]: ...`. Then the bot it named answers, or the next bot in line. After 6 bot turns in a row they stop and wait for you.
+- **Bot to bot**: when a bot finishes, the others get its words as `[Bot name]: ...`. Then the bot it named answers, or the next bot in line. There is no fixed turn limit; the bots manage turns with tools:
+  - `hand_to`: give the next turn to one bot.
+  - `pass`: skip a turn without speaking. If every bot passes in a row, they wait for you.
+  - `wait_for_host`: stop the bot-to-bot talk until you speak.
+  - `leave_call`: the bot says goodbye and leaves once its voice has finished.
 - **Interrupting**: start talking and every bot goes quiet at once. A bot you cut off is told how much of its answer you actually heard, and the other bots get only that part, tagged `(cut off by the host)`.
 - **Stuck mic**: if the call thinks you are still talking but your mic has been quiet for 8 seconds and no words came through, it stops waiting and the listening bot answers.
 - Voices never overlap: all bot audio plays on one timeline.
@@ -48,7 +52,8 @@ Set `PORT=9000` (or `HOST=localhost`) in the environment or a `.env` file to cha
 - **Usage counts against your plan.** Each bot in the call is a live voice session on your account. If your plan's included usage runs out, that bot shows the reason in its tile.
 - **Bots hear each other as text, not audio.** Another bot's speech reaches a bot as its exact words. Your speech reaches the listening bot as audio and the rest as text.
 - **Bots with no voice set** in the Grok Bot app use Grok's default voice, so two such bots sound the same. Set a voice for each bot in the Grok Bot app to tell them apart.
-- **Only one bot tool during the call: `invite_bot`.** Bots can't run their other Grok Bot tools (send tasks, search past chats, hang up) from this call. Bots can pull others in but can't remove anyone; only you can, from People.
+- **Only the call's own tools.** Bots can't run their other Grok Bot tools (send tasks, search past chats) from this call. A bot can leave by itself, but can't remove another bot; only you can, from People.
+- **No turn limit means bots can talk for a long time** if none of them uses `pass` or `wait_for_host`. Each turn uses your plan. Talk or use the stop hotkey to cut them off.
 - **Name matching is simple.** "Name a bot" works when the transcript contains the bot's name. If speech-to-text mishears it, the bot that was listening answers instead.
 
 ### Echo
