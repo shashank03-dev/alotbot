@@ -6,7 +6,7 @@ import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { after, before, test } from 'node:test';
-import { createApp, isAllowed } from '../src/server.ts';
+import { createApp, isAllowed, readJson } from '../src/server.ts';
 import { mock, sendJson, until, type Mock } from './helpers.ts';
 
 let up: Mock;
@@ -159,4 +159,49 @@ test('defaults to the real Grok Bot sign-in page', async () => {
   real.closeAllConnections();
   await new Promise((r) => real.close(r));
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('memory: none at first, then the last saved call; calls are saved under dataDir', async () => {
+  assert.deepEqual(await (await fetch(`${base}/api/memory`)).json(), { memory: null });
+  const memory = { summary: 'We chose May.', actionItems: ['Email Sam'], notes: [{ text: 'Budget 5k', by: 'Bot A' }] };
+  const r = await fetch(`${base}/api/calls`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ memory, markdown: '# Call' }) });
+  assert.equal(r.status, 200);
+  const { file } = await r.json();
+  assert.match(file, /^calls[/\\]call-.*\.md$/);
+  assert.equal(fs.readFileSync(path.join(dataDir, file), 'utf8'), '# Call');
+  assert.deepEqual(await (await fetch(`${base}/api/memory`)).json(), { memory });
+  assert.equal((await fetch(`${base}/api/memory`, { method: 'POST' })).status, 405);
+});
+
+test('saving a call refuses bad input with the reason', async () => {
+  const post = (body: string, type = 'application/json') => fetch(`${base}/api/calls`, { method: 'POST', headers: { 'content-type': type }, body });
+  const memory = { summary: '', actionItems: [], notes: [] };
+  const cases: [Response, number, RegExp][] = [
+    [await post('{}', 'text/plain'), 415, /send JSON/],
+    [await post('{nope'), 400, /not valid JSON/],
+    [await post('null'), 400, /markdown must be non-empty text/],
+    [await post(JSON.stringify({ memory, markdown: '  ' })), 400, /markdown must be non-empty text/],
+    [await post(JSON.stringify({ memory, markdown: 'x'.repeat(2_000_001) })), 400, /markdown must be non-empty text/],
+    [await post(JSON.stringify({ memory: { ...memory, summary: 3 }, markdown: '# x' })), 400, /summary must be text/],
+  ];
+  for (const [r, status, msg] of cases) {
+    assert.equal(r.status, status);
+    assert.match((await r.json()).error, msg);
+  }
+  // a cross-site page can't save a call
+  assert.equal((await raw('POST', '/api/calls', { origin: 'https://evil.test', 'content-type': 'application/json' })).status, 403);
+});
+
+test('readJson stops reading a body over the limit', async () => {
+  const req = Object.assign((async function* () {
+    yield Buffer.from('[1,');
+    yield Buffer.from('2]');
+  })(), { headers: { 'content-type': 'application/json; charset=utf-8' } }) as unknown as http.IncomingMessage;
+  await assert.rejects(readJson(req, 4), (e: any) => e.status === 413 && /larger than 4 bytes/.test(e.message));
+  const ok = Object.assign((async function* () {
+    yield Buffer.from('[1,2]');
+  })(), { headers: { 'content-type': 'APPLICATION/JSON' } }) as unknown as http.IncomingMessage;
+  assert.deepEqual(await readJson(ok, 100), [1, 2]);
+  const none = Object.assign((async function* () {})(), { headers: {} }) as unknown as http.IncomingMessage;
+  await assert.rejects(readJson(none, 100), (e: any) => e.status === 415);
 });

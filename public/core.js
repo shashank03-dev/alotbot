@@ -28,8 +28,16 @@ export const CORRECTION_WORDS = ['no', 'wait', 'stop', 'actually', 'wrong'];
 export const DIRECTION_MAX = 5;
 /** Longest note or task text a bot can write; longer text is cut to this. */
 export const NOTE_MAX_CHARS = 500;
+/** Longest call summary kept. */
+export const SUMMARY_MAX_CHARS = 2000;
 /** Most notes plus tasks the notepad holds. */
 export const NOTEPAD_MAX = 200;
+/** How long Leave waits for a bot to save the call summary before ending anyway. */
+export const WRAP_UP_MS = 20000;
+/** Most action items kept from one summary. */
+export const ACTION_ITEMS_MAX = 50;
+/** Lines of the call given to the bot writing the summary. */
+export const SUMMARY_LINES = 300;
 /** A correction this short ("no", "wait, stop") is a nudge, not a new direction to pin. */
 export const DIRECTION_MIN_WORDS = 3;
 
@@ -142,6 +150,16 @@ export const DONE_TASK_TOOL = fn(
   ['id'],
 );
 
+export const SAVE_SUMMARY_TOOL = fn(
+  'save_summary',
+  'Save the summary and action items of this call. Only use it when the call asks you to, as it ends.',
+  {
+    summary: { type: 'string', description: 'Three to six sentences: what was discussed and decided.' },
+    action_items: { type: 'array', items: { type: 'string' }, description: 'Each concrete next step, with who does it if known.' },
+  },
+  ['summary', 'action_items'],
+);
+
 export const TOOLS = [
   INVITE_TOOL,
   PASS_TOOL,
@@ -152,6 +170,7 @@ export const TOOLS = [
   READ_NOTES_TOOL,
   ADD_TASK_TOOL,
   DONE_TASK_TOOL,
+  SAVE_SUMMARY_TOOL,
 ];
 
 /** xAI's built-in search tools: they run on xAI's side, so the call never sees or answers them. */
@@ -170,14 +189,60 @@ export function notepadText(notes, tasks) {
 }
 
 /** Note or task text from tool arguments: trimmed, one line, capped. */
-export function cleanNote(text) {
+export function cleanNote(text, max = NOTE_MAX_CHARS) {
   return String(text ?? '')
     .replace(/\s+/g, ' ')
     .trim()
-    .slice(0, NOTE_MAX_CHARS);
+    .slice(0, max);
 }
 
-export function groupInstructions(base, me, roster, invitable = [], direction = []) {
+/** What bots are told about the last call: its summary and open action items. */
+export function lastCallText(memory) {
+  if (!memory || (!memory.summary && !memory.actionItems.length && !memory.notes.length)) return '';
+  let text = `\n\n# Your last call with ${USER}\n`;
+  if (memory.summary) text += `Summary: ${memory.summary}\n`;
+  if (memory.actionItems.length) text += `Open action items:\n${memory.actionItems.map((a) => `- ${a}`).join('\n')}\n`;
+  return `${text}The shared notepad starts with the notes and open action items from that call. Bring them up when they fit; don't recite them.`;
+}
+
+/** The one-off instructions for the bot writing the summary as the call ends. */
+export function wrapUpInstructions(lines, notes, tasks) {
+  return (
+    `${USER} is ending this group voice call now. Do not speak. Call the save_summary tool once, right now, with ` +
+    `a summary of three to six sentences on what was discussed and decided, and every concrete next step as an action item ` +
+    `(with who does it, if known). Use only what is in this record.\n\n` +
+    `${contextText(lines.slice(-SUMMARY_LINES))}\n\nShared notepad:\n${notepadText(notes, tasks)}`
+  );
+}
+
+/** Open action items for the next call: open notepad tasks plus the summary's items, without repeats. */
+export function openItems(tasks, actionItems) {
+  const seen = new Set();
+  const out = [];
+  for (const text of [...tasks.filter((t) => !t.done).map((t) => t.text), ...actionItems]) {
+    const key = normalize(text);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(text);
+  }
+  return out;
+}
+
+/** The call as Markdown: summary, action items, notes and the transcript. */
+export function exportMarkdown(data, formatTime = (ms) => new Date(ms).toISOString()) {
+  const mins = Math.max(0, Math.round((data.endedAt - data.startedAt) / 60000));
+  const out = [`# Grok Call, ${formatTime(data.startedAt)}`, '', `Bots: ${data.bots.join(', ') || 'none'}  `, `Length: ${mins} min`, ''];
+  out.push('## Summary', '', data.summary || '_No summary was saved._', '');
+  out.push('## Action items', '', ...(data.memory.actionItems.length ? data.memory.actionItems.map((a) => `- [ ] ${a}`) : ['_None._']), '');
+  const done = data.tasks.filter((t) => t.done);
+  if (done.length) out.push('## Done during the call', '', ...done.map((t) => `- [x] ${t.text} (${t.doneBy})`), '');
+  if (data.notes.length) out.push('## Notes', '', ...data.notes.map((n) => `- ${n.text} (${n.by})`), '');
+  if (data.direction.length) out.push('## Current direction', '', ...data.direction.map((d) => `- ${d}`), '');
+  out.push('## Transcript', '', ...(data.lines.length ? data.lines.map((l) => `**${tagOf(l)}:** ${l.text}  `) : ['_Nothing was said._']), '');
+  return out.join('\n');
+}
+
+export function groupInstructions(base, me, roster, invitable = [], direction = [], memory = null) {
   const others = roster.filter((n) => n !== me);
   const who = others.length
     ? `The other Grok bots in the call: ${others.join(', ')}.`
@@ -202,6 +267,7 @@ export function groupInstructions(base, me, roster, invitable = [], direction = 
     `done_task ticks one off, and read_notes shows it all. A "[Notepad]:" message tells you someone changed it. ` +
     `You can search the web and X for current facts and posts; say in a few words that you are looking it up, and keep what you found short. ` +
     `Your other Grok Bot tools are not available during this call; only the tools given here are.` +
+    lastCallText(memory) +
     directionText(direction)
   );
 }
@@ -402,6 +468,7 @@ export class BotLink {
     this.turn = null; // what this bot decided with a turn tool: { kind, target? }
     this.leaving = false; // used leave_call; removed once its goodbye has played
     this.search = true; // web and X search on; turned off if this session refuses them
+    this.queued = null; // instructions for a reply to ask for once the current one ends
   }
 
   async connect(context) {
@@ -447,7 +514,7 @@ export class BotLink {
   }
 
   instructions() {
-    return groupInstructions(this.base, this.bot.name, this.call.roster(), this.call.invitable().map((b) => b.name), this.call.direction);
+    return groupInstructions(this.base, this.bot.name, this.call.roster(), this.call.invitable().map((b) => b.name), this.call.direction, this.call.memory);
   }
 
   send(msg) {
@@ -459,11 +526,18 @@ export class BotLink {
     this.send({ type: 'conversation.item.create', item: { type: 'message', role: 'user', content: [{ type: 'input_text', text }] } });
   }
 
-  respond() {
+  /** Ask for a reply; `instructions` replace the session's instructions for this one reply only. */
+  respond(instructions) {
     this.suppressNext = false;
     this.clearReplyTimer();
     this.pending = true;
-    this.send({ type: 'response.create' });
+    this.send(instructions ? { type: 'response.create', response: { instructions } } : { type: 'response.create' });
+  }
+
+  /** Reply now, or as soon as the current reply has ended. */
+  respondWhenFree(instructions) {
+    if (this.active) this.queued = instructions;
+    else this.respond(instructions);
   }
 
   /** Stop the current reply, or the one about to start. */
@@ -591,7 +665,13 @@ export class BotLink {
         }
         if (!heard && this.heardMs > 0) this.call.onBotCut(this, heardPart(cleanTranscript(this.text), this.heardMs, this.audioMs));
         this.heardMs = 0;
-        return this.call.onBotDone(this, text, status, followUp);
+        this.call.onBotDone(this, text, status, followUp);
+        if (this.queued !== null) {
+          const q = this.queued;
+          this.queued = null;
+          this.respond(q);
+        }
+        return;
       }
       case 'input_audio_buffer.speech_started':
         return this.call.onSpeechStart(this);
@@ -672,6 +752,11 @@ export class Call {
     this.notes = []; // shared notepad: { text, by }
     this.tasks = []; // { id, text, by, done, doneBy }
     this.notepadVersion = 0; // bumped on every notepad change, so the page redraws only then
+    this.memory = null; // { summary, actionItems, notes } from the last call
+    this.summary = '';
+    this.actionItems = [];
+    this.startedAt = 0;
+    this.onSummary = null; // set while Leave waits for save_summary
     this.ear = null; // the bot hearing Shashank's mic right now
     this.opened = false;
     this.muted = false;
@@ -686,19 +771,68 @@ export class Call {
     this.stuckTimer = null;
   }
 
-  /** `available`: all of Shashank's Grok Bots, so bots in the call can pull others in. */
-  join(bots, available = bots) {
+  /**
+   * `available`: all of Shashank's Grok Bots, so bots in the call can pull others in.
+   * `memory`: { summary, actionItems, notes } saved from the last call, or null.
+   */
+  join(bots, available = bots, memory = null) {
     if (this.phase !== 'idle') throw new Error('already in a call');
     this.reset();
     this.phase = 'in-call';
     this.available = available;
+    this.startedAt = this.d.now();
+    if (memory) {
+      this.memory = memory;
+      this.notes = memory.notes.map((n) => ({ ...n }));
+      this.tasks = memory.actionItems.map((text, i) => ({ id: i + 1, text, by: 'Last call', done: false, doneBy: null }));
+    }
     for (const bot of bots) this.add(bot);
+  }
+
+  /**
+   * Ending the call: one bot saves a summary (or WRAP_UP_MS passes), then resolves with the call's export data.
+   * Bots stop taking turns and the mic is ignored meanwhile. Call leave() after.
+   */
+  wrapUp() {
+    if (this.phase !== 'in-call') return Promise.resolve(null);
+    this.phase = 'wrapping';
+    this.interrupt();
+    this.waitingForHost = true;
+    const link = this.ear && this.readyLinks().includes(this.ear) ? this.ear : this.readyLinks()[0];
+    if (!link || !this.lines.length) return Promise.resolve(this.exportData());
+    return new Promise((resolve) => {
+      const timer = this.d.setTimer(() => this.onSummary(), WRAP_UP_MS);
+      this.onSummary = () => {
+        this.d.clearTimer(timer);
+        this.onSummary = null;
+        resolve(this.exportData());
+      };
+      link.respondWhenFree(wrapUpInstructions(this.lines, this.notes, this.tasks));
+    });
+  }
+
+  /** Everything the page saves and exports when the call ends. */
+  exportData() {
+    return {
+      startedAt: this.startedAt,
+      endedAt: this.d.now(),
+      bots: this.roster(),
+      lines: this.lines,
+      summary: this.summary,
+      notes: this.notes,
+      tasks: this.tasks,
+      direction: this.direction,
+      notepadChanged: this.notepadVersion > 0,
+      // With no new summary (none asked for, or no answer in time), the last call's summary is kept for next time.
+      memory: { summary: this.summary || (this.memory?.summary ?? ''), actionItems: openItems(this.tasks, this.actionItems), notes: this.notes },
+    };
   }
 
   leave() {
     if (this.phase === 'idle') return;
     this.stopNext();
     this.clearStuck();
+    this.onSummary?.();
     for (const link of this.links.values()) link.close();
     this.player.flush();
     this.phase = 'idle';
@@ -855,7 +989,7 @@ export class Call {
   }
 
   onSpeechStart(link) {
-    if (link !== this.ear) return;
+    if (link !== this.ear || this.phase !== 'in-call') return;
     this.userSpeaking = true;
     this.echoRisk = this.player.remainingMs() > 0;
     this.armStuck();
@@ -866,7 +1000,7 @@ export class Call {
   }
 
   onTranscript(link, text) {
-    if (link !== this.ear) return;
+    if (link !== this.ear || this.phase !== 'in-call') return;
     this.userSpeaking = false;
     this.clearStuck();
     // The echo check only runs if a bot's voice was playing when this speech started.
@@ -980,6 +1114,13 @@ export class Call {
         this.notepadChanged(link, `${by} added task ${id}: "${text}"`);
         return { output: `Task ${id} added.`, followUp: 'if-quiet' };
       }
+      case SAVE_SUMMARY_TOOL.name: {
+        this.summary = cleanNote(a.summary, SUMMARY_MAX_CHARS);
+        const items = Array.isArray(a.action_items) ? a.action_items : [];
+        this.actionItems = items.map((x) => cleanNote(x)).filter(Boolean).slice(0, ACTION_ITEMS_MAX);
+        this.onSummary?.();
+        return { output: 'Saved.', followUp: false };
+      }
       case READ_NOTES_TOOL.name:
         return { output: notepadText(this.notes, this.tasks), followUp: true };
       case DONE_TASK_TOOL.name: {
@@ -1030,7 +1171,7 @@ export class Call {
     }
     // After a tool like invite_bot the bot speaks again to say how it went; its turn decision waits until then.
     if (followUp) {
-      if (!this.userSpeaking) link.respond();
+      if (!this.userSpeaking && this.phase === 'in-call') link.respond();
       return;
     }
     const turn = link.turn;

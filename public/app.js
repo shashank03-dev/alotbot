@@ -1,10 +1,11 @@
-import { Call, SAMPLE_RATE, USER, floatTo16, resample, rms } from './core.js';
+import { Call, SAMPLE_RATE, USER, exportMarkdown, floatTo16, resample, rms } from './core.js';
 
 const $ = (sel) => document.querySelector(sel);
 const screens = ['boot', 'signin', 'lobby', 'call'];
 
 const state = {
   bots: [], // every Grok Bot on the account
+  memory: null, // the last call's summary, open items and notes, given to the bots on join
   selected: new Set(),
   call: null,
   audio: null, // { ctx, stream, nodes }
@@ -19,10 +20,10 @@ const state = {
 
 class SignedOut extends Error {}
 
-async function api(path, method = 'GET') {
+async function api(path, method = 'GET', payload = undefined) {
   let res;
   try {
-    res = await fetch(path, { method });
+    res = await fetch(path, payload === undefined ? { method } : { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
   } catch {
     throw new Error('Grok Call server is not reachable. Is it still running?');
   }
@@ -164,6 +165,17 @@ async function loadLobby(message = '') {
   const ids = new Set(state.bots.map((b) => b.id));
   for (const id of state.selected) if (!ids.has(id)) state.selected.delete(id);
   renderPicker();
+  try {
+    ({ memory: state.memory } = await api('/api/memory'));
+  } catch {
+    state.memory = null; // bots just start fresh
+  }
+  renderMemoryHint();
+}
+
+function renderMemoryHint() {
+  const m = state.memory;
+  $('#memory-hint').hidden = !(m && (m.summary || m.actionItems.length || m.notes.length));
 }
 
 function renderPicker() {
@@ -312,7 +324,11 @@ async function join() {
   state.call.join(
     state.bots.filter((b) => state.selected.has(b.id)),
     state.bots,
+    state.memory,
   );
+  $('#saved').hidden = true;
+  $('#leave').disabled = false;
+  $('#wrap-status').hidden = true;
   state.tiles.clear();
   $('#grid').innerHTML = '';
   state.notesSeen = -1;
@@ -322,14 +338,48 @@ async function join() {
   state.frame = requestAnimationFrame(renderCall);
 }
 
-function leave() {
+/** Leave: one bot saves a summary (up to 20 s), then the call is saved and shown in the lobby. */
+async function leave() {
+  const call = state.call;
+  if (!call || call.phase !== 'in-call') return;
+  $('#leave').disabled = true;
+  $('#wrap-status').hidden = false;
+  const data = await call.wrapUp();
   cancelAnimationFrame(state.frame);
-  state.call?.leave();
-  state.call = null;
+  call.leave();
+  if (state.call === call) state.call = null;
   stopAudio();
   setPanel(null);
   show('lobby');
   renderPicker();
+  // A call where nothing was said and the notepad wasn't touched is not saved, so it can't wipe the last call's memory.
+  if (data.lines.length || data.notepadChanged) await saveCall(data);
+}
+
+async function saveCall(data) {
+  const markdown = exportMarkdown(data, (ms) => new Date(ms).toLocaleString());
+  state.memory = data.memory;
+  renderMemoryHint();
+  const card = $('#saved');
+  card.hidden = false;
+  $('#saved-summary').textContent = data.summary || 'No summary was saved: no bot answered in time.';
+  const items = data.memory.actionItems;
+  $('#saved-items').replaceChildren(...items.map((a) => listItem(a, '')));
+  $('#saved-items-wrap').hidden = !items.length;
+  const download = $('#saved-download');
+  URL.revokeObjectURL(download.href);
+  download.href = URL.createObjectURL(new Blob([markdown], { type: 'text/markdown' }));
+  download.download = `grok-call-${new Date(data.endedAt).toISOString().slice(0, 16).replace(/:/g, '-')}.md`;
+  const where = $('#saved-where');
+  where.className = 'muted';
+  where.textContent = 'Saving…';
+  try {
+    const { file } = await api('/api/calls', 'POST', { memory: data.memory, markdown });
+    where.textContent = `Saved to .data/${file}. The bots get this summary and the notes in your next call.`;
+  } catch (err) {
+    where.className = 'error';
+    where.textContent = `Couldn't save the call: ${err.message.replace(/\.?$/, '.')} Download it instead.`;
+  }
 }
 
 function toggleMute() {

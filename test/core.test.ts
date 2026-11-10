@@ -3,7 +3,15 @@ import { test } from 'node:test';
 import {
   BARGE_IN_LEVEL,
   Call,
+  ACTION_ITEMS_MAX,
   cleanNote,
+  exportMarkdown,
+  lastCallText,
+  openItems,
+  SUMMARY_LINES,
+  SUMMARY_MAX_CHARS,
+  WRAP_UP_MS,
+  wrapUpInstructions,
   CORRECTION_WORDS,
   NOTE_MAX_CHARS,
   NOTEPAD_MAX,
@@ -753,7 +761,7 @@ test('invite refusals: unknown bot, already in the call, bad arguments, unknown 
     'Bot B is already in the call.',
     'There is no Grok Bot called "". Bots you can invite: Bot C.',
     'There is no Grok Bot called "". Bots you can invite: Bot C.',
-    'Unknown tool "end_the_call". Tools in this call: invite_bot, pass, hand_to, wait_for_host, leave_call, write_note, read_notes, add_task, done_task.',
+    'Unknown tool "end_the_call". Tools in this call: invite_bot, pass, hand_to, wait_for_host, leave_call, write_note, read_notes, add_task, done_task, save_summary.',
   ]);
   assert.equal(mints.length, 2, 'nobody new was minted');
   // with nobody left to invite, the refusal says so
@@ -1040,7 +1048,7 @@ const creates = (s: FakeSocket) => s.types().filter((x: string) => x === 'respon
 test('groupInstructions explains the turn tools', () => {
   const text = groupInstructions('B', 'A', ['A', 'C']);
   for (const name of ['hand_to', 'pass', 'wait_for_host', 'leave_call']) assert.match(text, new RegExp(name));
-  assert.deepEqual(TOOLS.map((t: any) => t.name), ['invite_bot', 'pass', 'hand_to', 'wait_for_host', 'leave_call', 'write_note', 'read_notes', 'add_task', 'done_task']);
+  assert.deepEqual(TOOLS.map((t: any) => t.name), ['invite_bot', 'pass', 'hand_to', 'wait_for_host', 'leave_call', 'write_note', 'read_notes', 'add_task', 'done_task', 'save_summary']);
   for (const t of TOOLS) assert.equal((t as any).type, 'function');
 });
 
@@ -1423,4 +1431,202 @@ test('an error before the socket exists, or after setup, does not resend the set
   await ready('a');
   ws('a').emit('error', {});
   assert.equal(ws('a').sent.filter((m) => m.type === 'session.update').length, 1);
+});
+
+// ---------- memory between calls and the end-of-call export ----------
+
+const memory = (extra: object = {}) => ({ summary: 'We picked May for launch.', actionItems: ['Email Sam'], notes: [{ text: 'Budget 5k', by: 'Bot A' }], ...extra });
+
+test('lastCallText gives the summary and open items, or nothing when there is no memory', () => {
+  assert.equal(lastCallText(null), '');
+  assert.equal(lastCallText({ summary: '', actionItems: [], notes: [] }), '');
+  const text = lastCallText(memory());
+  assert.match(text, /^\n\n# Your last call with Shashank\nSummary: We picked May for launch\.\nOpen action items:\n- Email Sam\nThe shared notepad starts/);
+  assert.doesNotMatch(lastCallText(memory({ summary: '', actionItems: [] })), /Summary|Open action items/);
+  assert.ok(groupInstructions('B', 'A', ['A'], [], [], memory() as any).includes('# Your last call'));
+});
+
+test('openItems merges open tasks and summary items without repeats', () => {
+  const tasks = [
+    { id: 1, text: 'Email Sam', by: 'X', done: false, doneBy: null },
+    { id: 2, text: 'Done one', by: 'X', done: true, doneBy: 'Y' },
+  ];
+  assert.deepEqual(openItems(tasks, ['email sam!', 'Book room', '', '  ']), ['Email Sam', 'Book room']);
+  assert.deepEqual(openItems([], []), []);
+});
+
+test('wrapUpInstructions holds the record of the call, capped', () => {
+  const lines = Array.from({ length: SUMMARY_LINES + 3 }, (_, i) => ({ who: USER, text: `l${i}` }));
+  const text = wrapUpInstructions(lines, [], []);
+  assert.match(text, /^Shashank is ending this group voice call now\. Do not speak\. Call the save_summary tool/);
+  assert.ok(!text.includes('[Shashank (host)]: l2\n'));
+  assert.ok(text.includes(`[Shashank (host)]: l${SUMMARY_LINES + 2}`));
+  assert.ok(text.endsWith('Shared notepad:\nThe notepad is empty.'));
+});
+
+test('exportMarkdown: summary, items, done tasks, notes, direction and transcript', () => {
+  const data = {
+    startedAt: 0,
+    endedAt: 125_000,
+    bots: ['Bot A', 'Bot B'],
+    lines: [{ who: USER, text: 'Hi' }, { who: 'Bot A', text: 'Half', cut: true }],
+    summary: 'Talked.',
+    notes: [{ text: 'n1', by: 'Bot A' }],
+    tasks: [{ id: 1, text: 'Ship', by: 'Bot A', done: true, doneBy: 'Bot B' }],
+    direction: ['no, focus on X'],
+    memory: { summary: 'Talked.', actionItems: ['Call Sam'], notes: [] },
+  };
+  assert.equal(
+    exportMarkdown(data, (ms) => `T${ms}`),
+    [
+      '# Grok Call, T0', '', 'Bots: Bot A, Bot B  ', 'Length: 2 min', '',
+      '## Summary', '', 'Talked.', '',
+      '## Action items', '', '- [ ] Call Sam', '',
+      '## Done during the call', '', '- [x] Ship (Bot B)', '',
+      '## Notes', '', '- n1 (Bot A)', '',
+      '## Current direction', '', '- no, focus on X', '',
+      '## Transcript', '', '**Shashank (host):** Hi  ', '**Bot A (cut off by the host):** Half  ', '',
+    ].join('\n'),
+  );
+  const empty = exportMarkdown({ ...data, endedAt: -5, bots: [], lines: [], summary: '', notes: [], tasks: [], direction: [], memory: { summary: '', actionItems: [], notes: [] } });
+  assert.match(empty, /^# Grok Call, 1970-01-01T00:00:00\.000Z\n\nBots: none  \nLength: 0 min/);
+  for (const t of ['_No summary was saved._', '## Action items\n\n_None._', '_Nothing was said._']) assert.ok(empty.includes(t), t);
+  assert.ok(!empty.includes('## Notes') && !empty.includes('## Done during') && !empty.includes('## Current direction'));
+});
+
+test('joining with last call memory: bots are told, and the notepad starts with its notes and open items', async () => {
+  const { call, ws } = setup();
+  const m = memory();
+  call.join([bot('a')], [bot('a')], m);
+  await flush();
+  ws('a').onopen!();
+  assert.match(ws('a').sent[0].session.instructions, /# Your last call with Shashank\nSummary: We picked May for launch\./);
+  assert.deepEqual(call.notes, [{ text: 'Budget 5k', by: 'Bot A' }]);
+  assert.notEqual(call.notes[0], m.notes[0], 'a copy, not the saved object');
+  assert.deepEqual(call.tasks, [{ id: 1, text: 'Email Sam', by: 'Last call', done: false, doneBy: null }]);
+});
+
+test('Leave: one bot saves the summary silently, then the export is ready', async () => {
+  const { call, ws, ready, setClock } = setup();
+  setClock(1_000);
+  call.join([bot('a'), bot('b')]);
+  await ready('a');
+  await ready('b');
+  speak(ws('a'), 'Let us launch in May.');
+  useTool(ws('b'), 'add_task', { text: 'Email Sam' }, 'Adding a task.');
+  assert.equal(call.ear.bot.id, 'b', 'B spoke last, so B is listening');
+  ws('b').emit('conversation.item.input_audio_transcription.completed', { transcript: 'sounds good' });
+  const pending = call.wrapUp();
+  assert.equal(call.view().phase, 'wrapping');
+  assert.ok(!ws('a').sent.some((m) => m.response?.instructions), 'only the listening bot is asked');
+  const ask = ws('b').sent.filter((m) => m.type === 'response.create').at(-1);
+  assert.match(ask.response.instructions, /Call the save_summary tool[\s\S]*\[Bot A\]: Let us launch in May\.[\s\S]*Tasks:\n- \[ \] 1\. Email Sam/);
+  // the mic and late speech events are ignored while wrapping up
+  const appends = ws('b').types().filter((t: string) => t === 'input_audio_buffer.append').length;
+  call.micAudio(new Int16Array([1]), 1);
+  assert.equal(ws('b').types().filter((t: string) => t === 'input_audio_buffer.append').length, appends);
+  ws('b').emit('input_audio_buffer.speech_started');
+  ws('b').emit('conversation.item.input_audio_transcription.completed', { transcript: 'ignored now please' });
+  assert.equal(call.view().userSpeaking, false);
+  setClock(61_000);
+  useTool(ws('b'), 'save_summary', { summary: 'We chose May.', action_items: ['Email Sam', 'Book a venue', ''] });
+  assert.equal(outputs(ws('b')).at(-1).output, 'Saved.');
+  assert.notEqual(ws('b').types().at(-1), 'response.create', 'no follow-up while wrapping');
+  const data = await pending;
+  assert.equal(data.summary, 'We chose May.');
+  assert.deepEqual(data.memory.actionItems, ['Email Sam', 'Book a venue']);
+  assert.deepEqual([data.startedAt, data.endedAt], [1_000, 61_000]);
+  assert.deepEqual(data.bots, ['Bot A', 'Bot B']);
+  assert.equal(data.lines.length, 3);
+  call.leave();
+  assert.equal(call.view().phase, 'idle');
+  assert.equal(await call.wrapUp(), null, 'not in a call');
+});
+
+test('Leave: a bot mid-reply is cut, then asked once its reply has ended', async () => {
+  const { call, ws, ready } = setup();
+  call.join([bot('a')]);
+  await ready('a');
+  speak(ws('a'), 'Hi.');
+  ws('a').emit('response.created');
+  void call.wrapUp();
+  assert.equal(ws('a').types().at(-1), 'response.cancel');
+  ws('a').emit('response.done', { response: { status: 'cancelled' } });
+  assert.match(ws('a').sent.at(-1).response.instructions, /save_summary/);
+  call.leave();
+});
+
+test('Leave: no answer in time ends with no summary; summary text is capped and odd arguments are handled', async () => {
+  const { call, ws, ready, timers } = setup();
+  call.join([bot('a')]);
+  await ready('a');
+  speak(ws('a'), 'Hi.');
+  const pending = call.wrapUp();
+  timers.find((t) => t.ms === WRAP_UP_MS)!.fn();
+  const data = await pending;
+  assert.equal(data.summary, '');
+  assert.deepEqual(data.memory.actionItems, []);
+  call.leave();
+  // a save_summary mid-call (not asked for) just stores what it got
+  call.join([bot('b')]);
+  await ready('b');
+  useTool(ws('b'), 'save_summary', { summary: 'x'.repeat(SUMMARY_MAX_CHARS + 9), action_items: 'not a list' });
+  assert.equal(call.summary.length, SUMMARY_MAX_CHARS);
+  assert.deepEqual(call.actionItems, []);
+  useTool(ws('b'), 'save_summary', { action_items: Array.from({ length: ACTION_ITEMS_MAX + 5 }, (_, i) => `a${i}`) });
+  assert.equal(call.summary, '');
+  assert.equal(call.actionItems.length, ACTION_ITEMS_MAX);
+});
+
+test('Leave with nothing said, or no bot ready: no summary is asked for', async () => {
+  const { call, ws, ready } = setup();
+  call.join([bot('a')]);
+  await ready('a');
+  const data = await call.wrapUp();
+  assert.deepEqual(data.lines, []);
+  assert.equal(data.notepadChanged, false);
+  assert.ok(!ws('a').sent.some((m) => m.response?.instructions));
+  call.leave();
+  call.join([bot('b')]);
+  call.lines.push({ who: USER, text: 'hello' });
+  const d2 = await call.wrapUp(); // b is still connecting
+  assert.equal(d2.summary, '');
+  call.leave();
+});
+
+test('Leave while the listening bot has left: another ready bot writes the summary; leaving mid-wrap-up resolves at once', async () => {
+  const { call, ws, ready } = setup();
+  call.join([bot('a'), bot('b')]);
+  await ready('a');
+  await ready('b');
+  speak(ws('a'), 'Hi.');
+  call.ear = null;
+  const pending = call.wrapUp();
+  assert.match(ws('a').sent.at(-1).response.instructions, /save_summary/, 'first ready bot');
+  call.leave();
+  const data = await pending;
+  assert.equal(data.summary, '');
+});
+
+test('with no new summary, the last call’s summary is kept for next time; notepad changes are flagged', async () => {
+  const { call, ws, ready, timers } = setup();
+  call.join([bot('a')], [bot('a')], memory());
+  await ready('a');
+  let data = await call.wrapUp(); // nothing said: no summary asked for
+  assert.equal(data.summary, '', 'this call has no summary of its own');
+  assert.equal(data.memory.summary, 'We picked May for launch.');
+  assert.deepEqual(data.memory.actionItems, ['Email Sam']);
+  assert.equal(data.notepadChanged, false, 'carried-over notes alone are not a change');
+  call.leave();
+  call.join([bot('a')], [bot('a')], memory());
+  await ready('a');
+  useTool(ws('a'), 'done_task', { id: 1 }, 'Done.');
+  useTool(ws('a'), 'save_summary', { summary: 'New one.', action_items: [] });
+  const pending = call.wrapUp(); // asks again; nobody answers this time
+  timers.find((t) => t.ms === WRAP_UP_MS && !t.done)!.fn();
+  data = await pending;
+  assert.equal(data.notepadChanged, true);
+  assert.equal(data.memory.summary, 'New one.');
+  assert.deepEqual(data.memory.actionItems, [], 'done task is not carried over');
+  call.leave();
 });

@@ -25,7 +25,7 @@ Open **http://127.0.0.1:8787**.
 1. **Sign in.** The first time, click *Sign in*. A tab opens with the same sign-in page the Grok Bot app uses. Log in with your Grok Bot account. The page updates by itself.
 2. **Pick bots.** Tick the bots you want, then *Join call*. Allow the microphone.
 3. **Talk.** Speak normally. The bot marked *Listening to you* hears you. Say a bot's name ("Shashank's X bot, what do you think?") to talk to that one.
-4. **Change who's in the call** with the People button. **Mute** with the mic button. **Leave** with the red button.
+4. **Change who's in the call** with the People button. **Mute** with the mic button. **Leave** with the red button: one bot writes a summary and action items (up to 20 seconds), then the call is saved and you can download it.
 
 Set `PORT=9000` (or `HOST=localhost`) in the environment or a `.env` file to change where it listens. It only listens on this machine.
 
@@ -46,6 +46,8 @@ Set `PORT=9000` (or `HOST=localhost`) in the environment or a `.env` file to cha
 - A bot that drops reconnects by itself with the conversation so far. A bot added mid-call also gets the conversation so far.
 - **Shared notepad**: bots use `write_note`, `add_task`, `done_task` and `read_notes`. The other bots get a short `[Notepad]: ...` line when it changes. You see it under the Notepad button (a dot means something changed), with the current direction pinned at the top. A note or task is cut to 500 characters, and the notepad holds up to 200 items.
 - **Web and X search**: every bot gets xAI's built-in `web_search` and `x_search` tools, which run on xAI's side. If a bot's voice session refuses them, that bot joins without search and its tile says *Search off*.
+- **Ending the call**: *Leave* asks the listening bot to call `save_summary` silently with a summary and action items. The call is then saved to `.data/calls/call-<time>.md` (summary, action items, finished tasks, notes, current direction, transcript), and the lobby shows the summary with a download link. If no bot answers within 20 seconds, the call is saved without a summary. A call where nothing was said and the notepad wasn't touched is not saved.
+- **Next call**: the summary, open action items (open tasks plus the summary's items) and notes are kept in `.data/memory.json`. In the next call every bot gets the summary and items in its instructions, and the notepad starts with those notes and items. If a call ends without a new summary, the previous summary is kept. Delete `memory.json` to start fresh.
 - **Pulling a bot in**: every bot in the call has one tool, `invite_bot`, and knows which of your bots aren't in the call yet. When a bot uses it, that bot joins (its tile appears), gets the conversation so far, is told who pulled it in, and says hello; the bot that invited it confirms out loud. Asking for a bot that doesn't exist or is already in the call is refused and the bot is told why. An invite inside a reply that got cut off is not carried out.
 
 ## Limits, stated plainly
@@ -57,6 +59,7 @@ Set `PORT=9000` (or `HOST=localhost`) in the environment or a `.env` file to cha
 - **Bots with no voice set** in the Grok Bot app use Grok's default voice, so two such bots sound the same. Set a voice for each bot in the Grok Bot app to tell them apart.
 - **Only the call's own tools.** Bots can't run their other Grok Bot tools (send tasks, search past chats) from this call. A bot can leave by itself, but can't remove another bot; only you can, from People.
 - **No turn limit means bots can talk for a long time** if none of them uses `pass` or `wait_for_host`. Each turn uses your plan. Talk or use the stop hotkey to cut them off.
+- **Closing the tab doesn't save the call.** Only *Leave* writes the summary and saves it.
 - **Name matching is simple.** "Name a bot" works when the transcript contains the bot's name. If speech-to-text mishears it, the bot that was listening answers instead.
 
 ### Echo
@@ -65,7 +68,7 @@ With speakers, a bot's voice can come back through your mic. The app asks the br
 
 ## Sign-in and privacy
 
-- The sign-in is saved in `.data/auth.json`, readable only by your user and ignored by git. It lasts about 60 days and refreshes itself. To sign out, delete that file.
+- The sign-in is saved in `.data/auth.json`, readable only by your user and ignored by git. Saved calls (`.data/memory.json`, `.data/calls/`) are readable only by your user too. It lasts about 60 days and refreshes itself. To sign out, delete that file.
 - The server never sends your sign-in to the browser. The page only gets a short-lived voice key per bot (valid ~5 minutes to connect).
 - The server only accepts requests from this machine (Host must be `127.0.0.1`, `localhost` or `::1`), and refuses POSTs from other websites.
 
@@ -85,7 +88,8 @@ src/main.ts        start-up
 src/config.ts      HOST / PORT (local only)
 src/auth.ts        sign-in (browser login + polling) and the saved sign-in
 src/grokbot.ts     Grok Bot calls: list bots, voice session per bot, token refresh
-src/server.ts      local HTTP server: page, /api/state, /api/login, /api/bots, /api/bots/:id/voice
+src/server.ts      local HTTP server: page, /api/state, /api/login, /api/bots, /api/bots/:id/voice, /api/memory, /api/calls
+src/memory.ts      saved calls: memory.json for the next call, calls/*.md exports
 public/index.html  the call page (styles + layout)
 public/app.js      page logic: sign-in, bot picker, mic and speakers, call grid, People and Notepad panels
 public/core.js     call engine: voice sessions, turn-taking, bot-to-bot, interrupting, playback queue

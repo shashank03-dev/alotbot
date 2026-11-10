@@ -92,6 +92,25 @@
   .lobby-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
   #count { color: var(--muted); font-size: .92rem; }
   .error { color: #fca5a5; min-height: 1.5em; margin: 1rem 0 0; }
+  #memory-hint { font-size: .92rem; margin: -.6rem 0 0; }
+  .saved {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 18px 20px; margin: 0 0 1.6rem;
+    display: grid; gap: 10px;
+  }
+  .saved h2 { margin: 0; font-size: 1.05rem; }
+  .saved p { margin: 0; overflow-wrap: anywhere; }
+  .saved h3 { margin: 4px 0 0; font-size: .78rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+  .saved ul { margin: 0; padding-left: 1.2rem; display: grid; gap: 4px; }
+  .saved li small { display: none; }
+  #saved-where { font-size: .88rem; }
+  #saved-where.error { min-height: 0; }
+  .saved .ghost { justify-self: start; text-decoration: none; color: var(--text); }
+  #wrap-status {
+    position: fixed; left: 50%; top: 16px; transform: translateX(-50%); z-index: 6; margin: 0;
+    background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px; padding: 8px 16px; font-size: .9rem;
+    display: flex; align-items: center; gap: 10px; white-space: nowrap;
+  }
+  #wrap-status .spinner { width: 16px; height: 16px; border-width: 2px; }
 
   /* ---------- call ---------- */
   #call { height: 100%; display: grid; grid-template-rows: 1fr auto; overflow: hidden; }
@@ -222,8 +241,16 @@
 
   <main id="lobby" class="center" hidden>
     <div class="lobby">
+      <section id="saved" class="saved" aria-labelledby="saved-title" hidden>
+        <h2 id="saved-title">Call ended</h2>
+        <p id="saved-summary"></p>
+        <div id="saved-items-wrap"><h3>Action items</h3><ul id="saved-items"></ul></div>
+        <p id="saved-where" class="muted" role="status"></p>
+        <a id="saved-download" class="ghost" href="#">Download transcript, summary and action items</a>
+      </section>
       <h1>Start a call</h1>
       <p class="muted">Pick the Grok Bots you want in the call. You can add or remove bots during the call too.</p>
+      <p id="memory-hint" class="muted" hidden>The bots will get the summary, notes and open action items from your last call.</p>
       <div id="picker" class="picker" role="group" aria-label="Grok Bots"></div>
       <div class="lobby-actions">
         <span id="count" aria-live="polite"></span>
@@ -240,6 +267,7 @@
         <p id="empty-hint" hidden>No bots in the call. Add one from People.</p>
       </div>
     </section>
+    <p id="wrap-status" role="status" hidden><span class="spinner" aria-hidden="true"></span>Saving the call summary…</p>
     <nav class="controls" aria-label="Call controls">
       <button id="mute" class="round" type="button" aria-pressed="false" aria-label="Mute microphone"></button>
       <button id="people-btn" class="round" type="button" aria-expanded="false" aria-controls="people" aria-label="People: choose bots in the call"></button>

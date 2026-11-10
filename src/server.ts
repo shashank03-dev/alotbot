@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import http from 'node:http';
 import { AuthStore, Login } from './auth.ts';
 import { API_URL, GrokBotClient, NotFoundError, SignedOutError, SITE_URL } from './grokbot.ts';
+import { BadInput, CallStore, LIMITS, parseMemory } from './memory.ts';
 
 class HttpError extends Error {
   status: number;
@@ -51,6 +52,23 @@ export function isAllowed(req: http.IncomingMessage): boolean {
   return req.method === 'GET' || origin === undefined || origin === `http://${host}`;
 }
 
+/** Reads a JSON request body, refusing other content types and bodies over `limit` bytes. */
+export async function readJson(req: http.IncomingMessage, limit: number): Promise<unknown> {
+  if (!/^application\/json(;|$)/i.test(req.headers['content-type'] ?? '')) throw new HttpError(415, 'send JSON (content-type: application/json)');
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > limit) throw new HttpError(413, `body is larger than ${limit} bytes`);
+    chunks.push(chunk);
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  } catch {
+    throw new HttpError(400, 'body is not valid JSON');
+  }
+}
+
 function json(res: http.ServerResponse, status: number, body: unknown) {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
   res.end(JSON.stringify(body));
@@ -68,11 +86,12 @@ export function createApp(opts: AppOptions) {
     timeoutMs: opts.loginTimeoutMs,
   });
   const grok = new GrokBotClient({ store, apiUrl, fetch: opts.fetch });
+  const calls = new CallStore(opts.dataDir);
   const files = Object.fromEntries(
     Object.entries(STATIC).map(([path, f]) => [path, readFileSync(new URL(`../public/${f.file}`, import.meta.url))]),
   );
 
-  type Handler = (res: http.ServerResponse, match: RegExpExecArray) => Promise<void> | void;
+  type Handler = (res: http.ServerResponse, match: RegExpExecArray, req: http.IncomingMessage) => Promise<void> | void;
   const routes: { pattern: RegExp; method: string; handler: Handler }[] = [
     { pattern: /^\/api\/state$/, method: 'GET', handler: (res) => json(res, 200, login.state()) },
     { pattern: /^\/api\/login$/, method: 'POST', handler: (res) => json(res, 200, { loginUrl: login.start() }) },
@@ -81,6 +100,26 @@ export function createApp(opts: AppOptions) {
       pattern: /^\/api\/bots\/([A-Za-z0-9_-]{1,64})\/voice$/,
       method: 'POST',
       handler: async (res, m) => json(res, 200, await grok.voiceSession(m[1])),
+    },
+    { pattern: /^\/api\/memory$/, method: 'GET', handler: (res) => json(res, 200, { memory: calls.readMemory() }) },
+    {
+      // A finished call: memory for the next call, plus its Markdown export.
+      pattern: /^\/api\/calls$/,
+      method: 'POST',
+      handler: async (res, _m, req) => {
+        const body = (await readJson(req, LIMITS.markdown * 4 + 1_000_000)) as Record<string, unknown> | null;
+        const markdown = body?.markdown;
+        if (typeof markdown !== 'string' || !markdown.trim() || markdown.length > LIMITS.markdown) {
+          throw new HttpError(400, 'markdown must be non-empty text');
+        }
+        let memory;
+        try {
+          memory = parseMemory(body!.memory);
+        } catch (err) {
+          throw new HttpError(400, (err as BadInput).message);
+        }
+        json(res, 200, { file: calls.save(memory, markdown) });
+      },
     },
   ];
 
@@ -106,7 +145,7 @@ export function createApp(opts: AppOptions) {
       if (!matches.length) throw new HttpError(404, `no route ${path}`);
       const hit = matches.find((x) => x.r.method === req.method);
       if (!hit) throw new HttpError(405, `${req.method} not allowed on ${path}`);
-      await hit.r.handler(res, hit.m);
+      await hit.r.handler(res, hit.m, req);
     } catch (err) {
       if (err instanceof HttpError) return json(res, err.status, { error: err.message });
       if (err instanceof SignedOutError) return json(res, 401, { error: err.message, signedOut: true });
