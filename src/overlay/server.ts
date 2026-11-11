@@ -9,6 +9,7 @@ import { floatTo16, USER } from '../../public/core.js';
 import { AuthStore, Login } from '../auth.ts';
 import { API_URL, type Bot, NotFoundError, SignedOutError, SITE_URL, type ToolCall } from '../grokbot.ts';
 import { OverlayCall, overlayMarkdown } from './call.ts';
+import { CallLog, loggedSocket, MicStats } from './log.ts';
 import { BadSetting, COLORS, LANGUAGES, OverlayGrokClient, parseNewBot, parseVoiceSettings, PICKER_SHAPES, SHAPES, SPEEDS, VOICES } from './grok.ts';
 import { OverlayStore } from './store.ts';
 import { STATUSES, TaskBoard, TaskError, type TaskStatus } from './tasks.ts';
@@ -127,6 +128,9 @@ export function createOverlayServer(opts: OverlayOptions) {
     timer: NodeJS.Timeout | null = null;
     audioId = 0;
     ending: Promise<unknown> | null = null;
+    /** This call's log (logs/call-<time>.jsonl), open while the call is. */
+    log: CallLog | null = null;
+    mic = new MicStats(0);
 
     constructor(ws: WebSocket) {
       this.ws = ws;
@@ -151,7 +155,10 @@ export function createOverlayServer(opts: OverlayOptions) {
     onMessage(data: RawData, isBinary: boolean) {
       if (isBinary) {
         const mic = decodeMic(data as Buffer);
-        if (mic) this.call?.micAudio(mic.pcm, mic.level);
+        if (mic && this.call) {
+          this.call.micAudio(mic.pcm, mic.level);
+          this.logMic(mic.level);
+        }
         return;
       }
       let msg: Record<string, unknown>;
@@ -162,11 +169,15 @@ export function createOverlayServer(opts: OverlayOptions) {
       }
       // `req` numbers the request; it is not `id`, which task commands use for the task.
       const req = msg?.req ?? null;
+      const op = String(msg?.op);
+      const { op: _op, req: _req, ...args } = msg ?? {};
+      this.log?.write('app', { op, args });
       Promise.resolve()
-        .then(() => this.run(String(msg?.op), msg ?? {}))
+        .then(() => this.run(op, msg ?? {}))
         .then(
           (result) => this.send({ t: 'reply', req, ok: true, result: result ?? null }),
           (err) => {
+            this.log?.write('app-error', { op, error: (err as Error).message });
             const signedOut = err instanceof SignedOutError;
             this.send({ t: 'reply', req, ok: false, error: (err as Error).message, ...(signedOut ? { signedOut } : {}) });
           },
@@ -223,10 +234,11 @@ export function createOverlayServer(opts: OverlayOptions) {
           }
           return { sent: call.sendText(text) };
         }
+        // While leaving, the bots are already quiet and the mic is ignored: nothing to do, and not an error.
         case 'stop':
-          return void this.inCall().stopAll();
+          return void (this.ending || this.inCall().stopAll());
         case 'mute':
-          return void this.inCall().setMuted(m.muted === true);
+          return void (this.ending || this.inCall().setMuted(m.muted === true));
         case 'setVoice':
           return this.setVoice(str(m.botId, 'botId'), parseVoiceSettings(m.settings));
         case 'createBot': {
@@ -264,11 +276,26 @@ export function createOverlayServer(opts: OverlayOptions) {
       this.bots = all;
       const picked = all.filter((b) => raw.includes(b.id));
       if (picked.length !== new Set(raw).size) throw new NotFoundError('Some of those bots are not on this account any more.');
+      const log = new CallLog(opts.dataDir);
+      // Sessions and tool calls only happen for a bot that is in the call, so it always has a link.
+      const name = (id: string): string => call.links.get(id)!.bot.name;
+      log.write('join', { bots: picked.map((b) => b.name) });
       const call = new OverlayCall({
         mintVoice: (id: string) => grok.voiceSession(id),
         // A bot used one of its own Grok Bot call tools (send_task, search_conversations): Grok Bot runs it.
-        callTool: (id: string, req: ToolCall) => grok.harnessTool(id, req),
-        openSocket,
+        callTool: async (id: string, req: ToolCall) => {
+          log.write('grok-tool', { bot: name(id), req });
+          try {
+            const r = await grok.harnessTool(id, req);
+            log.write('grok-tool-result', { bot: name(id), result: r });
+            return r;
+          } catch (err) {
+            log.write('grok-tool-failed', { bot: name(id), error: (err as Error).message });
+            throw err;
+          }
+        },
+        // Everything sent and received on a bot's voice socket is logged under its name.
+        openSocket: (url: string, protocols: string[], botId: string) => loggedSocket(openSocket(url, protocols) as any, name(botId), log),
         audio: {
           now: () => clock() + AUDIO_LEAD_S,
           play: (samples: Float32Array, when: number) => {
@@ -281,6 +308,9 @@ export function createOverlayServer(opts: OverlayOptions) {
         clearTimer: (t: NodeJS.Timeout) => clearTimeout(t),
         now: () => Date.now(),
       });
+      call.log = log;
+      this.log = log;
+      this.mic = new MicStats(Date.now());
       call.joinWith(picked, all, calls.readMemory());
       this.call = call;
       this.linesSent = 0;
@@ -318,9 +348,10 @@ export function createOverlayServer(opts: OverlayOptions) {
       this.ending = call.wrapUp();
       await this.ending;
       const data = call.overlayExport();
-      this.stopCall();
       let file: string | null = null;
       if (data.saveWorthy) file = calls.saveCall(data.memory, overlayMarkdown(data, (ms) => new Date(ms).toLocaleString()));
+      this.log?.write('saved', { file, logFile: data.logFile });
+      this.stopCall();
       this.send({ t: 'ended' });
       return { file, summary: data.summary, actionItems: data.actionItems };
     }
@@ -328,9 +359,22 @@ export function createOverlayServer(opts: OverlayOptions) {
     stopCall() {
       if (this.timer) clearInterval(this.timer);
       this.timer = null;
-      this.call?.leave();
+      this.call?.leave(); // closing the bots' sockets is logged too, so the log ends after it
       this.call = null;
       this.ending = null;
+      this.log?.write('end');
+      this.log?.close();
+      this.log = null;
+    }
+
+    /** Once a second during a call: how loud the mic was, who heard it, and whether a bot was playing. */
+    logMic(level: number) {
+      const call = this.call!;
+      this.mic.add(level);
+      const s = this.mic.take(Date.now());
+      if (s) {
+        this.log!.write('mic', { ...s, ear: call.ear?.bot.name ?? null, botPlaying: call.player.remainingMs() > 0, userSpeaking: call.userSpeaking, muted: call.muted });
+      }
     }
 
     async setVoice(botId: string, s: ReturnType<typeof parseVoiceSettings>) {

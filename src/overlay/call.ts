@@ -15,6 +15,7 @@ import {
   WRITE_NOTE_TOOL,
 } from '../../public/core.js';
 import type { Bot } from '../grokbot.ts';
+import type { CallLog } from './log.ts';
 import { STATUSES, type Task, TaskBoard, TaskError, type TaskStatus } from './tasks.ts';
 
 // core.js is untyped JavaScript: its classes are typed loosely here, and this file's own code stays strict.
@@ -144,6 +145,13 @@ class OverlayLink extends LinkBase {
 export class OverlayCall extends CallBase {
   board = new TaskBoard();
   lastSummary = '';
+  /** Where every timeline event is also written, as it happens. */
+  log: CallLog | null = null;
+
+  event(kind: string, text: string) {
+    super.event(kind, text);
+    this.log?.write('event', { event: kind, text });
+  }
 
   /** `memory`: the last overlay call's summary and open tasks, or null. */
   joinWith(bots: Bot[], available: Bot[], memory: OverlayMemory | null) {
@@ -289,6 +297,8 @@ export class OverlayCall extends CallBase {
       actionItems: this.actionItems as string[],
       tasks: this.board.tasks.map((t) => ({ ...t, status: this.board.statusOf(t) })),
       memory: { summary: (data.summary as string) || this.lastSummary, tasks: this.board.carryOver() } as OverlayMemory,
+      timeline: this.timeline as { at: number; kind: string; text: string }[],
+      logFile: this.log?.name ?? null,
       saveWorthy: data.lines.length > 0 || this.board.version > 0,
     };
   }
@@ -348,5 +358,9 @@ export function overlayMarkdown(d: ReturnType<OverlayCall['overlayExport']>, for
     out.push('## Tasks', '', ...ordered.map(line), '');
   }
   out.push('## Transcript', '', ...(d.lines.length ? d.lines.map((l) => `**${tagOf(l)}:** ${l.text}  `) : ['_Nothing was said._']), '');
+  // Everything that happened, with times from the start of the call (the last 500 entries).
+  const clock = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`;
+  out.push('## Timeline', '', ...(d.timeline.length ? d.timeline.map((e) => `- ${clock(e.at)} ${e.kind}: ${e.text}`) : ['_Nothing happened._']), '');
+  if (d.logFile) out.push(`Full log: \`logs/${d.logFile}\``, '');
   return out.join('\n');
 }

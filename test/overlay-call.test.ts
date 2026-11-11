@@ -253,7 +253,7 @@ test('gaze rules', () => {
   assert.deepEqual(g(bots.map((b) => ({ ...b, status: 'idle' })), false, null), [null, null, null]);
 });
 
-test('overlayMarkdown writes summary, action items, tasks under parents, and the transcript', () => {
+test('overlayMarkdown writes summary, action items, tasks under parents, the transcript, the timeline and the log file', () => {
   const d = {
     startedAt: 0,
     endedAt: 125_000,
@@ -267,6 +267,8 @@ test('overlayMarkdown writes summary, action items, tasks under parents, and the
       { id: 2, title: 'Part', owner: 'Bot A', status: 'done' as const, parent: 1, waitsOn: [], by: USER, doneBy: 'Bot A' },
     ],
     memory: { summary: '', tasks: [] },
+    timeline: [{ at: 0, kind: 'join', text: 'Bot A joined' }, { at: 75_400, kind: 'tool', text: 'Bot A searched its past chats for "x"' }],
+    logFile: 'call-1970-01-01T00-00-00Z.jsonl' as string | null,
     saveWorthy: true,
   };
   assert.equal(
@@ -277,12 +279,16 @@ test('overlayMarkdown writes summary, action items, tasks under parents, and the
       '## Action items', '', '- Ship', '',
       '## Tasks', '', '- [ ] #1 Parent (no owner)', '  - [x] #2 Part (owner: Bot A; done by Bot A)', '- [ ] #3 Other (owner: Bot A; waits on #2)', '',
       '## Transcript', '', '**Shashank (host):** Hi  ', '**Bot A (cut off by the host):** Hello  ', '',
+      '## Timeline', '', '- 0:00 join: Bot A joined', '- 1:15 tool: Bot A searched its past chats for "x"', '',
+      'Full log: `logs/call-1970-01-01T00-00-00Z.jsonl`', '',
     ].join('\n'),
   );
-  const empty = overlayMarkdown({ ...d, bots: [], lines: [], summary: '', actionItems: [], tasks: [], endedAt: -5 });
+  const empty = overlayMarkdown({ ...d, bots: [], lines: [], summary: '', actionItems: [], tasks: [], endedAt: -5, timeline: [], logFile: null });
   assert.match(empty, /^# Grok Call, 1970-01-01T00:00:00\.000Z/);
   assert.match(empty, /Bots: none {2}\nLength: 0 min/);
   assert.match(empty, /_No summary was saved\._\n\n## Transcript\n\n_Nothing was said\._/);
+  assert.match(empty, /## Timeline\n\n_Nothing happened\._\n$/);
+  assert.doesNotMatch(empty, /Full log/);
 });
 
 test('a bot added mid-call gets the conversation so far; bad tool arguments count as none', async () => {

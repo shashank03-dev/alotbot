@@ -34,6 +34,8 @@ export const SUMMARY_MAX_CHARS = 2000;
 export const NOTEPAD_MAX = 200;
 /** How long Leave waits for a bot to save the call summary before ending anyway. */
 export const WRAP_UP_MS = 20000;
+/** How many times Leave asks for the summary before ending without one. */
+export const WRAP_UP_ASKS = 2;
 /** Most action items kept from one summary. */
 export const ACTION_ITEMS_MAX = 50;
 /** Lines of the call given to the bot writing the summary. */
@@ -50,8 +52,8 @@ export const GATE_HOLD_MS = 600;
 export const STOP_MAX_WORDS = 8;
 /** A bot line is a repeat if it matches one of this many recent bot lines. */
 export const REPEAT_LOOKBACK = 6;
-/** Tool-only replies (a note, a task, read_notes) a bot gets in a row before its turn simply ends. */
-export const MAX_QUIET_TOOL_ROUNDS = 3;
+/** Replies a bot is asked for in a row after using a tool (spoken or not) before its turn simply ends. */
+export const MAX_TOOL_ROUNDS = 3;
 /** In a one-on-one, this much quiet from Shashank after the bot's reply means the conversation is over. */
 export const FOCUS_IDLE_MS = 20000;
 /** A host line this long or shorter can be a "we're done" line ("thanks", "got it"). */
@@ -75,16 +77,47 @@ export function normalize(text) {
     .trim();
 }
 
-/** The bot named first in the text (longest name wins on a tie), or null. */
+/** Words that are never a bot's short name on their own: "Shashank's Bot" does not shrink to "bot". */
+const GENERIC_NAME_WORDS = new Set(['bot', 'bots', 'ai', 'assistant', 'agent', 'grok']);
+
+/**
+ * The ways a bot's name can be said: the full name, the name without its owner ("Shashank's X bot" → "x bot"),
+ * and each of those run together, as speech-to-text often writes them ("xbot", "mybot"). Normalized.
+ */
+function ownForms(name) {
+  const full = normalize(name);
+  const forms = new Set(full ? [full] : []);
+  const short = normalize(String(name).replace(/^\s*\S+?['’]s\s+/u, ''));
+  const words = short.split(' ');
+  if (short && short !== full && !(words.length === 1 && (GENERIC_NAME_WORDS.has(short) || short.length < 3))) forms.add(short);
+  for (const f of [...forms]) if (f.includes(' ')) forms.add(f.replaceAll(' ', ''));
+  return forms;
+}
+
+/**
+ * Every way each bot can be named, as [{ id, form }]. A full name always counts; a short form counts only
+ * if no other bot has the same one, so a short name never points at the wrong bot.
+ */
+export function nameForms(bots) {
+  const fulls = new Set(bots.map((b) => normalize(b.name)));
+  const holders = new Map();
+  for (const b of bots) for (const f of ownForms(b.name)) holders.set(f, [...(holders.get(f) ?? []), b.id]);
+  return [...holders].flatMap(([form, ids]) => (fulls.has(form) ? ids : ids.length === 1 ? ids : []).map((id) => ({ id, form })));
+}
+
+/** Words that belong to a bot's name, in any of its forms. */
+function nameWordsOf(names) {
+  return new Set(names.flatMap((n) => [...ownForms(n)].flatMap((f) => f.split(' '))));
+}
+
+/** The bot named first in the text (longest name wins on a tie), or null. Short names count (see nameForms). */
 export function findAddressee(text, bots) {
   const hay = ` ${normalize(text)} `;
   let best = null;
-  for (const b of bots) {
-    const name = normalize(b.name);
-    if (!name) continue;
-    const i = hay.indexOf(` ${name} `);
+  for (const { id, form } of nameForms(bots)) {
+    const i = hay.indexOf(` ${form} `);
     if (i < 0) continue;
-    if (!best || i < best.i || (i === best.i && name.length > best.len)) best = { id: b.id, i, len: name.length };
+    if (!best || i < best.i || (i === best.i && form.length > best.len)) best = { id, i, len: form.length };
   }
   return best ? best.id : null;
 }
@@ -116,13 +149,13 @@ export function spokenWords(text) {
 export function isFiller(text, names = []) {
   const words = spokenWords(text);
   if (!words.length) return true;
-  const nameWords = new Set(names.flatMap((n) => normalize(n).split(' ')));
+  const nameWords = nameWordsOf(names);
   return words.some((w) => FILLER_CORE.has(w)) && words.every((w) => FILLER_CORE.has(w) || FILLER_OTHER.has(w) || nameWords.has(w));
 }
 
 /** True once a bot's words so far include one that can't be part of a spoken pass, so its voice can be played. */
 export function hasRealWords(text, names = []) {
-  const nameWords = new Set(names.flatMap((n) => normalize(n).split(' ')));
+  const nameWords = nameWordsOf(names);
   return spokenWords(text).some((w) => !FILLER_CORE.has(w) && !FILLER_OTHER.has(w) && !nameWords.has(w));
 }
 
@@ -130,11 +163,10 @@ export function hasRealWords(text, names = []) {
 export function namedBots(text, bots) {
   let hay = ` ${normalize(text)} `;
   const found = [];
-  for (const b of [...bots].sort((x, y) => normalize(y.name).length - normalize(x.name).length)) {
-    const name = normalize(b.name);
-    if (!name || !hay.includes(` ${name} `)) continue;
-    found.push(b.id);
-    hay = hay.split(` ${name} `).join('  ');
+  for (const { id, form } of nameForms(bots).sort((x, y) => y.form.length - x.form.length)) {
+    if (!hay.includes(` ${form} `)) continue;
+    if (!found.includes(id)) found.push(id);
+    hay = hay.split(` ${form} `).join('  ');
   }
   return found;
 }
@@ -160,7 +192,7 @@ export function isClosing(text, names = []) {
   const norm = normalize(text);
   const words = norm.split(' ').filter(Boolean);
   if (!words.length || words.length > CLOSING_MAX_WORDS) return false;
-  const nameWords = new Set(names.flatMap((n) => normalize(n).split(' ')));
+  const nameWords = nameWordsOf(names);
   const keyed = words.some((w) => CLOSING_KEYS.has(w)) || CLOSING_PHRASES.some((p) => ` ${norm} `.includes(` ${p} `));
   return keyed && words.every((w) => CLOSING_KEYS.has(w) || CLOSING_FILLER.has(w) || nameWords.has(w));
 }
@@ -217,7 +249,7 @@ const STOP_FILLER = new Set([
 export function isStopCommand(text, names = []) {
   const words = normalize(text).split(' ').filter(Boolean);
   if (!words.length || words.length > STOP_MAX_WORDS) return false;
-  const nameWords = new Set(names.flatMap((n) => normalize(n).split(' ')));
+  const nameWords = nameWordsOf(names);
   return words.some((w) => STOP_KEYS.has(w)) && words.every((w) => STOP_KEYS.has(w) || STOP_FILLER.has(w) || nameWords.has(w));
 }
 
@@ -650,7 +682,7 @@ export class BotLink {
     this.search = true; // web and X search on; turned off if this session refuses them
     this.queued = null; // instructions for a reply to ask for once the current one ends
     this.joined = false; // has been ready at least once (so a later ready is a reconnect)
-    this.quietTools = 0; // tool-only replies in a row (no words spoken)
+    this.toolRounds = 0; // follow-up replies after a tool, in a row
     this.harnessTools = []; // the bot's own Grok Bot call tools (send_task, search_conversations), run by Grok Bot
     this.harness = true; // those tools are on; turned off if this session refuses them
     this.lastError = ''; // why the voice setup was last refused
@@ -700,7 +732,7 @@ export class BotLink {
     if (this.closed || gen !== this.sessionGen) return; // left the call, or already timed out
     this.base = voice.instructions;
     this.harnessTools = Array.isArray(voice.tools) ? voice.tools : [];
-    const ws = this.call.d.openSocket(voice.url, [`xai-client-secret.${voice.clientSecret}`]);
+    const ws = this.call.d.openSocket(voice.url, [`xai-client-secret.${voice.clientSecret}`], this.bot.id);
     this.ws = ws;
     ws.onopen = () => ws.send(JSON.stringify(this.sessionUpdate()));
     ws.onmessage = (m) => this.onEvent(m.data);
@@ -748,7 +780,10 @@ export class BotLink {
     this.pending = true;
     // Tagged, so an error about this request can be told apart from other errors.
     this.pendingEventId = `reply-${this.bot.id}-${++this.replySeq}`;
-    this.send({ type: 'response.create', event_id: this.pendingEventId, ...(instructions ? { response: { instructions } } : {}) });
+    // While the call ends, replies are text only: the API cannot force the save_summary call, so a bot that talks
+    // instead must not be heard.
+    const response = { ...(instructions ? { instructions } : {}), ...(this.call.phase === 'wrapping' ? { modalities: ['text'] } : {}) };
+    this.send({ type: 'response.create', event_id: this.pendingEventId, ...(Object.keys(response).length ? { response } : {}) });
     this.watch(RESPONSE_START_MS);
   }
 
@@ -916,7 +951,7 @@ export class BotLink {
         if (this.active) this.watch(RESPONSE_STALL_MS);
         const pcm = fromBase64(e.delta);
         this.audioMs += (pcm.length / SAMPLE_RATE) * 1000;
-        if (this.discard) return;
+        if (this.discard || this.call.phase === 'wrapping') return;
         if (this.holding) this.held.push([this.itemKey(), pcm16ToFloat(pcm)]);
         else this.call.player.enqueue(this.bot.id, this.itemKey(), pcm16ToFloat(pcm));
         return;
@@ -1096,7 +1131,7 @@ export class BotLink {
       this.call.onTurnDone(this, said, followUp);
     } else {
       this.turn = null; // its turn decision belonged to the moment that has passed
-      this.quietTools = 0;
+      this.toolRounds = 0;
     }
     this.flushQueued();
   }
@@ -1107,7 +1142,7 @@ export class BotLink {
 /**
  * deps: {
  *   mintVoice(botId) -> Promise<{ clientSecret, url, instructions }>,
- *   openSocket(url, protocols) -> WebSocket-like,
+ *   openSocket(url, protocols, botId) -> WebSocket-like (botId: whose voice session it is),
  *   audio: { now(), play(samples, when) -> { stop() } },
  *   setTimer(fn, ms), clearTimer(handle), now() -> ms
  * }
@@ -1135,7 +1170,7 @@ export class Call {
     this.summary = '';
     this.actionItems = [];
     this.startedAt = 0;
-    this.onSummary = null; // set while Leave waits for save_summary
+    this.wrap = null; // while Leave waits for the summary: { replied(link), finish() }
     this.timeline = []; // { seq, at (ms into the call), kind, text }
     this.seq = 0;
     this.ear = null; // the bot hearing Shashank's mic right now
@@ -1190,13 +1225,24 @@ export class Call {
     const link = this.ear && this.readyLinks().includes(this.ear) ? this.ear : this.readyLinks()[0];
     if (!link || !this.lines.length) return Promise.resolve(this.exportData());
     return new Promise((resolve) => {
-      const timer = this.d.setTimer(() => this.onSummary(), WRAP_UP_MS);
-      this.onSummary = () => {
+      const ask = () => link.respondWhenFree(wrapUpInstructions(this.lines, this.notes, this.tasks));
+      let asked = 1;
+      const finish = () => {
         this.d.clearTimer(timer);
-        this.onSummary = null;
+        this.wrap = null;
         resolve(this.exportData());
       };
-      link.respondWhenFree(wrapUpInstructions(this.lines, this.notes, this.tasks));
+      const timer = this.d.setTimer(finish, WRAP_UP_MS);
+      this.wrap = {
+        finish,
+        // It replied without saving a summary: ask once more, then end without one instead of waiting it out.
+        replied: (replier) => {
+          if (replier !== link) return;
+          if (asked++ < WRAP_UP_ASKS) ask();
+          else finish();
+        },
+      };
+      ask();
     });
   }
 
@@ -1222,7 +1268,7 @@ export class Call {
     this.stopNext();
     this.clearStuck();
     this.clearFocusIdle();
-    this.onSummary?.();
+    this.wrap?.finish();
     for (const link of this.links.values()) link.close();
     this.player.flush();
     this.phase = 'idle';
@@ -1644,7 +1690,7 @@ export class Call {
         const items = Array.isArray(a.action_items) ? a.action_items : [];
         this.actionItems = items.map((x) => cleanNote(x)).filter(Boolean).slice(0, ACTION_ITEMS_MAX);
         this.event('tool', `${link.bot.name} saved the call summary`);
-        this.onSummary?.();
+        this.wrap?.finish();
         return { output: 'Saved.', followUp: false };
       }
       case READ_NOTES_TOOL.name:
@@ -1687,6 +1733,9 @@ export class Call {
   }
 
   onBotDone(link, text, status, followUp = false) {
+    // While the call ends, what a bot says is not part of the call.
+    // A reply cut off by Leave itself is not an answer to the summary request.
+    if (this.phase === 'wrapping') return void (status === 'completed' && this.wrap?.replied(link));
     const said = this.onBotSaid(link, text, status);
     if (said !== null) this.onTurnDone(link, said, followUp);
   }
@@ -1720,14 +1769,16 @@ export class Call {
       return;
     }
     // After a tool like invite_bot the bot speaks again to say how it went; its turn decision waits until then.
-    // A bot that only keeps using tools without saying anything gets a few rounds, then its turn ends.
-    link.quietTools = said || !followUp ? 0 : link.quietTools + 1;
+    // A bot that keeps using tools gets a few rounds, then its turn ends. Spoken rounds count too: a bot that
+    // says a line and reads something every time would otherwise keep the turn, talking on its own forever.
+    link.toolRounds = followUp ? link.toolRounds + 1 : 0;
     const ending = link.turn && link.turn.kind !== 'hand';
-    if (followUp && !ending && link.quietTools <= MAX_QUIET_TOOL_ROUNDS) {
+    // A repeated line gets no follow-up: the loop breaker below stops the round instead.
+    if (followUp && !ending && !link.repeated && link.toolRounds <= MAX_TOOL_ROUNDS) {
       if (!this.userSpeaking && !this.waitingForHost && this.phase === 'in-call') link.respond();
       return;
     }
-    link.quietTools = 0;
+    link.toolRounds = 0;
     const turn = link.turn;
     link.turn = null;
     if (turn?.kind === 'leave') this.leaveSoon(link);

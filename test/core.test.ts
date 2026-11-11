@@ -41,7 +41,7 @@ import {
   isStopCommand,
   GATE_HOLD_MS,
   STOP_MAX_WORDS,
-  MAX_QUIET_TOOL_ROUNDS,
+  MAX_TOOL_ROUNDS,
   FOCUS_IDLE_MS,
   CLOSING_MAX_WORDS,
   RESPONSE_START_MS,
@@ -53,6 +53,7 @@ import {
   spokenWords,
   groupRulesText,
   namedBots,
+  nameForms,
   isGroupAddress,
   isClosing,
   focusText,
@@ -89,7 +90,7 @@ test('findAddressee: first named bot wins; longest name breaks ties', () => {
   assert.equal(findAddressee("shashanks bot and my bot", bots), 'b');
   assert.equal(findAddressee('So, my bot, go ahead. Shashanks bot later', bots), 'a');
   assert.equal(findAddressee('nobody here', bots), null);
-  assert.equal(findAddressee('mybot', bots), null);
+  assert.equal(findAddressee('mybot', bots), 'a', 'run together, as speech-to-text writes it');
   // same start position: the longer name is the better match
   assert.equal(findAddressee('alpha beta says hi', [{ id: 's', name: 'Alpha' }, { id: 'l', name: 'Alpha Beta' }]), 'l');
   assert.equal(findAddressee('alpha beta says hi', [{ id: 'l', name: 'Alpha Beta' }, { id: 's', name: 'Alpha' }]), 'l');
@@ -198,9 +199,9 @@ function setup(opts: { mintFail?: (id: string) => Error | null; tools?: (id: str
       if (err) throw err;
       return { clientSecret: `sec-${id}`, url: `wss://voice.test/${id}`, instructions: `I am ${id}.`, tools: opts.tools?.(id) };
     },
-    openSocket: (url: string, protocols: string[]) => {
+    openSocket: (url: string, protocols: string[], id: string) => {
       const ws = new FakeSocket(url, protocols);
-      const id = url.split('/').pop()!;
+      assert.equal(url, `wss://voice.test/${id}`, 'told whose session the socket is for');
       sockets.set(id, [...(sockets.get(id) ?? []), ws]);
       return ws;
     },
@@ -735,6 +736,35 @@ test('matchBot: exact name first, then a name mentioned in the request', () => {
   assert.equal(matchBot('please get Shashanks Bot in here', pool), '1');
   assert.equal(matchBot('', pool), null);
   assert.equal(matchBot('nobody', pool), null);
+});
+
+test('short names: "Xbot" and "X bot" reach Shashank\'s X bot, unless the short form is generic or shared', () => {
+  // A call: "Hey Xbot, what's up?" was answered by My Bot, because only the full name was recognised.
+  const pool = [{ id: 'a', name: 'My Bot' }, { id: 'x', name: "Shashank's X bot" }, { id: 's', name: "Shashank's Bot" }];
+  assert.equal(findAddressee("Hey Xbot, what's up?", pool), 'x');
+  assert.equal(findAddressee("Hey X bot, what's up?", pool), 'x');
+  assert.equal(findAddressee('x-bot, your take?', pool), 'x');
+  assert.equal(findAddressee("Hey Shashank's X bot", pool), 'x', 'the full name still wins');
+  assert.equal(findAddressee('mybot what do you think', pool), 'a');
+  assert.equal(findAddressee('this bot thing is odd', pool), null, '"Shashank\'s Bot" does not shrink to just "bot"');
+  assert.equal(findAddressee('use the X search for that', pool), null, 'a one-letter short form is never used');
+  assert.deepEqual(namedBots('Xbot and My Bot, both of you', pool), ['a', 'x']);
+  assert.deepEqual(namedBots("Shashank's X bot and xbot", pool), ['x'], 'one bot named twice counts once');
+  assert.equal(matchBot('Xbot', pool), 'x');
+  assert.equal(matchBot('please pull in X bot', pool), 'x');
+  // Two bots that shorten to the same thing: neither gets the short form.
+  const twins = [{ id: '1', name: "Ann's Helper" }, { id: '2', name: "Bob's Helper" }];
+  assert.equal(findAddressee('helper, go ahead', twins), null);
+  assert.equal(findAddressee("Bob's Helper, go ahead", twins), '2');
+  assert.deepEqual(nameForms([]), []);
+});
+
+test('short names work in stop, wrap-up and pass lines too', () => {
+  const names = ['My Bot', "Shashank's X bot"];
+  assert.equal(isStopCommand('xbot stop', names), true);
+  assert.equal(isStopCommand('okay mybot, wait', names), true);
+  assert.equal(isClosing('thanks xbot', names), true);
+  assert.equal(isFiller('Pass, mybot.', names), true);
 });
 
 test('every bot gets the invite tool and the list of bots it can pull in', async () => {
@@ -1571,6 +1601,43 @@ test('Leave: one bot saves the summary silently, then the export is ready', asyn
   assert.equal(await call.wrapUp(), null, 'not in a call');
 });
 
+test('Leave: the summary bot is never heard; if it talks instead of saving, it is asked once more, then the call ends at once', async () => {
+  const { call, ws, ready, timers } = setup();
+  call.join([bot('a')]);
+  await ready('a');
+  speak(ws('a'), 'Hi.');
+  const lines = call.lines.length;
+  const pending = call.wrapUp();
+  const asks = () => ws('a').sent.filter((m) => m.type === 'response.create' && m.response?.instructions);
+  assert.deepEqual(asks()[0].response.modalities, ['text'], 'asked for text only, so it cannot speak');
+  speak(ws('a'), 'Hey Shashank. What is on your mind?'); // it talks anyway
+  assert.equal(call.player.chunks.length, 0, 'its voice is not played');
+  assert.equal(call.lines.length, lines, 'and not added to the call');
+  assert.equal(asks().length, 2, 'asked once more');
+  assert.deepEqual(asks()[1].response.modalities, ['text']);
+  speak(ws('a'), 'Still talking.');
+  assert.equal(asks().length, 2, 'not asked a third time');
+  const data = await pending; // no 20 s wait
+  assert.equal(data.summary, '');
+  assert.ok(timers.find((t) => t.ms === WRAP_UP_MS)!.done, 'the wait timer is cleared');
+  call.leave();
+});
+
+test('Leave: a reply from a bot other than the one writing the summary does not count as its answer', async () => {
+  const { call, ws, ready } = setup();
+  call.join([bot('a'), bot('b')]);
+  await ready('a');
+  await ready('b');
+  speak(ws('a'), 'Hi.');
+  const pending = call.wrapUp();
+  speak(ws('b'), 'Me too.'); // b was not asked
+  const asks = ws('a').sent.filter((m) => m.type === 'response.create' && m.response?.instructions);
+  assert.equal(asks.length, 1);
+  useTool(ws('a'), 'save_summary', { summary: 'Short call.', action_items: [] });
+  assert.equal((await pending).summary, 'Short call.');
+  call.leave();
+});
+
 test('Leave: a bot mid-reply is cut, then asked once its reply has ended', async () => {
   const { call, ws, ready } = setup();
   call.join([bot('a')]);
@@ -1581,6 +1648,7 @@ test('Leave: a bot mid-reply is cut, then asked once its reply has ended', async
   assert.equal(ws('a').types().at(-1), 'response.cancel');
   ws('a').emit('response.done', { response: { status: 'cancelled' } });
   assert.match(ws('a').sent.at(-1).response.instructions, /save_summary/);
+  assert.equal(ws('a').sent.filter((m) => m.response?.instructions).length, 1, 'the cut reply does not count as an answer');
   call.leave();
 });
 
@@ -2006,7 +2074,7 @@ test('a bot that keeps using tools without speaking gets a few rounds, then the 
   call.join([bot('a'), bot('b')]);
   await ready('a');
   await ready('b');
-  for (let i = 0; i < MAX_QUIET_TOOL_ROUNDS; i++) {
+  for (let i = 0; i < MAX_TOOL_ROUNDS; i++) {
     const before = creates(ws('a'));
     useTool(ws('a'), 'write_note', { text: `note ${i}` });
     assert.equal(creates(ws('a')), before + 1, 'asked to speak');
@@ -2014,9 +2082,47 @@ test('a bot that keeps using tools without speaking gets a few rounds, then the 
   const before = creates(ws('a'));
   useTool(ws('a'), 'write_note', { text: 'one too many' });
   assert.equal(creates(ws('a')), before, 'no more follow-ups');
-  assert.equal(call.links.get('a').quietTools, 0);
+  assert.equal(call.links.get('a').toolRounds, 0);
   runTimers();
   assert.equal(creates(ws('b')), 1, 'the turn goes to B');
+});
+
+test('a bot that speaks and uses a tool every round gets a few follow-ups, then the turn moves on', async () => {
+  // A call with My Bot and X bot: X bot said a line and read something on every reply, and was asked to speak
+  // again each time, so it kept talking with nobody else getting a turn.
+  const { call, ws, ready, runTimers } = setup();
+  call.join([bot('a'), bot('b')]);
+  await ready('a');
+  await ready('b');
+  const lines = ['Catching up on the day.', 'Quiet afternoon here.', 'Following along with everyone.', 'Nothing new from me yet.'];
+  for (let i = 0; i < MAX_TOOL_ROUNDS; i++) {
+    const before = creates(ws('a'));
+    useTool(ws('a'), 'read_notes', {}, lines[i]);
+    assert.equal(creates(ws('a')), before + 1, `follow-up ${i + 1} is given`);
+  }
+  const before = creates(ws('a'));
+  useTool(ws('a'), 'read_notes', {}, lines[3]);
+  assert.equal(creates(ws('a')), before, 'no more follow-ups, even though it spoke');
+  runTimers();
+  assert.equal(creates(ws('b')), 1, 'the turn goes to B');
+  // A new turn starts counting again.
+  useTool(ws('a'), 'read_notes', {}, 'A fresh point about the budget.');
+  assert.equal(creates(ws('a')), before + 1);
+});
+
+test('a bot repeating itself while using a tool stops the round instead of getting a follow-up', async () => {
+  const { call, ws, ready, runTimers } = setup();
+  call.join([bot('a'), bot('b')]);
+  await ready('a');
+  await ready('b');
+  useTool(ws('a'), 'read_notes', {}, 'Cost. Per-ticket spend, not speed.');
+  const before = creates(ws('a'));
+  useTool(ws('a'), 'read_notes', {}, 'Cost. Per-ticket spend, not speed.');
+  assert.equal(creates(ws('a')), before, 'no follow-up for a repeat');
+  assert.equal(call.waitingForHost, true);
+  assert.equal(call.timeline.at(-1).text, 'Bot A repeated what was already said: waiting for you');
+  runTimers();
+  assert.equal(creates(ws('b')), 0, 'nobody else is cued either');
 });
 
 test('no tool follow-up while the call waits for the host, or when the bot also passed', async () => {
@@ -2640,6 +2746,22 @@ test('search_conversations: the bot speaks once the result is in; refusals and f
   assert.equal(toolCalls.length, before + 1, 'only the bot\'s own tools go to Grok Bot');
 });
 
+test('search_conversations every round: the bot gets a few follow-ups, then the other bot speaks', async () => {
+  const { ws, toolCalls, runTimers } = await two({ tools: () => [SEARCH_TOOL] });
+  const lines = ['Hey Shashank. Just catching up on the day.', 'Hey Shashank. Catching up on where things left off.', 'Not much going on.', 'Quiet afternoon.'];
+  let asked = 0;
+  for (const line of lines) {
+    const before = creates(ws('a'));
+    useTool(ws('a'), 'search_conversations', { query: 'today' }, line);
+    toolCalls.at(-1)!.resolve({ kind: 'served', output: { hits: [] } });
+    await flush();
+    asked += creates(ws('a')) - before;
+  }
+  assert.equal(asked, MAX_TOOL_ROUNDS, 'only a few follow-ups in a row');
+  runTimers();
+  assert.equal(creates(ws('b')), 1, 'then the other bot gets its turn');
+});
+
 test('while a tool runs: the host can cut in and is answered once the result is in; nothing else is asked for', async () => {
   const { call, ws, toolCalls, timers } = await two({ tools: () => [SEARCH_TOOL] });
   useTool(ws('a'), 'search_conversations', { query: 'x' });
@@ -2742,6 +2864,23 @@ test('a turn decision made in a reply whose tool result came after the host cut 
   await flush();
   assert.equal(call.links.get('a').turn, null);
   assert.equal(call.nextTimer, null);
+});
+
+test('Leave: a summary reply that uses a Grok Bot tool gets its result but no turn afterwards', async () => {
+  const { call, ws, toolCalls } = await two({ tools: () => [SEARCH_TOOL] });
+  speak(ws('a'), 'Hi.');
+  void call.wrapUp();
+  const creates = () => ws('b').types().filter((t: string) => t === 'response.create').length;
+  const before = creates();
+  ws('b').emit('response.created');
+  ws('b').emit('response.function_call_arguments.done', { call_id: 's', name: 'search_conversations', arguments: '{"query":"x"}' });
+  ws('b').emit('response.done', { response: { status: 'completed' } });
+  toolCalls[0].resolve({ kind: 'served', output: {} });
+  await flush();
+  assert.equal(outputs(ws('b')).at(-1).call_id, 's', 'the tool result is sent');
+  assert.equal(creates(), before, 'no follow-up reply while leaving');
+  assert.equal(call.links.get('b').turn, null);
+  call.leave();
 });
 
 test('a Grok Bot session request that hangs times out; its late answer or failure is ignored', async () => {

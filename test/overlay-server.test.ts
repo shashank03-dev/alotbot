@@ -86,12 +86,15 @@ afterEach(async () => {
 /** `viewMs: null` leaves it out, so the server's default cadence is used. */
 async function start(signedIn = true, viewMs: number | null = 5): Promise<Harness> {
   const agents = [agent('a', 'Bot A'), agent('b', 'Bot B'), agent('c', 'Bot C')];
+  let minted = 0;
   const up = await mock((r, res) => {
     const method = r.url.split('/').pop()!;
     if (method === 'ListGrokBotAgents') return sendJson(res, 200, { agents });
     if (method === 'VoiceCallHarnessSession') return sendJson(res, 200, { instructions: `I am ${r.body.agentName}.`, tools: [SEND_TASK] });
+    if (method === 'VoiceCallHarnessTool' && r.body.input.request === 'break') return sendJson(res, 500, { message: 'tool broke' });
     if (method === 'VoiceCallHarnessTool') return sendJson(res, 200, { kind: 'VOICE_CALL_HARNESS_TOOL_OUTCOME_KIND_SERVED', output: { queued: r.body.input.request } });
-    if (method === 'MintSandVoiceCallSecret') return sendJson(res, 200, { clientSecret: 's', model: 'm', websocketUrl: 'wss://voice.test/rt' });
+    // Like Grok Bot: one URL for every session, a new secret each time.
+    if (method === 'MintSandVoiceCallSecret') return sendJson(res, 200, { clientSecret: `secret-${++minted}`, model: 'm', websocketUrl: 'wss://voice.test/rt' });
     if (method === 'SetGrokBotAgentVoice') {
       Object.assign(agents.find((a) => a.id === r.body.id)!, { voiceId: r.body.voiceId });
       return sendJson(res, 200, {});
@@ -124,9 +127,6 @@ async function start(signedIn = true, viewMs: number | null = 5): Promise<Harnes
       return ws;
     },
   });
-  // Learn which bot each socket belongs to from the harness request order.
-  const origFetchOrder = up.requests;
-  void origFetchOrder;
   await new Promise<void>((r) => app.server.listen(0, '127.0.0.1', r));
   const { port } = app.server.address() as AddressInfo;
   const h: Harness = { url: `ws://127.0.0.1:${port}/ws`, up, dir, sockets, app, agents, clockAt: (s) => (now = s) };
@@ -402,6 +402,88 @@ test('tasks during a call go through the call, so bots hear about them', async (
   await c.fails('taskStatus', { id: 9, status: 'done' }, /no task #9/);
 });
 
+test('every call writes a live log: each bot\'s voice traffic, tools, app requests, mic, and the saved call points to it', async () => {
+  const h = await start();
+  const c = await connect(h);
+  await inCall(h, c);
+  const a = h.sockets.get('a')!;
+  const b = h.sockets.get('b')!;
+  a.emit('response.output_audio_transcript.delta', { delta: 'On' }); // word-by-word text is left out
+  reply(a, 'On it.', [['send_task', { request: 'Draft the launch post' }]]);
+  for (let i = 0; i < 40 && !a.outputs().length; i++) await new Promise((r) => setTimeout(r, 5));
+  reply(a, 'Trying again.', [['send_task', { request: 'break' }]]);
+  for (let i = 0; i < 40 && a.outputs().length < 2; i++) await new Promise((r) => setTimeout(r, 5));
+  hostSays(a, 'Bot B, plan the launch.');
+  const frame = Buffer.alloc(5 + 4);
+  frame[0] = MSG.mic;
+  frame.writeFloatLE(0.3, 1);
+  c.ws.send(frame);
+  await new Promise((r) => setTimeout(r, 1050)); // the mic is summed up once a second
+  c.ws.send(frame);
+  await c.fails('addBot', { botId: 'zzz' }, /No Grok Bot/);
+  (b.onclose as any)({ code: 1006, reason: 'gone' });
+  (b.onerror as any)({ message: 'reset' });
+  const leaving = c.op('leave');
+  await flush();
+  reply(a, '', [['save_summary', { summary: 'Planned it.', action_items: [] }]]);
+  const r = await leaving;
+  const logs = fs.readdirSync(path.join(h.dir, 'logs'));
+  assert.equal(logs.length, 1);
+  assert.match(logs[0], /^call-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z\.jsonl$/);
+  const file = path.join(h.dir, 'logs', logs[0]);
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'only this user can read it');
+  const raw = fs.readFileSync(file, 'utf8');
+  assert.doesNotMatch(raw, /secret-\d/, 'voice secrets are never logged');
+  const entries = raw.trim().split('\n').map((l) => JSON.parse(l));
+  for (const e of entries) assert.ok(typeof e.at === 'string' && typeof e.ms === 'number' && typeof e.kind === 'string');
+  const has = (pred: (e: any) => boolean, what: string) => assert.ok(entries.some(pred), what);
+  has((e) => e.kind === 'join' && e.bots.join() === 'Bot A,Bot B', 'join');
+  has((e) => e.kind === 'voice-connect' && e.bot === 'Bot A', 'Bot A socket');
+  has((e) => e.kind === 'voice-open' && e.bot === 'Bot B', 'Bot B socket open');
+  has((e) => e.kind === 'voice' && e.dir === 'out' && e.bot === 'Bot A' && e.msg.type === 'session.update', 'setup sent to Bot A');
+  has((e) => e.kind === 'voice' && e.dir === 'in' && e.bot === 'Bot A' && e.msg.type === 'response.function_call_arguments.done' && e.msg.name === 'send_task', 'tool call from Bot A');
+  has((e) => e.kind === 'voice' && e.dir === 'in' && e.bot === 'Bot A' && e.msg.type === 'conversation.item.input_audio_transcription.completed', 'host words heard by Bot A');
+  has((e) => e.kind === 'voice' && e.dir === 'out' && e.bot === 'Bot B' && e.msg.type === 'response.create', 'Bot B asked to answer');
+  has((e) => e.kind === 'grok-tool' && e.bot === 'Bot A' && e.req.name === 'send_task', 'Grok Bot tool request');
+  has((e) => e.kind === 'grok-tool-result' && e.bot === 'Bot A', 'Grok Bot tool result');
+  has((e) => e.kind === 'grok-tool-failed' && e.bot === 'Bot A' && /tool broke/.test(e.error), 'Grok Bot tool failure');
+  has((e) => e.kind === 'event' && e.event === 'host' && /plan the launch/.test(e.text), 'timeline event');
+  has((e) => e.kind === 'mic' && e.frames === 2 && e.avg === 0.3 && e.max === 0.3 && typeof e.botPlaying === 'boolean' && 'ear' in e, 'mic summary');
+  has((e) => e.kind === 'app' && e.op === 'addBot' && !('op' in e.args) && !('req' in e.args), 'app request, with only its arguments');
+  has((e) => e.kind === 'voice-close' && e.bot === 'Bot A', 'leaving closes the sockets, before the log ends');
+  has((e) => e.kind === 'app-error' && e.op === 'addBot' && /No Grok Bot/.test(e.error), 'failed app request');
+  has((e) => e.kind === 'voice-closed' && e.bot === 'Bot B' && e.code === 1006 && e.reason === 'gone', 'socket close code');
+  has((e) => e.kind === 'voice-error' && e.bot === 'Bot B' && e.error === 'reset', 'socket error');
+  has((e) => e.kind === 'saved' && e.file === r.result.file && e.logFile === logs[0], 'saved');
+  assert.equal(entries.at(-1).kind, 'end');
+  assert.ok(!entries.some((e) => e.kind === 'voice' && /delta|input_audio_buffer\.append/.test(e.msg?.type ?? '')), 'no audio or partial text');
+  const md = (await c.ok('callFile', { file: r.result.file })).markdown;
+  assert.match(md, /## Timeline\n\n- 0:00 /);
+  assert.ok(md.includes(`Full log: \`logs/${logs[0]}\``));
+  // Once the call is over nothing more is written to it.
+  c.ws.send(frame);
+  await c.ok('state');
+  assert.equal(fs.readFileSync(file, 'utf8'), raw);
+});
+
+test('the mic summary still comes when no bot is hearing the host (every bot left)', async () => {
+  const h = await start();
+  const c = await connect(h);
+  await inCall(h, c);
+  await c.ok('removeBot', { botId: 'a' });
+  await c.ok('removeBot', { botId: 'b' });
+  const frame = Buffer.alloc(5 + 4);
+  frame[0] = MSG.mic;
+  frame.writeFloatLE(0.1, 1);
+  c.ws.send(frame);
+  await new Promise((r) => setTimeout(r, 1050));
+  c.ws.send(frame);
+  await c.ok('leave');
+  const dir = path.join(h.dir, 'logs');
+  const entries = fs.readFileSync(path.join(dir, fs.readdirSync(dir)[0]), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  assert.ok(entries.some((e) => e.kind === 'mic' && e.ear === null && e.botPlaying === false));
+});
+
 test('leave without anything said ends the call and saves nothing', async () => {
   const h = await start();
   const c = await connect(h);
@@ -421,6 +503,9 @@ test('leave waits for the summary, saves the call and the tasks, and the next ca
   await c.ok('taskAdd', { title: 'Draft plan', owner: 'Bot A' });
   const leaving = c.op('leave');
   await c.fails('leave', {}, /already leaving/);
+  // Stop and mute while leaving do nothing, and are not errors: the bots are already quiet and the mic is off.
+  assert.equal(await c.ok('stop'), null);
+  assert.equal(await c.ok('mute', { muted: true }), null);
   await flush();
   reply(a, '', [['save_summary', { summary: 'We planned the launch.', action_items: ['Draft the plan'] }]]);
   const r = await leaving;
