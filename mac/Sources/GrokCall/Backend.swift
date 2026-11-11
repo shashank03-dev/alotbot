@@ -93,7 +93,10 @@ final class Backend: NSObject, URLSessionWebSocketDelegate {
         proc.standardError = errors
         var errText = ""
         errors.fileHandleForReading.readabilityHandler = { h in
-            if let s = String(data: h.availableData, encoding: .utf8), !s.isEmpty { errText = String((errText + s).suffix(2000)) }
+            if let s = String(data: h.availableData, encoding: .utf8), !s.isEmpty {
+                errText = String((errText + s).suffix(2000))
+                AppLog.write("backend stderr: \(s.trimmingCharacters(in: .whitespacesAndNewlines))")
+            }
         }
         var started = false
         output.fileHandleForReading.readabilityHandler = { [weak self] h in
@@ -214,6 +217,7 @@ final class Backend: NSObject, URLSessionWebSocketDelegate {
     }
 
     private func fail(_ why: String) {
+        AppLog.write("backend failed: \(why)")
         lock.lock()
         let waiting = pending
         pending.removeAll()

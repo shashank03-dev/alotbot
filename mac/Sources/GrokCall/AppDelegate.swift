@@ -109,6 +109,7 @@ final class OverlayController {
     }
 
     private func focusLost() {
+        // Only the pill folds away. The full view stays until you close it, so you can watch the bots from other apps.
         guard model.expanded, !model.prefs.keepPill else { return }
         // A click on our own window doesn't count (global monitors only see other apps' events).
         model.collapse()

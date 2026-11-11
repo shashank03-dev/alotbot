@@ -10,6 +10,8 @@ final class AudioIO {
     /// Smoothed mic loudness (0...1), for the host's avatar.
     private(set) var micLevel: Float = 0
     var muted = false
+    /// Audio couldn't be restarted after a device change (the call has no sound until you rejoin).
+    var onFailure: ((String) -> Void)?
     /// Demo mode only: a made-up voice level.
     var fakeLevel: (() -> Double)?
 
@@ -35,6 +37,7 @@ final class AudioIO {
     private var stopped = Set<UInt32>()
     private var flushQueued = false
     private let lock = NSLock()
+    private var configObserver: NSObjectProtocol?
 
     enum AudioError: LocalizedError {
         case micDenied, noMic, start(String)
@@ -67,7 +70,10 @@ final class AudioIO {
 
     private func setUp() throws {
         let input = engine.inputNode
-        do { try input.setVoiceProcessingEnabled(true) } catch { throw AudioError.start("echo cancellation is unavailable (\(error.localizedDescription))") }
+        do { try input.setVoiceProcessingEnabled(true) } catch {
+            AppLog.write("audio: echo cancellation unavailable: \(error)")
+            throw AudioError.start("echo cancellation is unavailable (\(error.localizedDescription))")
+        }
         // With voice processing on, the mic arrives as several channels; channel 0 is the cleaned-up voice.
         let inFormat = input.outputFormat(forBus: 0)
         guard inFormat.channelCount > 0, inFormat.sampleRate > 0 else { throw AudioError.noMic }
@@ -84,9 +90,33 @@ final class AudioIO {
         engine.prepare()
         do { try engine.start() } catch { throw AudioError.start(error.localizedDescription) }
         player.play()
+        AppLog.write("audio started: mic \(inFormat), speakers \(engine.outputNode.outputFormat(forBus: 0)), echo cancellation on")
+        // A device change (headphones in or out, AirPods connecting) stops the engine, and nothing starts it
+        // again: the call would go silent both ways. Rebuild the audio on the new devices instead.
+        configObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
+            self?.deviceChanged()
+        }
+    }
+
+    private func deviceChanged() {
+        guard running else { return }
+        AppLog.write("audio: device changed (engine running=\(engine.isRunning)); restarting audio")
+        tearDown()
+        lock.lock(); chunks.removeAll(); stopped.removeAll(); lock.unlock()
+        micBuffer.removeAll()
+        do {
+            try setUp()
+        } catch {
+            running = false
+            tearDown()
+            AppLog.write("audio: restart failed: \(error.localizedDescription)")
+            onFailure?("Sound stopped after an audio device change: \(error.localizedDescription) Leave and join again.")
+        }
     }
 
     private func tearDown() {
+        if let o = configObserver { NotificationCenter.default.removeObserver(o) }
+        configObserver = nil
         engine.inputNode.removeTap(onBus: 0)
         player.stop()
         engine.stop()

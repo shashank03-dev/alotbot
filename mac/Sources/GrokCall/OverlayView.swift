@@ -44,6 +44,12 @@ struct OverlayRoot: View {
         return min(max(12, ideal), screen.width - pillWidth - 12)
     }
     private var pillY: CGFloat { min(max(12, center.y - PillLayoutCG.height / 2), screen.height - PillLayoutCG.height - 12) }
+    /// The full view, centered in the screen's usable area.
+    private var stageRect: CGRect {
+        let visible = NSScreen.screens.first { $0.frame == screen }?.visibleFrame ?? screen
+        return StageMetrics.rect(screen: screen, visible: visible)
+    }
+
     /// Trays open below the pill, or above it when the pill is low on the screen.
     private var traysAbove: Bool { center.y > screen.height * 0.62 }
 
@@ -51,16 +57,25 @@ struct OverlayRoot: View {
         ZStack(alignment: .topLeading) {
             Color.clear
             if model.overlayShown && model.inCall {
-                shell
-                avatars
-                if model.expanded { controls; below }
-                toast
+                if model.mode == .full {
+                    StageView(model: model, prefs: prefs, rect: stageRect)
+                        .frame(width: stageRect.width, height: stageRect.height)
+                        .hitArea() // before `.position`, which would stretch it to the whole screen
+                        .position(x: stageRect.midX, y: stageRect.midY)
+                        .transition(.scale(scale: 0.9).combined(with: .opacity))
+                        .zIndex(4)
+                } else {
+                    shell
+                    avatars
+                    if model.expanded { controls; below }
+                }
+                toast.zIndex(6)
             }
         }
         .frame(width: screen.width, height: screen.height, alignment: .topLeading)
         .onPreferenceChange(HitRects.self) { onHitRects($0) }
         .onPreferenceChange(BotRects.self) { onBotRects($0) }
-        .animation(Theme.bounce, value: model.expanded)
+        .animation(Theme.bounce, value: model.mode)
         .animation(Theme.settle, value: model.tray)
         .animation(Theme.settle, value: model.cardBot)
     }
@@ -88,9 +103,11 @@ struct OverlayRoot: View {
             }
         }
         .frame(width: f.width, height: f.height)
-        .position(x: f.midX, y: f.midY)
-        .gesture(dragOrTap { if !model.expanded { model.expanded = true } })
+        .gesture(dragOrTap { if !model.expanded { model.setMode(.pill) } })
+        // Measured before `.position`, which stretches the view to the whole screen: measuring after it
+        // made the entire screen take clicks, so no other app could be used during a call.
         .hitArea()
+        .position(x: f.midX, y: f.midY)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(model.expanded ? "Grok Call controls" : "Grok Call, \(model.callBots.count) bots. Click to open.")
     }
@@ -167,7 +184,7 @@ struct OverlayRoot: View {
                     .animation(Theme.settle, value: hovered)
                     .zIndex(model.expanded ? 2 : 0)
                     .preference(key: BotRects.self, value: model.expanded && shown ? [b.id: slotRect(b.id)] : [:])
-                    .onTapGesture { if model.expanded { model.openCard(b.id) } else { model.expanded = true } }
+                    .onTapGesture { if model.expanded { model.openCard(b.id) } else { model.setMode(.pill) } }
                     .allowsHitTesting(model.expanded && shown)
                     .accessibilityElement()
                     .accessibilityLabel("\(b.name), \(Labels.status(b.status))")
@@ -177,7 +194,7 @@ struct OverlayRoot: View {
                 .frame(width: model.expanded ? PillLayoutCG.avatar : 40, height: model.expanded ? PillLayoutCG.avatar : 40)
                 .position(model.expanded ? CGPoint(x: pillX + CGFloat(layout.hostX), y: pillY + PillLayoutCG.height / 2) : center)
                 .zIndex(1)
-                .onTapGesture { model.expanded ? model.collapse() : (model.expanded = true) }
+                .onTapGesture { model.setMode(model.expanded ? .circle : .pill) }
                 .allowsHitTesting(true)
                 .help(model.expanded ? "Fold into the circle" : "Open")
             if model.expanded, let ox = layout.overflowX {
@@ -206,20 +223,8 @@ struct OverlayRoot: View {
     // MARK: buttons on the pill
 
     private var controls: some View {
-        let v = model.view
-        return HStack(spacing: CGFloat(PillLayout.buttonGap)) {
-            if model.leaving {
-                HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Saving the call…").font(.system(size: 13)).foregroundStyle(Theme.secondary) }
-                    .padding(.trailing, 8)
-            }
-            CircleButton(symbol: "plus", label: "Call in a bot", active: model.tray == .add || model.tray == .newBot) { model.toggleTray(.add) }
-            CircleButton(symbol: "ellipsis.bubble", label: "Transcript and message", active: model.tray == .chat) { model.toggleTray(.chat) }
-            CircleButton(symbol: "gearshape", label: "Voices", active: model.tray == .voice) { model.toggleTray(.voice) }
-            CircleButton(symbol: v?.muted == true ? "mic.slash" : "mic", label: v?.muted == true ? "Unmute" : "Mute", active: v?.muted == true) { model.toggleMute() }
-            CircleButton(symbol: "phone.down.fill", label: "Leave the call", tint: Theme.danger) { Task { await model.leave() } }
-        }
-        .disabled(model.leaving)
-        .frame(height: PillLayoutCG.height)
+        CallButtons(model: model, opensFullView: true)
+            .frame(height: PillLayoutCG.height)
         .position(x: pillX + pillWidth - CGFloat(PillLayout.padding) - controlsWidth / 2, y: pillY + PillLayoutCG.height / 2)
         .transition(.opacity.combined(with: .scale(scale: 0.8, anchor: .leading)))
     }
@@ -266,7 +271,9 @@ struct OverlayRoot: View {
                     .background(Capsule().fill(Color.black.opacity(0.88)))
                     .frame(maxWidth: 420)
                     .fixedSize(horizontal: false, vertical: true)
-                    .modifier(PlaceBelow(x: model.expanded ? pillX : center.x - 60, y: traysAbove ? (model.expanded ? pillY : center.y - 46) - 46 : (model.expanded ? pillY + PillLayoutCG.height : center.y + 46) + 8, above: false))
+                    .modifier(model.mode == .full
+                        ? PlaceBelow(x: stageRect.midX - 210, y: stageRect.maxY - StageMetrics.controls - 8, above: true)
+                        : PlaceBelow(x: model.expanded ? pillX : center.x - 60, y: traysAbove ? (model.expanded ? pillY : center.y - 46) - 46 : (model.expanded ? pillY + PillLayoutCG.height : center.y + 46) + 8, above: false))
                     .transition(.opacity)
                     .allowsHitTesting(false)
                     .accessibilityAddTraits(.updatesFrequently)
@@ -339,5 +346,30 @@ struct RingLight: View {
             }
             .rotationEffect(.radians(mode == .strobe ? 0 : spin.angle))
         }
+    }
+}
+
+/// The call's buttons, the same in the pill and the full view. `opensFullView` adds the pill's button that opens it.
+struct CallButtons: View {
+    @ObservedObject var model: AppModel
+    let opensFullView: Bool
+
+    var body: some View {
+        let muted = model.view?.muted == true
+        HStack(spacing: CGFloat(PillLayout.buttonGap)) {
+            if model.leaving {
+                HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Saving the call…").font(.system(size: 13)).foregroundStyle(Theme.secondary) }
+                    .padding(.trailing, 8)
+            }
+            CircleButton(symbol: "plus", label: "Call in a bot", active: model.tray == .add || model.tray == .newBot) { model.toggleTray(.add) }
+            CircleButton(symbol: "ellipsis.bubble", label: "Transcript and message", active: model.tray == .chat) { model.toggleTray(.chat) }
+            CircleButton(symbol: "gearshape", label: "Voices", active: model.tray == .voice) { model.toggleTray(.voice) }
+            CircleButton(symbol: muted ? "mic.slash" : "mic", label: muted ? "Unmute" : "Mute", active: muted) { model.toggleMute() }
+            if opensFullView {
+                CircleButton(symbol: "arrow.up.left.and.arrow.down.right", label: "Full view", active: false) { model.setMode(.full) }
+            }
+            CircleButton(symbol: "phone.down.fill", label: "Leave the call", tint: Theme.danger) { Task { await model.leave() } }
+        }
+        .disabled(model.leaving)
     }
 }

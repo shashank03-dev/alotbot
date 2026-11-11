@@ -125,8 +125,9 @@ struct MenuBarView: View {
             Text(model.callBots.map(\.name).joined(separator: ", ")).font(.system(size: 12.5)).foregroundStyle(Theme.secondary)
             HStack(spacing: 8) {
                 Button(model.overlayShown ? "Hide overlay" : "Show overlay") { model.overlayShown.toggle() }.buttonStyle(WideButton())
-                Button(model.expanded ? "Fold to circle" : "Open pill") { model.overlayShown = true; model.expanded ? model.collapse() : (model.expanded = true) }.buttonStyle(WideButton())
+                Button(model.mode == .circle ? "Open pill" : "Fold to circle") { model.setMode(model.mode == .circle ? .pill : .circle) }.buttonStyle(WideButton())
             }
+            Button(model.mode == .full ? "Close full view" : "Full view") { model.setMode(model.mode == .full ? .pill : .full) }.buttonStyle(WideButton())
             Button { Task { await model.leave() } } label: { Text(model.leaving ? "Saving the call…" : "Leave call") }
                 .buttonStyle(WideButton(danger: true)).disabled(model.leaving)
             Text("⌥Esc stops every bot from anywhere.").font(.system(size: 11.5)).foregroundStyle(Theme.secondary)

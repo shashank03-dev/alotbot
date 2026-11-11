@@ -2,7 +2,8 @@ import Foundation
 import GrokCallCore
 
 /// GROK_CALL_DEMO=1 plays a scripted call with no backend, for checking the overlay's look and motion.
-/// GROK_CALL_DEMO_TRAY (add, chat, voice, newBot, card) opens a tray; GROK_CALL_DEMO_BOTS sets how many bots join.
+/// GROK_CALL_DEMO_TRAY (add, chat, voice, newBot, card) opens a tray; GROK_CALL_DEMO_BOTS sets how many bots join;
+/// GROK_CALL_DEMO_STAGE=1 opens the full view.
 @MainActor
 extension AppModel {
     static var demo: Bool { ProcessInfo.processInfo.environment["GROK_CALL_DEMO"] == "1" }
@@ -51,7 +52,7 @@ extension AppModel {
         }
         view = frame()
         overlayShown = true
-        expanded = env["GROK_CALL_DEMO_EXPANDED"] != "0"
+        mode = env["GROK_CALL_DEMO_STAGE"] == "1" ? .full : env["GROK_CALL_DEMO_EXPANDED"] == "0" ? .circle : .pill
         switch env["GROK_CALL_DEMO_TRAY"] {
         case "add": tray = .add
         case "newBot": tray = .newBot

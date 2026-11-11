@@ -52,6 +52,8 @@ public final class MorphEngine {
     public var voiceLevel: Double = 0
     public var gaze: GazeTarget?
     public var reduceMotion = false
+    /// Where the eyes' middle is aimed when looking at someone (offset from the head's middle, avatar units).
+    public static let lookReach = Point2(40, 32)
 
     let data: MorphData
     var rng: SplitMix
@@ -67,6 +69,8 @@ public final class MorphEngine {
     var expressionFrequency = 7.0
     var rotation = Spring(0), headX = Spring(0), headY = Spring(0), scaleY = Spring(1)
     var eyeOpen = Spring(1), eyeScale = Spring(1), aimX = Spring(0), aimY = Spring(0), shapeBlend = Spring(1)
+    /// Looking at someone: where the pair of eyes sits (offset from the head's middle), and how fully (0...1).
+    var lookX = Spring(0), lookY = Spring(0), lookWeight = Spring(0)
     var expressionCursor = 0
     var expressionNext: Double = 0
     var blinkNext: Double = 0
@@ -161,6 +165,9 @@ public final class MorphEngine {
             eyeScale.step(9, 0.85, h)
             aimX.step(13, 1, h)
             aimY.step(13, 1, h)
+            lookX.step(9, 1, h)
+            lookY.step(9, 1, h)
+            lookWeight.step(9, 1, h)
             shapeBlend.step(10, 1, h)
         }
         if reduceMotion {
@@ -180,7 +187,9 @@ public final class MorphEngine {
                 rot = 1.5 * sin(0.5 * runtime) + 0.6 * sin(0.17 * runtime)
                 x = sin(0.27 * runtime); y = 1.2 * sin(0.85 * runtime); sy = 1 + 0.007 * sin(0.85 * runtime)
             case .listening:
-                rot = 8 + 1.5 * sin(0.5 * runtime); x = 2; y = -2 + 0.8 * sin(0.8 * runtime); sy = 1.015
+                // The listening tilt leans toward whoever it looks at (right when looking at no one).
+                let lean = gaze.map { $0.x } ?? 1
+                rot = 8 * lean + 1.5 * sin(0.5 * runtime); x = 2 * lean; y = -2 + 0.8 * sin(0.8 * runtime); sy = 1.015
                 if now >= listenNodNext { listenNodUntil = now + 380; listenNodNext = now + random(1800, 3200) }
                 if now < listenNodUntil {
                     let phase = 1 - (listenNodUntil - now) / 380
@@ -199,6 +208,8 @@ public final class MorphEngine {
             }
             updateExpressionAndBlink()
             updateAim()
+            // Turned toward whoever it looks at.
+            if let g = gaze, state != .listening { rot += 6 * g.x; x += 6 * g.x; y += 3 * g.y }
         }
         rotation.target = rot * .pi / 180
         headX.target = x
@@ -231,12 +242,17 @@ public final class MorphEngine {
 
     func updateAim() {
         // Looking at someone wins over wandering eyes.
+        // The eyes move as a pair to the side of the head facing that way, wherever the expression put them.
         if let g = gaze {
-            aimX.target = 15 * g.x
-            aimY.target = 9 * g.y
+            lookX.target = Self.lookReach.x * g.x
+            lookY.target = Self.lookReach.y * g.y
+            lookWeight.target = 1
+            aimX.target = 0
+            aimY.target = 0
             gazeNext = now
             return
         }
+        lookWeight.target = 0
         guard now >= gazeNext else { return }
         let dir = { self.random(0, 1) < 0.5 ? -1.0 : 1.0 }
         var x = 0.0, y = 0.0, lo = 2500.0, hi = 5000.0
@@ -271,14 +287,18 @@ public final class MorphEngine {
         let halves = (0..<2).map { i in eyeRings[i].reduce(0.0) { max($0, abs($1.x - centers[i].x)) } }
         let distance = abs(centers[1].x - centers[0].x) * face.sx
         let fit = halves[0] + halves[1] > 0.5 ? clamp((distance - 5) / (halves[0] + halves[1]), 0.35, 4) : 4
+        // Looking at someone: shift both eyes so their middle sits at the look point, not where the expression puts it.
+        let w = clamp(lookWeight.x, 0, 1)
+        let lookShiftX = w * (lookX.x - ((centers[0].x + centers[1].x) / 2 - c))
+        let lookShiftY = w * (lookY.x - ((centers[0].y + centers[1].y) / 2 - c))
         var eyes: [CGPath] = []
         for i in 0..<2 {
             let r = eyeRings[i], center = centers[i]
             let pulse = 1 + 0.07 * sin(ea * .pi)
             var driftX = 1.4 * sin(0.00042 * now + Double(i)) + 0.5 * sin(0.001 * now + 2 * Double(i))
             var driftY = 0.9 * sin(0.00058 * now + Double(i))
-            driftX += aimX.x
-            driftY += aimY.x
+            driftX += aimX.x + lookShiftX
+            driftY += aimY.x + lookShiftY
             let es = min(clamp(eyeScale.x, 0.2, 2) * face.eye, fit / pulse)
             let sx = clamp(es * pulse, 0.02, 2.4)
             var wink = 1.0
@@ -316,5 +336,6 @@ public final class MorphEngine {
     public var debugAim: Point2 { Point2(aimX.x, aimY.x) }
     public var debugExpression: Int { expressionIndex }
     public var debugHead: Point2 { Point2(headX.x, headY.x) }
+    public var debugRotation: Double { rotation.x }
     public var debugShapeBlend: Double { shapeBlend.x }
 }

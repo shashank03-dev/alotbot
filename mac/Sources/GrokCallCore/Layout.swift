@@ -65,7 +65,7 @@ public struct PillLayout: Equatable {
     public static let button = 56.0
     public static let buttonGap = 12.0
     public static let padding = 18.0
-    public static let buttons = 5 // add, chat, gear, mic, hang up
+    public static let buttons = 6 // add, chat, gear, mic, full view, hang up
 
     /// Bots drawn as avatars (call order) and how many fold into the +N bubble. When every bot is shown
     /// (`expandedOverflow`) and there are more than `maxShown`, the bubble stays at the end as "−" to fold them back.
@@ -169,4 +169,73 @@ public struct ClockMap: Equatable, Sendable {
     public let offset: Double
     public init(localAtHello: Double, serverAtHello: Double) { offset = localAtHello - serverAtHello }
     public func local(_ server: Double) -> Double { server + offset }
+}
+
+/// The full view: you and every bot as tiles in a grid sized to how many there are.
+public struct StageLayout: Equatable {
+    public static let gap = 14.0
+    /// Tile width over height.
+    public static let aspect = 1.25
+
+    /// Who has a tile, in order: "host" first, then bots in call order.
+    public let ids: [String]
+    public let columns: Int
+    public let rows: Int
+    public let tileWidth: Double
+    public let tileHeight: Double
+    /// Each tile's center, inside the grid area (top-left origin).
+    public let centers: [String: CGPoint]
+
+    /// Picks the column count that makes tiles biggest in a `width` × `height` area. The last row,
+    /// if it's short, sits in the middle.
+    public init(botIds: [String], width: Double, height: Double) {
+        ids = ["host"] + botIds
+        let n = ids.count
+        let w = max(0, width), h = max(0, height)
+        var best = (cols: 1, rows: n, tw: 0.0)
+        for c in 1...n {
+            let r = (n + c - 1) / c
+            let tw = min((w - Double(c - 1) * Self.gap) / Double(c), (h - Double(r - 1) * Self.gap) / Double(r) * Self.aspect)
+            if tw > best.tw + 0.0001 { best = (c, r, tw) }
+        }
+        columns = best.cols
+        rows = best.rows
+        tileWidth = max(0, best.tw)
+        tileHeight = tileWidth / Self.aspect
+        let gridH = Double(rows) * tileHeight + Double(rows - 1) * Self.gap
+        let top = (h - gridH) / 2
+        var c: [String: CGPoint] = [:]
+        // No room for tiles: everyone sits on one point instead of being spread out by the gaps alone.
+        guard tileWidth > 0 else {
+            for id in ids { c[id] = CGPoint(x: w / 2, y: h / 2) }
+            centers = c
+            return
+        }
+        for (i, id) in ids.enumerated() {
+            let row = i / columns, col = i % columns
+            let inRow = row == rows - 1 ? n - row * columns : columns
+            let rowW = Double(inRow) * tileWidth + Double(inRow - 1) * Self.gap
+            let left = (w - rowW) / 2
+            c[id] = CGPoint(x: left + Double(col) * (tileWidth + Self.gap) + tileWidth / 2,
+                            y: top + Double(row) * (tileHeight + Self.gap) + tileHeight / 2)
+        }
+        centers = c
+    }
+
+    /// Which way the tile `from` should look to see `target` ("host" or a bot id), as a unit direction.
+    /// Nil (look ahead) for no target, itself, or anyone without a tile.
+    public func gaze(from: String, to target: String?) -> GazeTarget? {
+        guard let target, target != from, let a = centers[from], let b = centers[target] else { return nil }
+        let dx = Double(b.x - a.x), dy = Double(b.y - a.y)
+        let len = (dx * dx + dy * dy).squareRoot()
+        guard len > 0 else { return nil }
+        return GazeTarget(x: dx / len, y: dy / len)
+    }
+
+    /// Who is talking now: the host if they are, else the speaking bot. Nil when nobody is.
+    public static func speaker(_ v: CallView?) -> String? {
+        guard let v else { return nil }
+        if v.userSpeaking && !v.muted { return "host" }
+        return v.bots.first { $0.status == "speaking" }?.id
+    }
 }

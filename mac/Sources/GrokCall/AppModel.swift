@@ -56,6 +56,9 @@ final class Prefs: ObservableObject {
 
 enum Tray: Equatable { case add, newBot, chat, voice }
 
+/// How the call shows on screen: the small circle, the pill with its buttons, or the full view (a tile per bot).
+enum OverlayMode: Equatable { case circle, pill, full }
+
 enum Connection: Equatable { case starting, ready, failed(String) }
 
 @MainActor
@@ -84,7 +87,9 @@ final class AppModel: ObservableObject {
     @Published var overlayShown = false
     /// The bot under the pointer in the open pill (set by the overlay window).
     @Published var hoveredBot: String?
-    @Published var expanded = false
+    @Published var mode: OverlayMode = .circle
+    /// The pill is open: its buttons, trays and bot cards show.
+    var expanded: Bool { mode == .pill }
     @Published var tray: Tray?
     @Published var cardBot: String?
     @Published var highlightTask: Int?
@@ -104,6 +109,7 @@ final class AppModel: ObservableObject {
         backend.onMessage = { [weak self] msg in self?.handle(msg) }
         backend.onAudio = { [weak self] chunk in self?.audio.play(chunk) }
         audio.onMic = { [weak self] level, pcm in self?.backend.sendMic(AudioFrames.encodeMic(level: level, samples: pcm)) }
+        audio.onFailure = { [weak self] why in self?.show(why) }
         if Self.demo { startDemo() } else { backend.start() }
     }
 
@@ -114,6 +120,7 @@ final class AppModel: ObservableObject {
         hostName = hello.user
         choices = hello.choices
         connection = .ready
+        AppLog.write("backend connected")
         Task {
             await refreshLogin()
             await refreshTasks()
@@ -122,6 +129,7 @@ final class AppModel: ObservableObject {
     }
 
     private func stopped(_ why: String) {
+        AppLog.write("backend stopped: \(why)")
         connection = .failed(why)
         if inCall { endCallLocally() }
     }
@@ -152,6 +160,7 @@ final class AppModel: ObservableObject {
     }
 
     func show(_ message: String) {
+        AppLog.write("shown: \(message)")
         toast = message
         toastTask?.cancel()
         toastTask = Task { [weak self] in
@@ -231,12 +240,13 @@ final class AppModel: ObservableObject {
         cardBot = nil
         showAllBots = false
         let ids = bots.map(\.id).filter(picked.contains) // keep the account's order
+        AppLog.write("join: \(bots.filter { picked.contains($0.id) }.map(\.name).joined(separator: ", "))")
         struct R: Decodable { let joined: [String] }
         guard let _: R = await attempt("Couldn't join", { try await backend.request("join", ["botIds": ids]) }) else {
             audio.stop()
             return
         }
-        expanded = true
+        mode = .pill
         overlayShown = true
         await refreshTasks()
     }
@@ -246,7 +256,9 @@ final class AppModel: ObservableObject {
         leaving = true
         tray = nil
         cardBot = nil
+        AppLog.write("leave")
         let r: LeaveResult? = await attempt("Couldn't save the call", { try await backend.request("leave") })
+        AppLog.write("left: saved \(r?.file ?? "nothing")")
         leaving = false
         endCallLocally()
         if let r {
@@ -262,7 +274,7 @@ final class AppModel: ObservableObject {
         view = nil
         tray = nil
         cardBot = nil
-        expanded = false
+        mode = .circle
         overlayShown = false
         leaving = false
     }
@@ -399,11 +411,15 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func collapse() {
+    /// Shows the call as the circle, the pill or the full view. Trays and cards close: each mode has its own place for them.
+    func setMode(_ m: OverlayMode) {
         tray = nil
         cardBot = nil
-        expanded = false
+        overlayShown = true
+        mode = m
     }
+
+    func collapse() { setMode(.circle) }
 
     var ringMode: RingMode { GrokCallCore.ringMode(view) }
 }

@@ -194,15 +194,54 @@ import Testing
         #expect(abs(e.debugEyeOpen - 1) < 0.1)
     }
 
-    @Test func lookingAtSomeoneMovesTheEyes() {
+    /// The middle of both eyes, relative to the head's middle (head space, before the head's own transform).
+    private func eyesMiddle(_ e: MorphEngine) -> Point2 {
+        let boxes = e.frame().eyes.map(\.boundingBoxOfPath)
+        let c = MorphData.shared.headC
+        return Point2(boxes.map { Double($0.midX) }.reduce(0, +) / 2 - c, boxes.map { Double($0.midY) }.reduce(0, +) / 2 - c)
+    }
+
+    @Test func lookingAtSomeoneMovesTheEyesToThatSide() {
+        // Every state and shape, even ones whose expression puts the eyes up and to the right on their own.
+        for shape in [nil, "cloud", "square"] as [String?] {
+            for state in [AvatarState.idle, .listening, .speaking] {
+                let e = MorphEngine(shape: shape, seed: 2)
+                e.setState(state)
+                e.gaze = GazeTarget(x: -1, y: 0)
+                run(e, seconds: 1.5)
+                #expect(eyesMiddle(e).x < -20, "left: \(shape ?? "circle") \(state)")
+                e.gaze = GazeTarget(x: 1, y: 0)
+                run(e, seconds: 1.5)
+                #expect(eyesMiddle(e).x > 20, "right: \(shape ?? "circle") \(state)")
+                e.gaze = GazeTarget(x: 0, y: -1)
+                run(e, seconds: 1.5)
+                #expect(eyesMiddle(e).y < -15, "up: \(shape ?? "circle") \(state)")
+                #expect(abs(eyesMiddle(e).x) < 12, "up: \(shape ?? "circle") \(state)")
+            }
+        }
         let e = MorphEngine(seed: 2)
-        e.gaze = GazeTarget(x: 1, y: -1)
-        run(e, seconds: 1)
-        #expect(abs(e.debugAim.x - 15) < 0.5)
-        #expect(abs(e.debugAim.y + 9) < 0.5)
         e.gaze = GazeTarget(x: -5, y: 5) // clamped to -1...1
-        run(e, seconds: 1)
-        #expect(abs(e.debugAim.x + 15) < 0.5)
+        run(e, seconds: 1.5)
+        #expect(e.debugAim == Point2(0, 0), "no wandering while looking at someone")
+        #expect(eyesMiddle(e).x < -20 && eyesMiddle(e).y > 15)
+        e.gaze = nil // back to its own expression
+        run(e, seconds: 1.5)
+        #expect(eyesMiddle(e).x > 0)
+    }
+
+    @Test func theHeadTurnsTowardWhoItLooksAt() {
+        let e = MorphEngine(seed: 4)
+        e.setState(.listening)
+        run(e, seconds: 1.5)
+        #expect(e.debugRotation > 0.05, "listening leans right when looking at no one")
+        e.gaze = GazeTarget(x: -1, y: 0)
+        run(e, seconds: 1.5)
+        #expect(e.debugRotation < -0.05, "and left toward someone on the left")
+        #expect(e.debugHead.x < 0)
+        let idle = MorphEngine(seed: 4)
+        idle.gaze = GazeTarget(x: 1, y: 1)
+        run(idle, seconds: 1.5)
+        #expect(idle.debugHead.x > 1.5 && idle.debugHead.y > 0.5)
     }
 
     @Test func wanderingEyesWhenNoOneToLookAt() {
