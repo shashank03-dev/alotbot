@@ -363,6 +363,7 @@ struct CallButtons: View {
             }
             CircleButton(symbol: "plus", label: "Call in a bot", active: model.tray == .add || model.tray == .newBot) { model.toggleTray(.add) }
             CircleButton(symbol: "ellipsis.bubble", label: "Transcript and message", active: model.tray == .chat) { model.toggleTray(.chat) }
+            CircleButton(symbol: "clock.arrow.circlepath", label: "Action history", active: model.tray == .actions) { model.toggleTray(.actions) }
             CircleButton(symbol: "gearshape", label: "Voices", active: model.tray == .voice) { model.toggleTray(.voice) }
             CircleButton(symbol: muted ? "mic.slash" : "mic", label: muted ? "Unmute" : "Mute", active: muted) { model.toggleMute() }
             if opensFullView {

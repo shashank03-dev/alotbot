@@ -18,7 +18,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'grok-call-srv-'));
 after(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
 const SEND_TASK = { type: 'function', name: 'send_task', description: 'Send a job.', parameters: { type: 'object', properties: { request: { type: 'string' } }, required: ['request'] } };
-const agent = (id: string, name: string) => ({ id, name, kind: 'GROK_BOT_AGENT_KIND_AGENT', avatarShape: 'blob', avatarColor: 'blue', voiceSpeed: 1 });
+const agent = (id: string, name: string) => ({ id, agentId: `uuid-${id}`, name, kind: 'GROK_BOT_AGENT_KIND_AGENT', avatarShape: 'blob', avatarColor: 'blue', voiceSpeed: 1 });
 
 // ---------- pure parts ----------
 
@@ -86,13 +86,28 @@ afterEach(async () => {
 /** `viewMs: null` leaves it out, so the server's default cadence is used. */
 async function start(signedIn = true, viewMs: number | null = 5): Promise<Harness> {
   const agents = [agent('a', 'Bot A'), agent('b', 'Bot B'), agent('c', 'Bot C')];
+  const jobs: { agentId: string; callId: string; request: string; at: number }[] = [];
   let minted = 0;
   const up = await mock((r, res) => {
     const method = r.url.split('/').pop()!;
+    if (method?.startsWith('ResolveGrokBot')) return sendJson(res, 200, {});
+    if (method === 'ListGrokBotAgentSkills' || method === 'ListGrokBotAgentRoutines' || method === 'ListGrokBotUserComputers' || method === 'ListGrokBotAgentFiles' || method === 'ListGrokBotUserStoreFiles') return sendJson(res, 200, {});
     if (method === 'ListGrokBotAgents') return sendJson(res, 200, { agents });
     if (method === 'VoiceCallHarnessSession') return sendJson(res, 200, { instructions: `I am ${r.body.agentName}.`, tools: [SEND_TASK] });
     if (method === 'VoiceCallHarnessTool' && r.body.input.request === 'break') return sendJson(res, 500, { message: 'tool broke' });
-    if (method === 'VoiceCallHarnessTool') return sendJson(res, 200, { kind: 'VOICE_CALL_HARNESS_TOOL_OUTCOME_KIND_SERVED', output: { queued: r.body.input.request } });
+    if (method === 'VoiceCallHarnessTool') {
+      if (/^post /.test(String(r.body.input.request))) jobs.push({ agentId: r.body.agentId, callId: r.body.callId, request: r.body.input.request, at: Date.now() });
+      return sendJson(res, 200, { kind: 'VOICE_CALL_HARNESS_TOOL_OUTCOME_KIND_SERVED', output: { queued: r.body.input.request } });
+    }
+    if (method === 'ListGrokBotTranscriptEntries') {
+      // The agent answers each job on the call's channel, as Grok Bot does.
+      const b64 = (o: object) => Buffer.from(JSON.stringify(o)).toString('base64');
+      const entries = jobs.filter((j) => j.agentId === r.body.agentId).flatMap((j, i) => [
+        { seq: String(2 * i + 2), body: b64({ kind: 'send-message', requestId: `req-${i}`, message: { type: 'text', content: `Done: ${j.request}`, channel: `voice:${j.callId}` }, timestampMs: j.at }) },
+        { seq: String(2 * i + 1), body: b64({ kind: 'message', role: 'user', content: j.request, channel: `voice:${j.callId}`, channelSender: 'the call', requestId: `req-${i}`, timestampMs: j.at }) },
+      ]);
+      return sendJson(res, 200, { entries });
+    }
     // Like Grok Bot: one URL for every session, a new secret each time.
     if (method === 'MintSandVoiceCallSecret') return sendJson(res, 200, { clientSecret: `secret-${++minted}`, model: 'm', websocketUrl: 'wss://voice.test/rt' });
     if (method === 'SetGrokBotAgentVoice') {
@@ -192,6 +207,13 @@ async function connect(h: Harness) {
 }
 
 /** Joins with bots a and b and confirms both voice sessions. */
+/** Waits until a bot was asked for the call summary: a leave request crosses a real socket first. */
+async function askedForSummary(s: FakeSocket) {
+  const asked = () => s.sent.some((m: any) => m.type === 'response.create' && /ending this group voice call/.test(m.response?.instructions ?? ''));
+  for (let i = 0; i < 400 && !asked(); i++) await new Promise((r) => setTimeout(r, 5));
+  assert.ok(asked(), 'asked for the summary');
+}
+
 async function inCall(h: Harness, c: Client, ids = ['a', 'b']) {
   (h as any).expect(ids);
   await c.ok('join', { botIds: ids });
@@ -424,7 +446,7 @@ test('every call writes a live log: each bot\'s voice traffic, tools, app reques
   (b.onclose as any)({ code: 1006, reason: 'gone' });
   (b.onerror as any)({ message: 'reset' });
   const leaving = c.op('leave');
-  await flush();
+  await askedForSummary(a);
   reply(a, '', [['save_summary', { summary: 'Planned it.', action_items: [] }]]);
   const r = await leaving;
   const logs = fs.readdirSync(path.join(h.dir, 'logs'));
@@ -589,4 +611,132 @@ test('logout forgets the sign-in, but not during a call', async () => {
   await c.ok('leave');
   assert.deepEqual(await c.ok('logout'), { state: 'signed-out', error: null });
   assert.equal(new AuthStore(h.dir).read(), null);
+});
+
+test('a job\'s answer from the agent reaches the bot on the call, and is logged', async () => {
+  const h = await start();
+  const c = await connect(h);
+  await inCall(h, c);
+  const a = h.sockets.get('a')!;
+  reply(a, 'On it.', [['send_task', { request: 'post the comment' }]]);
+  for (let i = 0; i < 40 && !a.outputs().length; i++) await new Promise((r) => setTimeout(r, 5));
+  // The first check is LANDED_POLL_MS after the job.
+  for (let i = 0; i < 100 && !a.sent.some((m: any) => m.type === 'async_update.add' && m.async_update.payload[0].message.content === 'Done: post the comment'); i++) await new Promise((r) => setTimeout(r, 50));
+  assert.ok(a.sent.some((m: any) => m.type === 'async_update.add' && m.async_update.payload[0].message.content === 'Done: post the comment'), 'Bot A heard its agent');
+  assert.ok(!h.sockets.get('b')!.said().some((t) => t.startsWith('[Work landed]')));
+  const leaving = c.op('leave');
+  await askedForSummary(a);
+  reply(a, '', [['save_summary', { summary: 'Posted.', action_items: [] }]]);
+  await leaving;
+  const logs = fs.readdirSync(path.join(h.dir, 'logs'));
+  const entries = fs.readFileSync(path.join(h.dir, 'logs', logs[0]), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  assert.ok(entries.some((e) => e.kind === 'landed' && e.bot === 'Bot A' && e.work[0].text === 'Done: post the comment'), 'logged');
+  assert.ok(entries.some((e) => e.kind === 'event' && e.event === 'task' && e.text === "Bot A's agent: Done: post the comment"), 'on the timeline');
+});
+
+test('native file tools are recorded before dispatch, return to voice, and survive reopening history', async () => {
+  const h = await start(); const c = await connect(h); await inCall(h, c);
+  const a = h.sockets.get('a')!;
+  assert.ok(a.lastSession().tools.some((t: any) => t.name === 'mac_files'));
+  reply(a, '', [['mac_files', { operation: 'read', path: 'proof.txt' }]]);
+  const command = await c.next((m) => m.t === 'localTool');
+  const during = await c.ok('actions');
+  const action = during.actions.find((r: any) => r.tool === 'mac_files');
+  assert.equal(action.status, 'running'); assert.equal(action.target, 'mac');
+  assert.equal(action.result, undefined, 'lists do not transport the full result');
+  await c.ok('localResult', { id: command.id, text: 'nonce-from-this-mac' });
+  const detail = await c.ok('action', { id: action.id });
+  assert.equal(detail.action.status, 'completed'); assert.match(detail.action.result, /nonce-from-this-mac/);
+  await c.fails('localResult', { id: command.id, text: 'duplicate' }, /expired/);
+  await c.fails('resolveApproval', { id: action.id, decision: 'approve' }, /pending/);
+  await c.fails('resolveApproval', { id: action.id, decision: 'always' }, /decision/);
+  reply(a, '', [['mac_files', { operation: 'read', path: 123 }]]);
+  await new Promise((r) => setTimeout(r, 25));
+  assert.equal(c.msgs.filter((m) => m.t === 'localTool').length, 1, 'invalid arguments never reach native executor');
+  await c.ok('localConfig', { browser: true });
+  await c.ok('localConfig', { browser: false });
+  assert.equal((await c.ok('action', { id: 'missing' })).action, null);
+});
+
+test('disconnecting while a native action runs marks its outcome unknown', async () => {
+  const h = await start(); const c = await connect(h); await inCall(h, c);
+  reply(h.sockets.get('a')!, '', [['mac_window', { operation: 'inspect' }]]);
+  await c.next((m) => m.t === 'localTool');
+  c.ws.close(); await c.closed;
+  await new Promise((r) => setTimeout(r, 25));
+  const { ActionStore } = await import('../src/actions.ts');
+  const reopened = new ActionStore(h.dir);
+  assert.equal(reopened.list().find((a) => a.tool === 'mac_window')!.status, 'unknown');
+  reopened.close();
+});
+
+
+test('approval buttons and voice tools resolve only the exact pending action for that bot', async () => {
+  const h = await start(); const c = await connect(h); await inCall(h, c);
+  const { ActionStore } = await import('../src/actions.ts');
+  const store = new ActionStore(h.dir);
+  const make = (botId = 'a') => {
+    const a = store.create({ callId: 'call', botId, botName: 'Bot', target: 'agent', tool: 'send_task', input: {} });
+    store.update(a.id, { status: 'waiting_approval', approval: { kind: 'auto_review', requestId: `approval-${a.id}`, entryId: 'entry', summary: 'Read verification file', status: 'pending' } });
+    return a;
+  };
+  const button = make();
+  assert.equal((await c.ok('resolveApproval', { id: button.id, decision: 'approve' })).action.approval.status, 'approved');
+  assert.equal(h.up.requests.filter((r) => r.url.endsWith('ResolveGrokBotAutoReviewApproval')).length, 1);
+  await c.fails('resolveApproval', { id: button.id, decision: 'deny' }, /pending/);
+  const a = h.sockets.get('a')!;
+  reply(a, '', [['list_call_actions', {}]]);
+  await new Promise((r) => setTimeout(r, 20));
+  assert.ok(a.outputs().some((o) => o.includes(button.id)));
+  const other = make('b');
+  reply(a, '', [['resolve_call_approval', { id: other.id, decision: 'approve' }]]);
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(store.get(other.id)!.approval!.status, 'pending', 'cannot approve another bot’s action');
+  const voice = make();
+  reply(a, '', [['resolve_call_approval', { id: voice.id, decision: 'deny' }]]);
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(store.get(voice.id)!.approval!.status, 'denied');
+  assert.deepEqual(await c.ok('botResources', { botId: 'a' }), { text: JSON.stringify({ skills: [], routines: [], files: [] }, null, 2) });
+  reply(a, '', [['mac_browser', { operation: 'inspect' }]]);
+  await new Promise((r) => setTimeout(r, 20));
+  assert.ok(a.outputs().some((o) => /Enable the dedicated browser/.test(o)));
+  store.close();
+});
+
+test('a native timeout is outcome unknown, and late results cannot turn it into success', async () => {
+  const h = await start(); const c = await connect(h); await inCall(h, c);
+  reply(h.sockets.get('a')!, '', [['mac_window', { operation: 'press', control: 'old-control' }]]);
+  const command = await c.next((m) => m.t === 'localTool');
+  await new Promise((r) => setTimeout(r, 15_100));
+  const rows = (await c.ok('actions')).actions;
+  assert.equal(rows.find((a: any) => a.tool === 'mac_window').status, 'unknown');
+  await c.fails('localResult', { id: command.id, text: 'late' }, /expired/);
+});
+
+test('native errors are recorded as failures; a watcher outage is logged and retried', async () => {
+  const h = await start(); const c = await connect(h); await inCall(h, c);
+  const a = h.sockets.get('a')!;
+  reply(a, '', [['mac_files', { operation: 'read', path: 'missing' }]]);
+  const command = await c.next((m) => m.t === 'localTool');
+  await c.ok('localResult', { id: command.id, error: 'Folder access denied' });
+  assert.equal((await c.ok('actions')).actions.find((a: any) => a.tool === 'mac_files').status, 'failed');
+  reply(a, '', [['mac_files', { operation: 'list', path: '.' }]]);
+  const next = await c.next((m) => m.t === 'localTool' && m.id !== command.id);
+  await c.ok('localResult', { id: next.id });
+  await h.up.close();
+  await new Promise((r) => setTimeout(r, 3100));
+  const logs = fs.readdirSync(path.join(h.dir, 'logs'));
+  const text = fs.readFileSync(path.join(h.dir, 'logs', logs[0]), 'utf8');
+  assert.match(text, /jobs-error/);
+});
+
+test('the enabled desktop browser executes through the call and records its verified page state', async () => {
+  const h = await start(); const c = await connect(h); await inCall(h, c);
+  await c.ok('localConfig', { browser: true });
+  const a = h.sockets.get('a')!;
+  reply(a, '', [['mac_browser', { operation: 'inspect' }]]);
+  for (let i = 0; i < 200 && !a.outputs().some((o) => o.includes('about:blank')); i++) await new Promise((r) => setTimeout(r, 25));
+  assert.ok(a.outputs().some((o) => o.includes('about:blank')));
+  assert.equal((await c.ok('actions')).actions.find((a: any) => a.tool === 'mac_browser').status, 'completed');
+  await c.ok('localConfig', { browser: false });
 });

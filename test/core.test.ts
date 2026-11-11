@@ -42,6 +42,7 @@ import {
   GATE_HOLD_MS,
   STOP_MAX_WORDS,
   MAX_TOOL_ROUNDS,
+  MAX_APP_TOOL_ROUNDS,
   FOCUS_IDLE_MS,
   CLOSING_MAX_WORDS,
   RESPONSE_START_MS,
@@ -52,8 +53,18 @@ import {
   PASS_TOOL,
   spokenWords,
   groupRulesText,
+  callHarnessTools,
+  SETUP_RETRY_MS,
+  LANDED_POLL_MS,
+  USER_FIRST_GRACE_MS,
+  SILENCE_MS,
+  agentText,
+  withParam,
+  MAX_APPS_LISTED,
   namedBots,
   nameForms,
+  spokenTo,
+  wantsAnswer,
   isGroupAddress,
   isClosing,
   focusText,
@@ -174,6 +185,9 @@ class FakeSocket {
   types() {
     return this.sent.map((m) => m.type);
   }
+  updates() {
+    return this.sent.filter((m) => m.type === 'async_update.add').map((m) => m.async_update.payload[0].message.content);
+  }
   said() {
     return this.sent.filter((m) => m.type === 'conversation.item.create' && m.item.type === 'message').map((m) => m.item.content[0].text);
   }
@@ -183,7 +197,7 @@ const samples = (seconds: number) => new Float32Array(Math.round(seconds * SAMPL
 const b64audio = (seconds: number) => toBase64(floatTo16(samples(seconds)));
 
 type ToolReq = { id: string; req: any; resolve: (v: any) => void; reject: (e: Error) => void };
-function setup(opts: { mintFail?: (id: string) => Error | null; tools?: (id: string) => object[]; mintWait?: (id: string) => Promise<void> | undefined } = {}) {
+function setup(opts: { mintFail?: (id: string) => Error | null; tools?: (id: string) => object[]; apps?: (id: string) => unknown; voice?: object; mintWait?: (id: string) => Promise<void> | undefined } = {}) {
   const toolCalls: ToolReq[] = [];
   const audio = new FakeAudio();
   const sockets = new Map<string, FakeSocket[]>();
@@ -197,11 +211,11 @@ function setup(opts: { mintFail?: (id: string) => Error | null; tools?: (id: str
       await opts.mintWait?.(id);
       const err = opts.mintFail?.(id);
       if (err) throw err;
-      return { clientSecret: `sec-${id}`, url: `wss://voice.test/${id}`, instructions: `I am ${id}.`, tools: opts.tools?.(id) };
+      return { clientSecret: `sec-${id}`, url: `wss://voice.test/${id}`, instructions: `I am ${id}.`, tools: opts.tools?.(id), apps: opts.apps?.(id), ...opts.voice };
     },
     openSocket: (url: string, protocols: string[], id: string) => {
       const ws = new FakeSocket(url, protocols);
-      assert.equal(url, `wss://voice.test/${id}`, 'told whose session the socket is for');
+      assert.equal(new URL(url).pathname, `/${id}`, 'told whose session the socket is for');
       sockets.set(id, [...(sockets.get(id) ?? []), ws]);
       return ws;
     },
@@ -605,9 +619,10 @@ test('a bot whose voice session cannot start shows the reason; the rest of the c
 });
 
 test('a failure with no message gets a generic one', async () => {
-  const { call } = setup({ mintFail: () => ({}) as Error });
+  const { call, timers } = setup({ mintFail: () => ({}) as Error });
   call.join([bot('a')]);
   await flush();
+  await useUpRetries(timers);
   assert.equal(call.view().bots[0].error, 'Could not connect.');
 });
 
@@ -646,7 +661,7 @@ test('a bot that stayed up a while may reconnect again', async () => {
 });
 
 test('a listening bot that fails hands the mic to another bot', async () => {
-  const { call, ws, ready } = setup();
+  const { call, ws, ready, timers } = setup();
   call.join([bot('a'), bot('b')]);
   await ready('a');
   await ready('b');
@@ -656,12 +671,14 @@ test('a listening bot that fails hands the mic to another bot', async () => {
   };
   ws('a').onclose!();
   await flush();
+  assert.equal(call.view().bots[0].status, 'reconnecting', 'tries again first');
+  await useUpRetries(timers);
   assert.equal(call.view().bots[0].status, 'error');
   assert.equal(call.ear.bot.id, 'b');
 });
 
 test('the first ready bot becomes the listener if the opener failed', async () => {
-  const { call, ws, ready } = setup();
+  const { call, ws, ready, timers } = setup();
   call.join([bot('a'), bot('b')]);
   await ready('a');
   call.d.mintVoice = async () => {
@@ -669,6 +686,7 @@ test('the first ready bot becomes the listener if the opener failed', async () =
   };
   ws('a').onclose!();
   await flush();
+  await useUpRetries(timers);
   assert.equal(call.ear, null);
   call.d.mintVoice = async (id: string) => ({ clientSecret: 's', url: `wss://voice.test/${id}`, instructions: '' });
   await ready('b');
@@ -730,6 +748,13 @@ test('groupInstructions lists who can be invited, or says nobody is left', () =>
   assert.match(groupInstructions('B', 'A', ['A']), /already in the call, so there is nobody to invite/);
 });
 
+test('groupInstructions: the turn tools read as one list, and garbled names map to the closest bot', () => {
+  const text = groupInstructions('B', 'A', ['A', 'B']);
+  // leave_call had drifted three sentences away from the list it belongs to ("... and leave_call takes you out").
+  assert.match(text, /wait_for_host stops the bots and waits for Shashank \(use it when the topic is done or you are going in circles\), and leave_call takes you out of the call\. Never repeat/);
+  assert.match(text, /"X bot" may come through as "export" or "ex-bot"\): read it as the closest bot name\./);
+});
+
 test('matchBot: exact name first, then a name mentioned in the request', () => {
   const pool = [{ id: '1', name: "Shashank's Bot" }, { id: '2', name: "Shashank's X bot" }];
   assert.equal(matchBot("shashank's x bot", pool), '2');
@@ -759,6 +784,21 @@ test('short names: "Xbot" and "X bot" reach Shashank\'s X bot, unless the short 
   assert.deepEqual(nameForms([]), []);
 });
 
+test('misheard names: speech-to-text writing "X bot" as "export" or "ex-bot" still reaches the X bot', () => {
+  // Calls of 2026-11-11: "Call in my export." made My Bot search past chats for "export" (12:55); "Hey, export, I
+  // wanted to know about today's post" was answered by My Bot instead (11:42); "call in my ex-bot" (17:15).
+  const pool = [{ id: 'a', name: 'My Bot' }, { id: 'x', name: "Shashank's X bot" }, { id: 's', name: "Shashank's Bot" }];
+  assert.equal(findAddressee("Hey, export, um, I wanted to know about the statistics of today's post.", pool), 'x');
+  assert.equal(findAddressee('I would say for Shashank, call in my ex-bot basically.', pool), 'x');
+  assert.equal(findAddressee('exbot, go', pool), 'x');
+  assert.equal(matchBot('export', pool), 'x');
+  assert.equal(matchBot('Call in my export.', pool), 'x');
+  assert.equal(spokenTo('Hey export, check the reach.', pool), 'x');
+  assert.equal(findAddressee('export the report', [{ id: 'a', name: 'My Bot' }]), null, 'only a bot whose name is X bot');
+  // two X bots: neither gets the heard forms
+  assert.equal(findAddressee('export, go', [{ id: '1', name: "Ann's X bot" }, { id: '2', name: "Bob's X bot" }]), null);
+});
+
 test('short names work in stop, wrap-up and pass lines too', () => {
   const names = ['My Bot', "Shashank's X bot"];
   assert.equal(isStopCommand('xbot stop', names), true);
@@ -785,7 +825,7 @@ test('a bot pulls another bot in: it joins, hears the conversation, says hello, 
   await ready('b');
   speak(ws('b'), 'We should ask Bot C.');
   useTool(ws('a'), 'invite_bot', { name: 'Bot C' }, 'Let me bring in Bot C.');
-  assert.deepEqual(outputs(ws('a')), [{ type: 'function_call_output', call_id: 'call-1', output: 'Bot C is joining the call now. Tell everyone in one short line.' }]);
+  assert.deepEqual(outputs(ws('a')), [{ type: 'function_call_output', call_id: 'call-1', output: 'Bot C is connecting now and says hello itself once it is in; you will hear if it cannot join. Say in one short line that it is on its way, not that it is here.' }]);
   assert.equal(ws('a').types().at(-1), 'response.create', 'inviter speaks again to confirm');
   assert.deepEqual(ws('b').said().at(-1), '[Bot A]: Let me bring in Bot C.');
   assert.deepEqual(mints.at(-1), 'c');
@@ -804,6 +844,53 @@ test('a bot pulls another bot in: it joins, hears the conversation, says hello, 
   assert.equal(call.invited.size, 0);
 });
 
+test('a bot that cannot join: the others are told, the bot that invited it says so, and it can be invited again', async () => {
+  // Call of 2026-11-11 12:57: My Bot said "X bot's in." and "All three of us are here now." while both bots it
+  // invited timed out connecting; nobody on the call was told, and the host waited in silence.
+  const { call, ws, ready, mints } = setup();
+  call.join([bot('a'), bot('b')], [bot('a'), bot('b'), bot('c')]);
+  await ready('a');
+  await ready('b');
+  useTool(ws('a'), 'invite_bot', { name: 'Bot C' }, 'Bringing in Bot C.');
+  ws('a').emit('response.created');
+  ws('a').emit('response.done', { response: { status: 'completed' } });
+  await flush();
+  const before = creates(ws('a'));
+  call.links.get('c').fail(new Error('Timed out connecting.'));
+  for (const id of ['a', 'b']) assert.equal(ws(id).said().at(-1), '[Call]: Bot C could not join the call (Timed out connecting.). It is not in the call; it can be invited again.');
+  assert.equal(creates(ws('a')), before + 1, 'the bot that invited it tells the host');
+  assert.equal(creates(ws('b')), 0);
+  const latest = ws('b').sent.filter((m) => m.type === 'session.update').at(-1).session.instructions;
+  assert.match(latest, /other Grok bots in the call: Bot A\./);
+  assert.match(latest, /Bots you can invite: Bot C\./);
+  assert.deepEqual(call.roster(), ['Bot A', 'Bot B']);
+  assert.equal(call.invited.size, 0);
+  // invited again: a fresh connection
+  useTool(ws('a'), 'invite_bot', { name: 'Bot C' }, 'Trying Bot C again.');
+  assert.match(outputs(ws('a')).at(-1).output, /^Bot C is connecting now/);
+  assert.deepEqual(mints.filter((m) => m === 'c').length, 2);
+  await ready('c');
+  assert.equal(call.links.get('c').ready, true);
+  assert.deepEqual(call.roster(), ['Bot A', 'Bot B', 'Bot C']);
+  // a bot in the call that drops for good; the host had added it, so nobody is asked to speak
+  const aCreates = creates(ws('a'));
+  call.links.get('c').joined = true;
+  call.links.get('c').fail(new Error('Connection lost.'));
+  assert.equal(ws('b').said().at(-1), '[Call]: Bot C dropped out of the call (Connection lost.). It is not in the call; it can be invited again.');
+  assert.equal(creates(ws('a')), aCreates);
+});
+
+test('hand_to a bot that is still joining says so, instead of "nobody"', async () => {
+  // Calls of 2026-11-11 11:42 and 17:14: right after invite_bot, hand_to the new bot got "Bots in the call: nobody."
+  const { call, ws, ready } = setup();
+  call.join([bot('a')], [bot('a'), bot('b')]);
+  await ready('a');
+  useTool(ws('a'), 'invite_bot', { name: 'Bot B' }, 'Bringing in Bot B.');
+  useTool(ws('a'), 'hand_to', { name: 'Bot B' }, 'Over to Bot B.');
+  assert.equal(outputs(ws('a')).at(-1).output, 'Bot B is still joining; it says hello itself once it is in.');
+  assert.equal(call.links.get('a').turn, null);
+});
+
 test('invite refusals: unknown bot, already in the call, bad arguments, unknown tool', async () => {
   const { call, ws, ready, mints } = setup();
   call.join([bot('a'), bot('b')], [bot('a'), bot('b'), bot('c')]);
@@ -819,7 +906,7 @@ test('invite refusals: unknown bot, already in the call, bad arguments, unknown 
     'Bot B is already in the call.',
     'There is no Grok Bot called "". Bots you can invite: Bot C.',
     'There is no Grok Bot called "". Bots you can invite: Bot C.',
-    'Unknown tool "end_the_call". Tools in this call: invite_bot, pass, hand_to, wait_for_host, leave_call, write_note, read_notes, add_task, done_task, save_summary.',
+    'Unknown tool "end_the_call". Tools in this call: invite_bot, pass, hand_to, wait_for_host, leave_call, list_tasks, add_task, done_task, save_summary.',
   ]);
   assert.equal(mints.length, 2, 'nobody new was minted');
   // with nobody left to invite, the refusal says so
@@ -1107,7 +1194,7 @@ const creates = (s: FakeSocket) => s.types().filter((x: string) => x === 'respon
 test('groupInstructions explains the turn tools', () => {
   const text = groupInstructions('B', 'A', ['A', 'C']);
   for (const name of ['hand_to', 'pass', 'wait_for_host', 'leave_call']) assert.match(text, new RegExp(name));
-  assert.deepEqual(TOOLS.map((t: any) => t.name), ['invite_bot', 'pass', 'hand_to', 'wait_for_host', 'leave_call', 'write_note', 'read_notes', 'add_task', 'done_task', 'save_summary']);
+  assert.deepEqual(TOOLS.map((t: any) => t.name), ['invite_bot', 'pass', 'hand_to', 'wait_for_host', 'leave_call', 'list_tasks', 'add_task', 'done_task', 'save_summary']);
   for (const t of TOOLS) assert.equal((t as any).type, 'function');
 });
 
@@ -1348,7 +1435,7 @@ test('only the newest DIRECTION_MAX corrections are kept, and leaving clears the
 // ---------- shared notepad ----------
 
 test('notepadText shows notes and tasks, or says it is empty', () => {
-  assert.equal(notepadText([], []), 'The notepad is empty.');
+  assert.equal(notepadText([], []), 'The task list is empty.');
   assert.equal(notepadText([{ text: 'Price is $10', by: 'Bot A' }], []), 'Notes:\n- Price is $10 (Bot A)');
   assert.equal(
     notepadText([], [
@@ -1367,44 +1454,41 @@ test('cleanNote trims, joins lines and caps length', () => {
   assert.equal(cleanNote('x'.repeat(NOTE_MAX_CHARS + 50)).length, NOTE_MAX_CHARS);
 });
 
-test('groupInstructions explains the notepad', () => {
+test('groupInstructions explains tasks without offering a notepad', () => {
   const text = groupInstructions('B', 'A', ['A']);
-  for (const name of ['write_note', 'add_task', 'done_task', 'read_notes', '"[Notepad]:"']) assert.ok(text.includes(name), name);
+  for (const name of ['add_task', 'done_task', 'list_tasks', '"[Tasks]:"']) assert.ok(text.includes(name), name);
+  assert.doesNotMatch(text, /notepad|write_note|read_notes/i);
 });
 
-test('write_note and add_task: on the notepad, the others are told, the page sees it', async () => {
-  const { call, ws, ready } = setup();
-  call.join([bot('a'), bot('b')]);
-  await ready('a');
-  await ready('b');
+test('added tasks are shared with the other bots and the page', async () => {
+  const { call, ws } = await two();
   const v0 = call.view().notepadVersion;
-  useTool(ws('a'), 'write_note', { text: ' Launch is in May. ' }, 'Noting that.');
-  assert.equal(outputs(ws('a')).at(-1).output, 'Note written.');
-  assert.notEqual(ws('a').types().at(-1), 'response.create', 'it spoke already: no follow-up');
-  assert.deepEqual(ws('b').said().slice(-2), ['[Notepad]: Bot A wrote a note: "Launch is in May."', '[Bot A]: Noting that.']);
   useTool(ws('b'), 'add_task', { text: 'Email the designer' });
   assert.equal(outputs(ws('b')).at(-1).output, 'Task 1 added.');
   assert.equal(ws('b').types().at(-1), 'response.create', 'wrote silently: gets to speak');
-  assert.equal(ws('a').said().at(-1), '[Notepad]: Bot B added task 1: "Email the designer"');
+  assert.equal(ws('a').said().at(-1), '[Tasks]: Bot B added task 1: "Email the designer"');
   useTool(ws('b'), 'add_task', { text: 'Book a room' }, 'And a room.');
   const v = call.view();
-  assert.deepEqual(v.notes, [{ text: 'Launch is in May.', by: 'Bot A' }]);
+  assert.deepEqual(v.notes, []);
   assert.deepEqual(v.tasks.map((t: any) => [t.id, t.text, t.by, t.done]), [[1, 'Email the designer', 'Bot B', false], [2, 'Book a room', 'Bot B', false]]);
-  assert.equal(v.notepadVersion, v0 + 3);
+  assert.equal(v.notepadVersion, v0 + 2);
 });
 
-test('empty or full notepad writes are refused', async () => {
+test('empty or full task writes are refused; historical notes do not take task slots', async () => {
   const { call, ws, ready } = setup();
   call.join([bot('a')]);
   await ready('a');
-  useTool(ws('a'), 'write_note', { text: '   ' }, 'Hmm.');
+  useTool(ws('a'), 'add_task', { text: '   ' }, 'Hmm.');
   assert.equal(outputs(ws('a')).at(-1).output, 'Nothing written: the text was empty.');
   useTool(ws('a'), 'add_task', 'bad json', 'Hmm.');
   assert.equal(outputs(ws('a')).at(-1).output, 'Nothing written: the text was empty.');
   call.notes = Array.from({ length: NOTEPAD_MAX }, (_, i) => ({ text: `n${i}`, by: 'X' }));
-  useTool(ws('a'), 'write_note', { text: 'one more' }, 'Hmm.');
-  assert.equal(outputs(ws('a')).at(-1).output, `Nothing written: the notepad is full (${NOTEPAD_MAX} items).`);
-  assert.equal(call.notes.length, NOTEPAD_MAX);
+  useTool(ws('a'), 'add_task', { text: 'First task' }, 'One.');
+  assert.equal(call.tasks.length, 1);
+  call.tasks = Array.from({ length: NOTEPAD_MAX }, (_, i) => ({ id: i + 1, text: `t${i}`, by: 'X', done: false, doneBy: null }));
+  useTool(ws('a'), 'add_task', { text: 'one more' }, 'Hmm.');
+  assert.equal(outputs(ws('a')).at(-1).output, `Nothing written: the task list is full (${NOTEPAD_MAX} items).`);
+  assert.equal(call.tasks.length, NOTEPAD_MAX);
 });
 
 test('done_task: ticks a task, accepts "#2" or "2", refuses unknown or done ones', async () => {
@@ -1416,7 +1500,7 @@ test('done_task: ticks a task, accepts "#2" or "2", refuses unknown or done ones
   useTool(ws('a'), 'add_task', { text: 'Two' }, 'x');
   useTool(ws('b'), 'done_task', { id: '#2' }, 'Done with two.');
   assert.equal(outputs(ws('b')).at(-1).output, 'Task 2 marked done.');
-  assert.ok(ws('a').said().includes('[Notepad]: Bot B marked task 2 done: "Two"'));
+  assert.ok(ws('a').said().includes('[Tasks]: Bot B marked task 2 done: "Two"'));
   assert.deepEqual(call.tasks[1], { id: 2, text: 'Two', by: 'Bot A', done: true, doneBy: 'Bot B' });
   useTool(ws('b'), 'done_task', { id: 2 }, 'x');
   assert.equal(outputs(ws('b')).at(-1).output, 'Task 2 is already done.');
@@ -1432,16 +1516,17 @@ test('done_task: ticks a task, accepts "#2" or "2", refuses unknown or done ones
   assert.equal(call.tasks.at(-1).id, 3);
 });
 
-test('read_notes returns the notepad and the bot speaks with it', async () => {
+test('list_tasks returns tasks without historical notes and the bot speaks with them', async () => {
   const { call, ws, ready } = setup();
   call.join([bot('a')]);
   await ready('a');
-  useTool(ws('a'), 'read_notes', {}, 'Let me check.');
-  assert.equal(outputs(ws('a')).at(-1).output, 'The notepad is empty.');
-  assert.equal(ws('a').types().at(-1), 'response.create', 'always speaks after reading');
-  useTool(ws('a'), 'write_note', { text: 'Budget 5k' }, 'ok');
-  useTool(ws('a'), 'read_notes', {});
-  assert.equal(outputs(ws('a')).at(-1).output, 'Notes:\n- Budget 5k (Bot A)');
+  useTool(ws('a'), 'list_tasks', {}, 'Let me check.');
+  assert.equal(outputs(ws('a')).at(-1).output, 'The task list is empty.');
+  assert.equal(ws('a').types().at(-1), 'response.create', 'speaks after reading');
+  call.notes = [{ text: 'Old note', by: 'Bot A' }];
+  useTool(ws('a'), 'add_task', { text: 'Review budget' }, 'ok');
+  useTool(ws('a'), 'list_tasks', {});
+  assert.equal(outputs(ws('a')).at(-1).output, 'Tasks:\n- [ ] 1. Review budget (added by Bot A)');
   call.leave();
   assert.deepEqual([call.notes, call.tasks], [[], []]);
 });
@@ -1499,7 +1584,7 @@ test('lastCallText gives the summary and open items, or nothing when there is no
   assert.equal(lastCallText(null), '');
   assert.equal(lastCallText({ summary: '', actionItems: [], notes: [] }), '');
   const text = lastCallText(memory());
-  assert.match(text, /^\n\n# Your last call with Shashank\nSummary: We picked May for launch\.\nOpen action items:\n- Email Sam\nThe shared notepad starts/);
+  assert.match(text, /^\n\n# Your last call with Shashank\nSummary: We picked May for launch\.\nOpen action items:\n- Email Sam\nUnfinished work carries/);
   assert.doesNotMatch(lastCallText(memory({ summary: '', actionItems: [] })), /Summary|Open action items/);
   assert.ok(groupInstructions('B', 'A', ['A'], [], [], memory() as any).includes('# Your last call'));
 });
@@ -1519,7 +1604,7 @@ test('wrapUpInstructions holds the record of the call, capped', () => {
   assert.match(text, /^Shashank is ending this group voice call now\. Do not speak\. Call the save_summary tool/);
   assert.ok(!text.includes('[Shashank (host)]: l2\n'));
   assert.ok(text.includes(`[Shashank (host)]: l${SUMMARY_LINES + 2}`));
-  assert.ok(text.endsWith('Shared notepad:\nThe notepad is empty.'));
+  assert.ok(text.endsWith('Tasks and saved context:\nThe task list is empty.'));
 });
 
 test('exportMarkdown: summary, items, done tasks, notes, direction and transcript', () => {
@@ -1599,6 +1684,41 @@ test('Leave: one bot saves the summary silently, then the export is ready', asyn
   call.leave();
   assert.equal(call.view().phase, 'idle');
   assert.equal(await call.wrapUp(), null, 'not in a call');
+});
+
+test('Leave: a summary request the voice server never starts goes to the next bot, or ends the call at once', async () => {
+  // Calls of 2026-11-11 11:45 and 13:42: the summary request never started; Leave then sat out its full 20 s and the
+  // call was saved without a summary.
+  const { call, ws, ready, timers } = setup();
+  call.join([bot('a'), bot('b')]);
+  await ready('a');
+  await ready('b');
+  speak(ws('a'), 'Launch in May.');
+  const pending = call.wrapUp();
+  const asked = ws('a').sent.filter((m) => m.type === 'response.create').at(-1);
+  assert.match(asked.response.instructions, /save_summary/);
+  timers.filter((x) => !x.done && x.ms === RESPONSE_START_MS).at(-1)!.fn(); // A never starts
+  const next = ws('b').sent.filter((m) => m.type === 'response.create').at(-1);
+  assert.match(next.response.instructions, /save_summary/, 'B is asked instead');
+  timers.filter((x) => !x.done && x.ms === RESPONSE_START_MS).at(-1)!.fn(); // B never starts either
+  const data = await pending;
+  assert.equal(data.summary, '');
+  assert.ok(timers.find((x) => x.ms === WRAP_UP_MS)!.done, 'ended without waiting out the 20 s');
+  // a late loss from a bot no longer asked changes nothing
+  call.wrap = null;
+});
+
+test('Leave: the second bot asked can still save the summary', async () => {
+  const { call, ws, ready, timers } = setup();
+  call.join([bot('a'), bot('b')]);
+  await ready('a');
+  await ready('b');
+  speak(ws('a'), 'Launch in May.');
+  const pending = call.wrapUp();
+  timers.filter((x) => !x.done && x.ms === RESPONSE_START_MS).at(-1)!.fn();
+  call.wrap.lost(call.links.get('a')); // a stale loss from the bot no longer asked
+  useTool(ws('b'), 'save_summary', { summary: 'May launch.' });
+  assert.equal((await pending).summary, 'May launch.');
 });
 
 test('Leave: the summary bot is never heard; if it talks instead of saving, it is asked once more, then the call ends at once', async () => {
@@ -1819,10 +1939,10 @@ test('timeline: joins, lines, cut-offs, tools, notepad, direction, leaves, error
   await ready('b');
   speak(ws('a'), 'Hi all.');
   ws('a').emit('conversation.item.input_audio_transcription.completed', { transcript: 'no, talk about pricing first' });
-  useTool(ws('a'), 'write_note', { text: 'Pricing first' }, 'Noted.');
+  useTool(ws('a'), 'list_tasks', {}, 'Noted.');
   useTool(ws('a'), 'add_task', { text: 'Price list' }, 'ok');
   useTool(ws('b'), 'done_task', { id: 1 }, 'ok');
-  useTool(ws('b'), 'read_notes', {});
+  useTool(ws('b'), 'list_tasks', {});
   useTool(ws('b'), 'hand_to', { name: 'Bot A' }, 'Over to A.');
   useTool(ws('a'), 'pass', {});
   useTool(ws('b'), 'wait_for_host', {}, 'Waiting.');
@@ -1844,16 +1964,17 @@ test('timeline: joins, lines, cut-offs, tools, notepad, direction, leaves, error
     'bot|Bot A: Hi all.',
     'host|Shashank (host): no, talk about pricing first',
     'direction|Direction pinned: "no, talk about pricing first"',
-    'notepad|Bot A wrote a note: "Pricing first"',
+    'tool|Bot A read the task list',
     'bot|Bot A: Noted.',
-    'notepad|Bot A added task 1: "Price list"',
+    'task|Bot A added task 1: "Price list"',
     'bot|Bot A: ok',
-    'notepad|Bot B marked task 1 done: "Price list"',
+    'task|Bot B marked task 1 done: "Price list"',
     'bot|Bot B: ok',
-    'tool|Bot B read the notepad',
+    'tool|Bot B read the task list',
     'tool|Bot B handed the turn to Bot A',
     'bot|Bot B: Over to A.',
     'tool|Bot A passed',
+    'tool|The other bots had nothing to add: waiting for you',
     'tool|Bot B asked the bots to wait for you',
     'bot|Bot B: Waiting.',
     'tool|Bot A pulled Bot Z into the call',
@@ -2076,11 +2197,11 @@ test('a bot that keeps using tools without speaking gets a few rounds, then the 
   await ready('b');
   for (let i = 0; i < MAX_TOOL_ROUNDS; i++) {
     const before = creates(ws('a'));
-    useTool(ws('a'), 'write_note', { text: `note ${i}` });
+    useTool(ws('a'), 'add_task', { text: `task ${i}` });
     assert.equal(creates(ws('a')), before + 1, 'asked to speak');
   }
   const before = creates(ws('a'));
-  useTool(ws('a'), 'write_note', { text: 'one too many' });
+  useTool(ws('a'), 'add_task', { text: 'one too many' });
   assert.equal(creates(ws('a')), before, 'no more follow-ups');
   assert.equal(call.links.get('a').toolRounds, 0);
   runTimers();
@@ -2097,16 +2218,16 @@ test('a bot that speaks and uses a tool every round gets a few follow-ups, then 
   const lines = ['Catching up on the day.', 'Quiet afternoon here.', 'Following along with everyone.', 'Nothing new from me yet.'];
   for (let i = 0; i < MAX_TOOL_ROUNDS; i++) {
     const before = creates(ws('a'));
-    useTool(ws('a'), 'read_notes', {}, lines[i]);
+    useTool(ws('a'), 'list_tasks', {}, lines[i]);
     assert.equal(creates(ws('a')), before + 1, `follow-up ${i + 1} is given`);
   }
   const before = creates(ws('a'));
-  useTool(ws('a'), 'read_notes', {}, lines[3]);
+  useTool(ws('a'), 'list_tasks', {}, lines[3]);
   assert.equal(creates(ws('a')), before, 'no more follow-ups, even though it spoke');
   runTimers();
   assert.equal(creates(ws('b')), 1, 'the turn goes to B');
   // A new turn starts counting again.
-  useTool(ws('a'), 'read_notes', {}, 'A fresh point about the budget.');
+  useTool(ws('a'), 'list_tasks', {}, 'A fresh point about the budget.');
   assert.equal(creates(ws('a')), before + 1);
 });
 
@@ -2115,9 +2236,9 @@ test('a bot repeating itself while using a tool stops the round instead of getti
   call.join([bot('a'), bot('b')]);
   await ready('a');
   await ready('b');
-  useTool(ws('a'), 'read_notes', {}, 'Cost. Per-ticket spend, not speed.');
+  useTool(ws('a'), 'list_tasks', {}, 'Cost. Per-ticket spend, not speed.');
   const before = creates(ws('a'));
-  useTool(ws('a'), 'read_notes', {}, 'Cost. Per-ticket spend, not speed.');
+  useTool(ws('a'), 'list_tasks', {}, 'Cost. Per-ticket spend, not speed.');
   assert.equal(creates(ws('a')), before, 'no follow-up for a repeat');
   assert.equal(call.waitingForHost, true);
   assert.equal(call.timeline.at(-1).text, 'Bot A repeated what was already said: waiting for you');
@@ -2132,11 +2253,11 @@ test('no tool follow-up while the call waits for the host, or when the bot also 
   await ready('b');
   call.waitingForHost = true;
   const before = creates(ws('a'));
-  useTool(ws('a'), 'write_note', { text: 'x' });
+  useTool(ws('a'), 'add_task', { text: 'x' });
   assert.equal(creates(ws('a')), before);
   call.waitingForHost = false;
   ws('a').emit('response.created');
-  ws('a').emit('response.function_call_arguments.done', { call_id: 'n', name: 'write_note', arguments: '{"text":"y"}' });
+  ws('a').emit('response.function_call_arguments.done', { call_id: 'n', name: 'add_task', arguments: '{"text":"y"}' });
   ws('a').emit('response.function_call_arguments.done', { call_id: 'p', name: 'pass', arguments: '{}' });
   ws('a').emit('response.done', { response: { status: 'completed' } });
   assert.equal(creates(ws('a')), before, 'pass ends the turn: no follow-up');
@@ -2151,6 +2272,17 @@ function hostSays(s: FakeSocket, text: string) {
   s.emit('conversation.item.input_audio_transcription.completed', { transcript: text });
 }
 /** Runs one pending timer by id. */
+/** Fires each new-try wait of a failing voice setup until the tries are used up. */
+async function useUpRetries(timers: { fn: () => void; ms: number; id: number; done: boolean }[]) {
+  for (let i = 0; i < SETUP_RETRY_MS.length; i++) {
+    const t = timers.find((x) => !x.done && x.ms === SETUP_RETRY_MS[i]);
+    assert.ok(t, `try ${i + 2} is waiting`);
+    t.done = true;
+    t.fn();
+    await flush();
+  }
+}
+
 function fire(timers: { fn: () => void; id: number; done: boolean }[], id: number) {
   const t = timers.find((x) => x.id === id)!;
   assert.equal(t.done, false, 'timer still pending');
@@ -2321,6 +2453,160 @@ test('in a one-on-one the bot cannot hand the turn away, and another bot speakin
   assert.equal(call.focus, call.links.get('a'));
 });
 
+test('spokenTo: only a name set off at the start of a sentence speaks to that bot', () => {
+  const bots = [{ id: 'm', name: 'My Bot' }, { id: 'x', name: "Shashank's X bot" }, { id: 's', name: "Shashank's Bot" }];
+  // the line from the call of 2026-11-11 17:15 UTC
+  assert.equal(spokenTo("Shashank's X bot, Shashank wants you to check whether his X reach today is up from yesterday.", bots), 'x');
+  assert.equal(spokenTo('Hey X bot, check the reach.', bots), 'x', 'short name after a greeting');
+  assert.equal(spokenTo('Okay, My Bot: your turn', bots), 'm');
+  assert.equal(spokenTo('Got it. X bot — pull the numbers.', bots), 'x', 'second sentence');
+  assert.equal(spokenTo('Sure! And Shashank\'s Bot, you too?', bots), 's');
+  for (const t of ["Shashank's Bot is here.", 'Bringing in My Bot.', 'Over to you, X bot.', 'Thanks, My Bot.', 'Hey, sure.', '', 'Bot, do it.', 'X bot can check that.']) {
+    assert.equal(spokenTo(t, bots), null, t);
+  }
+});
+
+test('in a one-on-one, the bot speaking to another bot by name passes the one-on-one to it, and that bot answers', async () => {
+  const { call, ws, timers } = await three();
+  hostSays(ws('a'), 'Bot A, tell C what it needs to do.');
+  assert.equal(call.focus, call.links.get('a'));
+  speak(ws('a'), 'Bot C, Shashank wants you to check the reach and report the numbers.', 2);
+  assert.ok(call.nextTimer !== null, 'C is cued');
+  assert.equal(timers.find((t) => t.id === call.nextTimer)!.ms, 2000 - NEXT_TURN_LEAD_MS);
+  assert.equal(call.focus, call.links.get('a'), 'the one-on-one moves only when C starts');
+  fire(timers, call.nextTimer);
+  assert.equal(call.focus, call.links.get('c'));
+  assert.equal(call.timeline.filter((e: any) => e.kind === 'focus').at(-1).text, 'One-on-one with Bot C: the other bots stay quiet');
+  assert.match(lastInstructions(ws('c')), /talking with you one-on-one/);
+  assert.match(lastInstructions(ws('a')), /talking with Bot C one-on-one\. Stay completely silent/);
+  assert.equal(creates(ws('c')), 1, 'C answers without being named by the host');
+  assert.equal(creates(ws('b')), 0);
+  speak(ws('c'), 'On it.');
+  assert.equal(call.nextTimer, null, 'back to the host, still one-on-one with C');
+  hostSays(ws('c'), 'and yesterday?');
+  assert.equal(call.focus, call.links.get('c'));
+});
+
+test('in a one-on-one, a hand-off by name is dropped when the host cuts in, and a bot only mentioned keeps the one-on-one', async () => {
+  let t = await three();
+  hostSays(t.ws('a'), 'Bot A, tell C.');
+  speak(t.ws('a'), 'Bot C, check the reach.', 2);
+  assert.notEqual(t.call.nextTimer, null);
+  hostSays(t.ws('a'), 'wait, never mind');
+  assert.equal(t.call.nextTimer, null, 'the cue is dropped');
+  assert.equal(t.call.focus, t.call.links.get('a'), 'he cut in: still with A');
+  assert.equal(creates(t.ws('c')), 0);
+
+  t = await three();
+  hostSays(t.ws('a'), 'Bot A, who else is here?');
+  speak(t.ws('a'), 'Bot C is on the line too.', 1);
+  assert.equal(t.call.nextTimer, null);
+  assert.notEqual(t.call.focusTimer, null, 'the quiet clock runs as before');
+  assert.equal(t.call.focus, t.call.links.get('a'));
+
+  // C dropped before its cue: the one-on-one stays with A
+  t = await three();
+  hostSays(t.ws('a'), 'Bot A, tell C.');
+  speak(t.ws('a'), 'Bot C, check the reach.', 2);
+  t.call.links.get('c').ready = false;
+  fire(t.timers, t.call.nextTimer);
+  assert.equal(t.call.focus, t.call.links.get('a'));
+  assert.equal(creates(t.ws('c')), 0);
+  assert.notEqual(t.call.focusTimer, null, 'A keeps its quiet clock');
+});
+
+test('wantsAnswer: a question, a greeting, or calling Grok wants a reply; an acknowledgement does not', () => {
+  for (const t of ['Hey Grok.', 'Hey Grok. Hey hey.', 'hi', 'Hello there', 'Are you there?', 'what about teams?']) assert.equal(wantsAnswer(t), true, t);
+  for (const t of ['Okay, I get it.', 'Uh-huh.', "I'll let you know, I'll let you know.", 'You can say about it when it is ready.', 'Bot A, thanks', '', 'this is high']) {
+    assert.equal(wantsAnswer(t), false, t);
+  }
+});
+
+test('a bot that passes without a word on a line that wants a reply is asked once to answer', async () => {
+  // Call of 2026-11-11 11:39: "Hey Grok." and "Hey Grok. Hey hey." were both met with a silent pass; the host had
+  // to ask "Are you there?".
+  const t = setup();
+  t.call.join([bot('a')]);
+  await t.ready('a');
+  const ws = t.ws('a');
+  hostSays(ws, 'Hey Grok.');
+  useTool(ws, 'pass', {});
+  assert.equal(ws.said().at(-1), '[Call]: Shashank spoke to you and is waiting. Answer him in one short spoken line; do not pass.');
+  assert.equal(ws.types().at(-1), 'response.create');
+  assert.equal(t.call.timeline.at(-1).text, 'Bot A passed on your line: asked it to answer');
+  assert.equal(t.call.waitingForHost, false);
+  const asked = creates(ws);
+  useTool(ws, 'pass', {}); // passes again: once only
+  assert.equal(creates(ws), asked);
+  assert.equal(t.call.waitingForHost, true);
+  // an acknowledgement: a silent pass is fine
+  hostSays(ws, 'Okay, I get it.');
+  useTool(ws, 'pass', {});
+  assert.equal(creates(ws), asked);
+  // a pass with words is an answer
+  hostSays(ws, 'Hey there');
+  useTool(ws, 'pass', {}, 'Hey Shashank.');
+  assert.equal(creates(ws), asked);
+  // he is already talking again: no ask
+  hostSays(ws, 'hello?');
+  t.call.userSpeaking = true;
+  useTool(ws, 'pass', {});
+  assert.equal(creates(ws), asked);
+  t.call.userSpeaking = false;
+  // typed lines count too
+  t.call.sendText('Hey Grok, you there?');
+  const typed = creates(ws);
+  useTool(ws, 'pass', {});
+  assert.equal(creates(ws), typed + 1);
+});
+
+test('naming a bot that is still joining: nobody else answers for it, and it answers once it is in', async () => {
+  // Call of 2026-11-11 12:57: "Hey Xbot. Hey Xbot." while the X bot was connecting went to My Bot, which passed.
+  const { call, ws, ready } = setup();
+  call.join([bot('a')], [bot('a'), bot('b'), bot('c')]);
+  await ready('a');
+  useTool(ws('a'), 'invite_bot', { name: 'Bot B' }, 'Bringing in Bot B.');
+  ws('a').emit('response.created');
+  ws('a').emit('response.done', { response: { status: 'completed' } });
+  const before = creates(ws('a'));
+  hostSays(ws('a'), 'Hey Bot B, what was the reach yesterday?');
+  assert.equal(call.links.get('a').suppressNext, true, "A's own automatic reply never plays");
+  assert.equal(creates(ws('a')), before);
+  assert.equal(call.timeline.at(-1).text, 'Bot B is still joining: it answers you once it is in');
+  await ready('b');
+  assert.deepEqual(ws('b').said().slice(-2), [
+    '[Shashank (host)]: Hey Bot B, what was the reach yesterday?',
+    '[Call]: You are in the call now. Shashank spoke to you while you were connecting: answer him in one short spoken line.',
+  ]);
+  assert.ok(!ws('b').said().some((x: string) => x.includes('Say a short hello')), 'its answer is its hello');
+  assert.equal(creates(ws('b')), 1);
+  assert.equal(call.invited.size, 0);
+  assert.equal(call.links.get('b').owesHost, false);
+
+  // typed, and in a one-on-one: the one-on-one ends, since he turned to another bot
+  speak(ws('b'), 'About 1,492.');
+  assert.equal(call.ear, call.links.get('b'), 'B spoke: the mic is on B');
+  hostSays(ws('b'), 'Bot A, one thing');
+  assert.equal(call.focus, call.links.get('a'));
+  call.addBot(bot('c'));
+  assert.equal(call.sendText('Bot C, hi'), true);
+  assert.ok(call.focus === null);
+  assert.equal(call.links.get('c').owesHost, true);
+  // it fails to connect: a bot in the call tells him
+  const aCreates = creates(ws('a'));
+  call.links.get('c').fail(new Error('Timed out connecting.'));
+  assert.equal(creates(ws('a')), aCreates + 1);
+  assert.equal(call.links.get('c').owesHost, false);
+
+  // a ready bot named too: the normal route
+  const t = setup();
+  t.call.join([bot('a')], [bot('a'), bot('b')]);
+  await t.ready('a');
+  t.call.addBot(bot('b'));
+  hostSays(t.ws('a'), 'Bot A and Bot B, compare');
+  assert.equal(t.call.links.get('b').owesHost ?? false, false);
+});
+
 test('one-on-one ends quietly when its bot leaves or drops', async () => {
   const { call, ws } = await three();
   hostSays(ws('a'), 'Bot A, hi');
@@ -2456,7 +2742,13 @@ test('the rules that adapt Grok Bot\'s phone-call instructions to a group call',
   assert.match(plain, /Do not end a turn with a question just to keep the call going/);
   assert.match(plain, /Never say a tool's name, never say "pass" or "silence"/);
   assert.doesNotMatch(plain, /send_task/);
-  assert.match(groupRulesText(true), /Its result does not come back on this call: it lands in your chat with Shashank/);
+  assert.match(groupRulesText(true), /Its updates and its result come back on this call as work_landed entries/);
+  assert.match(groupRulesText(true), /work_landed/);
+  assert.match(groupRulesText(true), /Never tell Shashank to check the chat for a result/);
+  assert.doesNotMatch(groupRulesText(true), /lands in your chat/);
+  assert.match(plain, /No work_landed, work_overheard or user_message entries arrive on this call/, 'without send_task, nothing lands');
+  assert.match(groupRulesText(true), /sent its agent a background job" message means that bot already has that work/);
+  assert.doesNotMatch(plain, /background job/);
   const text = groupInstructions('BASE', 'A', ['A'], [], [], null, null, true);
   assert.ok(text.indexOf('# Group call rules') > text.indexOf('BASE'), 'after the bot\'s own instructions, so they win');
   assert.match(PASS_TOOL.description, /silent action: produce no speech/);
@@ -2476,7 +2768,10 @@ test('a turn the call starts holds the bot\'s voice: a spoken "Pass." is never h
   assert.equal(call.lines.at(-1).who, 'Bot A');
   assert.equal(call.timeline.find((e: any) => e.text.startsWith('Bot B passed')).text, 'Bot B passed (it said "Pass." out loud; not passed on)');
   assert.equal(call.passes, 1);
-  assert.notEqual(call.nextTimer, null, 'the turn goes on to A');
+  // A spoke and the only other bot passed: the turn does not go back to A to say it again.
+  assert.equal(call.nextTimer, null);
+  assert.equal(call.waitingForHost, true);
+  assert.equal(call.timeline.at(-1).text, 'The other bots had nothing to add: waiting for you');
 });
 
 test('held voice plays as soon as real words come, or at the end if the reply is short but real', async () => {
@@ -2907,4 +3202,864 @@ test('a Grok Bot session request that hangs times out; its late answer or failur
   assert.equal(t2.call.timeline.filter((e: any) => e.kind === 'error').length, errors);
   assert.equal(t2.call.view().bots[0].error, 'Timed out connecting.');
   void ws;
+});
+
+
+test('duplicate jobs in one reply are submitted only once while the first receipt is pending', async () => {
+  const { call, ws, toolCalls } = await two({ tools: () => [SEND_TASK] });
+  const s = ws('a');
+  s.emit('response.created');
+  for (const [id, request] of [['one', 'Check the inbox'], ['two', 'check the INBOX!']]) {
+    s.emit('response.function_call_arguments.done', { call_id: id, name: 'send_task', arguments: JSON.stringify({ request }) });
+  }
+  s.emit('response.done', { response: { status: 'completed' } });
+  assert.equal(toolCalls.length, 1, 'one external job, even before its receipt arrives');
+  toolCalls[0].resolve({ kind: 'served', output: { receipt: 'started' } });
+  await flush();
+  assert.equal(outputs(s).length, 2, 'both tool calls get an answer');
+  assert.match(outputs(s)[1].output, /Not sent again/);
+  assert.equal(call.links.get('a').toolsBusy, false);
+});
+
+test('a refused job can be corrected and submitted again', async () => {
+  const { ws, toolCalls } = await two({ tools: () => [SEND_TASK] });
+  useTool(ws('a'), 'send_task', { request: 'Check the inbox' });
+  toolCalls[0].resolve({ kind: 'invalid_input', output: { error: 'try again' } });
+  await flush();
+  useTool(ws('a'), 'send_task', { request: 'Check the inbox' });
+  assert.equal(toolCalls.length, 2);
+  toolCalls[1].resolve({ kind: 'served', output: {} });
+  await flush();
+});
+
+test('events from a replaced voice socket cannot speak or invoke plugins in the new session', async () => {
+  const { call, ws, ready, toolCalls } = await two({ tools: () => [SEND_TASK] });
+  const old = ws('a');
+  old.onclose!();
+  await ready('a');
+  const before = call.lines.length;
+  const oldSent = old.sent.length;
+  old.onopen!(); // a delayed open notification must not configure the dead socket
+  assert.equal(old.sent.length, oldSent);
+  useTool(old, 'send_task', { request: 'Stale job' }, 'Old connection speaking.');
+  assert.equal(call.lines.length, before);
+  assert.equal(toolCalls.length, 0);
+  assert.equal(call.links.get('a').active, false);
+  assert.equal(outputs(ws('a')).length, 0);
+});
+
+
+test('plugin failure after a spoken acknowledgement gets a follow-up to report the failure', async () => {
+  for (const refused of [true, false]) {
+    const { ws, toolCalls } = await two({ tools: () => [SEND_TASK] });
+    useTool(ws('a'), 'send_task', { request: 'Check mail' }, 'I will check your mail.');
+    const before = creates(ws('a'));
+    if (refused) toolCalls[0].resolve({ kind: 'invalid_input', output: { error: 'Unavailable' } });
+    else toolCalls[0].reject(new Error('Unavailable'));
+    await flush();
+    assert.equal(creates(ws('a')), before + 1, 'the bot must report that the acknowledged job failed');
+  }
+});
+
+test('note tools are unavailable and cannot change call state; task tools remain', async () => {
+  const { call, ws } = await two();
+  const names = ws('a').sent[0].session.tools.map((t: any) => t.name);
+  assert.ok(!names.includes('write_note') && !names.includes('read_notes'));
+  for (const name of ['add_task', 'done_task', 'list_tasks']) assert.ok(names.includes(name));
+  for (const name of ['write_note', 'read_notes']) {
+    useTool(ws('a'), name, { text: 'irrelevant' });
+    assert.match(outputs(ws('a')).at(-1).output, /Unknown tool/);
+  }
+  assert.deepEqual(call.notes, []);
+  assert.equal(call.notepadVersion, 0);
+});
+
+test('bots with direct app tools are told to discover apps and return results on the call', async () => {
+  const apps = ['list_connected_apps', 'find_app_tools', 'use_app_tool'].map((name) => ({ ...SEARCH_TOOL, name }));
+  const { ws } = await two({ tools: () => [SEND_TASK, ...apps] });
+  const instructions = ws('a').sent[0].session.instructions;
+  assert.match(instructions, /list_connected_apps/);
+  assert.match(instructions, /find_app_tools/);
+  assert.match(instructions, /use_app_tool/);
+  assert.match(instructions, /results return directly to this call/);
+  assert.match(instructions, /Do not claim you lack app access/);
+  assert.match(instructions, /Do not retry.*automatically/);
+});
+
+test('an app execution failure warns that the outcome may be unknown instead of claiming nothing happened', async () => {
+  const { ws, toolCalls } = await two({ tools: () => [{ ...SEARCH_TOOL, name: 'use_app_tool' }] });
+  useTool(ws('a'), 'use_app_tool', { app: 'Mail', tool: 'send', arguments: {} });
+  toolCalls[0].reject(new Error('Timed out'));
+  await flush();
+  assert.match(outputs(ws('a')).at(-1).output, /may have completed/);
+  assert.match(outputs(ws('a')).at(-1).output, /Do not repeat it automatically/);
+  assert.doesNotMatch(outputs(ws('a')).at(-1).output, /did not go through/);
+});
+
+test('a bot working through a connected app gets enough follow-ups to finish, then the turn moves on with a timeline note', async () => {
+  // Call of 2026-11-11 09:13: My Bot searched T3 Code's tools 4 times in a row, was not asked to speak after the
+  // 4th result, and went silent. Creating a chat and sending it a prompt takes more steps than that.
+  const apps = ['list_connected_apps', 'find_app_tools', 'use_app_tool'].map((name) => ({ ...SEARCH_TOOL, name }));
+  const { call, ws, toolCalls, runTimers } = await two({ tools: () => apps });
+  const steps: [string, object][] = [
+    ['list_connected_apps', {}],
+    ['find_app_tools', { app: 'T3 Code', query: 'threads' }],
+    ['find_app_tools', { app: 'T3 Code', query: 'create chat' }],
+    ['find_app_tools', { app: 'T3 Code', query: 'send prompt' }],
+    ['use_app_tool', { app: 'T3 Code', tool: 'create_threads', arguments: {} }],
+    ['use_app_tool', { app: 'T3 Code', tool: 't3_thread_send', arguments: {} }],
+    ['find_app_tools', { app: 'T3 Code', query: 'status' }],
+    ['use_app_tool', { app: 'T3 Code', tool: 'task_status', arguments: {} }],
+  ];
+  assert.equal(steps.length, MAX_APP_TOOL_ROUNDS);
+  for (const [name, args] of steps) {
+    const before = creates(ws('a'));
+    useTool(ws('a'), name, args);
+    toolCalls.at(-1)!.resolve({ kind: 'served', output: { ok: true } });
+    await flush();
+    assert.equal(creates(ws('a')), before + 1, `asked to speak after ${name}`);
+  }
+  const before = creates(ws('a'));
+  useTool(ws('a'), 'find_app_tools', { app: 'T3 Code', query: 'again' });
+  toolCalls.at(-1)!.resolve({ kind: 'served', output: { ok: true } });
+  await flush();
+  assert.equal(creates(ws('a')), before, 'no more follow-ups');
+  assert.equal(call.timeline.at(-1).text, `Bot A used tools ${MAX_APP_TOOL_ROUNDS + 1} times in a row: its turn moved on`);
+  runTimers();
+  assert.equal(creates(ws('b')), 1, 'the turn goes to B');
+});
+
+test('a bot mixing app work with other tools keeps the smaller follow-up limit for the other tools', async () => {
+  const tools = ['find_app_tools', 'search_conversations'].map((name) => ({ ...SEARCH_TOOL, name }));
+  const { call, ws, toolCalls } = await two({ tools: () => tools });
+  for (let i = 0; i < MAX_TOOL_ROUNDS; i++) {
+    useTool(ws('a'), 'find_app_tools', { app: 'Mail' });
+    toolCalls.at(-1)!.resolve({ kind: 'served', output: {} });
+    await flush();
+  }
+  const before = creates(ws('a'));
+  useTool(ws('a'), 'search_conversations', { query: 'x' });
+  toolCalls.at(-1)!.resolve({ kind: 'served', output: { hits: [] } });
+  await flush();
+  assert.equal(creates(ws('a')), before, 'a non-app round past the small limit gets no follow-up');
+  assert.equal(call.timeline.at(-1).text, `Bot A used tools ${MAX_TOOL_ROUNDS + 1} times in a row: its turn moved on`);
+});
+
+const JOB_NOTE = (who: string, job: string) => `[Call]: ${who} sent its agent a background job: "${job}"`;
+
+test('a background job one bot sent is announced to every other bot once, so they do not send the same job again', async () => {
+  // Call of 2026-11-10 18:16: X bot sent a reach job, the others heard only "[X bot]: On reach," and sent the same job twice more.
+  const t = setup({ tools: () => [SEND_TASK] });
+  t.call.join([bot('a'), bot('b'), bot('c')]);
+  for (const id of ['a', 'b', 'c']) await t.ready(id);
+  const { ws, toolCalls } = t;
+  const note = JOB_NOTE('Bot A', 'Look into the X post reach. Report back.');
+  useTool(ws('a'), 'send_task', { request: '  Look into   the X post reach.\n Report back. ' }, 'On reach,');
+  assert.ok(ws('b').said().includes('[Bot A]: On reach,'));
+  assert.ok(!ws('b').said().includes(note), 'not before Grok Bot accepted the job');
+  toolCalls.at(-1)!.resolve({ kind: 'served', output: { relay: 'accepted' } });
+  await flush();
+  for (const id of ['b', 'c']) assert.deepEqual(ws(id).said().filter((s: string) => s === note), [note], `Bot ${id} is told once`);
+  assert.ok(!ws('a').said().some((s: string) => s.includes('background job')), 'the sender is not told about its own job');
+  const calls = toolCalls.length;
+  useTool(ws('a'), 'send_task', { request: 'look into the x post reach report back' });
+  await flush();
+  assert.equal(toolCalls.length, calls, 'the same job again is blocked');
+  for (const id of ['b', 'c']) assert.equal(ws(id).said().filter((s: string) => s.includes('background job')).length, 1, 'and not announced again');
+  const long = 'word '.repeat(100);
+  useTool(ws('b'), 'send_task', { request: long });
+  toolCalls.at(-1)!.resolve({ kind: 'served', output: { relay: 'accepted' } });
+  await flush();
+  assert.equal(ws('a').said().at(-1), JOB_NOTE('Bot B', long.trim().slice(0, 200)), 'a long job is cut like the timeline');
+  assert.ok(ws('c').said().includes(JOB_NOTE('Bot B', long.trim().slice(0, 200))));
+});
+
+test('refused, failed and blocked jobs, and other Grok Bot tools, are not announced as jobs', async () => {
+  const { ws, toolCalls } = await two({ tools: () => [SEND_TASK, SEARCH_TOOL] });
+  useTool(ws('a'), 'send_task', { request: 'job one' });
+  toolCalls.at(-1)!.resolve({ kind: 'invalid_input', output: { error: 'missing request' } });
+  await flush();
+  useTool(ws('a'), 'send_task', { request: 'job two' });
+  toolCalls.at(-1)!.resolve({ kind: 'unknown_tool', output: null });
+  await flush();
+  useTool(ws('a'), 'send_task', { request: 'job three' });
+  toolCalls.at(-1)!.reject(new Error('did not answer within 20 s'));
+  await flush();
+  useTool(ws('a'), 'search_conversations', { query: 'reach' });
+  toolCalls.at(-1)!.resolve({ kind: 'served', output: { hits: [] } });
+  await flush();
+  useTool(ws('a'), 'send_task', '{oops');
+  toolCalls.at(-1)!.resolve({ kind: 'invalid_input', output: { error: 'missing request' } });
+  await flush();
+  assert.ok(!ws('b').said().some((s: string) => s.includes('background job')));
+});
+
+test('a bot that left before the job was accepted is not told about it', async () => {
+  const t = setup({ tools: () => [SEND_TASK] });
+  t.call.join([bot('a'), bot('b'), bot('c')]);
+  for (const id of ['a', 'b', 'c']) await t.ready(id);
+  const { call, ws, toolCalls } = t;
+  useTool(ws('a'), 'send_task', { request: 'check the reach' });
+  call.removeBot('c');
+  const before = ws('c').said().length;
+  toolCalls.at(-1)!.resolve({ kind: 'served', output: { relay: 'accepted' } });
+  await flush();
+  assert.equal(ws('c').said().length, before);
+  assert.ok(ws('b').said().includes(JOB_NOTE('Bot A', 'check the reach')));
+});
+
+test('with connected apps, app work goes to the app tools and never to send_task, in the rules and in the tool itself', async () => {
+  // Call of 2026-11-11 11:42: X bot had the X app tools but sent 3 background jobs for its own post stats; job results
+  // never come back on the call. Our own rule even said send_task covers "connected apps".
+  const both = groupRulesText(true, true);
+  assert.doesNotMatch(both, /connected apps\. Its result/, 'send_task no longer claims connected apps');
+  assert.match(both, /Never send_task anything a connected app can do/);
+  assert.match(both, /even when a search came up empty/);
+  assert.ok(both.indexOf('list_connected_apps') < both.indexOf('send_task hands'), 'the app rule comes first');
+  assert.match(both, /results return directly to this call/);
+  const tasksOnly = groupRulesText(true, false);
+  assert.match(tasksOnly, /browser, mail and connected apps\. Its updates and its result come back on this call/, 'without app tools, the agent is the only way to apps');
+  assert.match(both, /It is slower than the app tools/);
+  assert.match(both, /whenever Shashank asks for it to be done on his computer \(a terminal command such as gh or git/);
+  assert.match(both, /pass without a word/);
+  assert.doesNotMatch(tasksOnly, /list_connected_apps|Never send_task/);
+  const appsOnly = groupRulesText(false, true);
+  assert.match(appsOnly, /list_connected_apps/);
+  assert.doesNotMatch(appsOnly, /send_task/);
+
+  const raw = [SEND_TASK, SEARCH_TOOL, ...['list_connected_apps', 'find_app_tools', 'use_app_tool'].map((name) => ({ ...SEARCH_TOOL, name }))];
+  const copy = structuredClone(raw);
+  const tools = callHarnessTools(raw);
+  assert.deepEqual(raw, copy, 'the bot\'s own tool list is not changed');
+  assert.equal(tools[0].description.indexOf(SEND_TASK.description), 0, 'Grok\'s words stay first');
+  assert.match(tools[0].description, /never for anything a connected app can do/);
+  assert.match(tools[1].description, /comes from use_app_tool, not send_task/);
+  assert.deepEqual(tools.slice(2), raw.slice(2), 'other tools are untouched');
+  assert.deepEqual({ ...tools[0], description: '' }, { ...raw[0], description: '' }, 'only the description changes');
+  assert.deepEqual(callHarnessTools([SEND_TASK, SEARCH_TOOL]), [SEND_TASK, SEARCH_TOOL], 'without app tools nothing changes');
+  assert.deepEqual(callHarnessTools([]), []);
+
+  // What the voice session actually gets.
+  const { ws } = await two({ tools: () => raw });
+  const sent = ws('a').sent[0].session.tools;
+  assert.match(sent.find((t: any) => t.name === 'send_task').description, /never for anything a connected app can do/);
+  assert.match(ws('a').sent[0].session.instructions, /Never send_task anything a connected app can do/);
+});
+
+test('a bot without app tools keeps Grok\'s own send_task description', async () => {
+  const { ws } = await two({ tools: () => [SEND_TASK] });
+  assert.deepEqual(ws('a').sent[0].session.tools.find((t: any) => t.name === 'send_task'), SEND_TASK);
+});
+
+test('the apps connected when a bot joins are in its rules, so it goes straight to find_app_tools', () => {
+  const rules = (apps: unknown[]) => groupRulesText(true, true, apps);
+  const listed = rules([
+    { id: 'user-X', name: 'X', status: 'connected', account: 'default' },
+    { id: 'user-Gmail-work', name: 'Gmail', status: 'connected', account: 'work' },
+    { id: 'user-Docs', name: 'Docs', status: 'available' },
+    { id: 'user-Render', name: 'Render', status: 'needsAuth' },
+    { id: 'user-Old', name: 'Old', status: 'disabled' },
+  ]);
+  assert.match(listed, /Apps connected when you joined: X = user-X, Gmail \(work\) = user-Gmail-work, Docs = user-Docs\. /);
+  assert.match(listed, /Not usable when you joined: Render \(needsAuth\), Old \(disabled\)\. /);
+  assert.match(listed, /Go straight to find_app_tools with the app id; use list_connected_apps only to check again\./);
+  assert.doesNotMatch(listed, /Use list_connected_apps first/);
+  const none = rules([{ id: 'user-Render', name: 'Render', status: 'needsAuth' }]);
+  assert.match(none, /No app was connected when you joined\. Not usable when you joined: Render \(needsAuth\)\./);
+  assert.doesNotMatch(rules([{ id: 'user-X', name: 'X', status: 'connected' }]), /Not usable/);
+  for (const unknown of [rules([]), groupRulesText(true, true)]) {
+    assert.match(unknown, /Use list_connected_apps first to see the real apps and connection states\. find_app_tools reads/);
+    assert.doesNotMatch(unknown, /when you joined/);
+  }
+  assert.doesNotMatch(groupRulesText(true, false, [{ id: 'user-X', name: 'X', status: 'connected' }]), /user-X/, 'no app tools: no app list');
+  // Names come from the account: whitespace is flattened, long ones cut, and the list capped.
+  const odd = rules([{ id: ' user-\nY ', name: `Y\n\n${'z'.repeat(100)}`, status: 'connected', account: ' a\tb ' }]);
+  assert.match(odd, new RegExp(`Y ${'z'.repeat(58)} \\(a b\\) = user- Y\\.`));
+  const many = rules(Array.from({ length: MAX_APPS_LISTED + 5 }, (_, i) => ({ id: `user-A${i}`, name: `A${i}`, status: i % 2 ? 'needsAuth' : 'connected' })));
+  assert.equal(many.match(/= user-A/g)!.length, Math.ceil((MAX_APPS_LISTED + 5) / 2), 'under the cap: all listed');
+  const lots = rules(Array.from({ length: MAX_APPS_LISTED + 5 }, (_, i) => ({ id: `user-A${i}`, name: `A${i}`, status: 'connected' })));
+  assert.equal(lots.match(/= user-A/g)!.length, MAX_APPS_LISTED);
+});
+
+test('a bot\'s session instructions name the apps its voice session came with; an older session without them still works', async () => {
+  const apps = ['list_connected_apps', 'find_app_tools', 'use_app_tool'].map((name) => ({ ...SEARCH_TOOL, name }));
+  const t = setup({ tools: () => apps, apps: (id) => (id === 'a' ? [{ id: 'user-X', name: 'X', status: 'connected' }] : 'not a list') });
+  t.call.join([bot('a'), bot('b')]);
+  await t.ready('a');
+  await t.ready('b');
+  assert.match(t.ws('a').sent[0].session.instructions, /Apps connected when you joined: X = user-X\./);
+  assert.match(t.ws('b').sent[0].session.instructions, /Use list_connected_apps first/);
+  assert.equal(t.call.links.get('b').apps.length, 0);
+});
+
+test('a voice setup Grok Bot\'s server did not answer is tried again, and the bot joins with the conversation as it is by then', async () => {
+  // Call of 2026-11-11 12:57: Grok Bot's server did not answer for a few minutes; every bot pulled in failed after one try.
+  let fails = 2;
+  const { call, ws, ready, mints, timers } = setup({ mintFail: (id) => (id === 'c' && fails-- > 0 ? new Error("Could not reach Grok Bot's server (MintSandVoiceCallSecret: ETIMEDOUT)") : null) });
+  call.join([bot('a'), bot('b')], [bot('a'), bot('b'), bot('c')]);
+  await ready('a');
+  await ready('b');
+  useTool(ws('a'), 'invite_bot', { name: 'Bot C' }, 'Let me bring in Bot C.');
+  await flush();
+  const c = () => call.view().bots.find((x: any) => x.id === 'c');
+  assert.deepEqual([c().status, c().error], ['connecting', "Could not reach Grok Bot's server (MintSandVoiceCallSecret: ETIMEDOUT)"]);
+  assert.equal(call.timeline.at(-1).text, `Bot C: Could not reach Grok Bot's server (MintSandVoiceCallSecret: ETIMEDOUT) Trying again in ${SETUP_RETRY_MS[0] / 1000} s (try 2 of 3).`);
+  speak(ws('b'), 'While we wait, the budget is fine.');
+  const retry1 = timers.find((x) => !x.done && x.ms === SETUP_RETRY_MS[0])!;
+  retry1.done = true;
+  retry1.fn();
+  await flush();
+  assert.match(call.timeline.at(-1).text, new RegExp(`Trying again in ${SETUP_RETRY_MS[1] / 1000} s \\(try 3 of 3\\)\\.$`));
+  const retry2 = timers.find((x) => !x.done && x.ms === SETUP_RETRY_MS[1])!;
+  retry2.done = true;
+  retry2.fn();
+  await ready('c');
+  assert.deepEqual(mints.filter((m) => m === 'c').length, 3);
+  assert.deepEqual([c().status, c().error], ['thinking', null], 'joined on the third try, and greets the call');
+  const said = ws('c').said();
+  assert.match(said[0], /^Conversation so far in this call:\n[\s\S]*\[Bot A\]: Let me bring in Bot C\.\n\[Bot B\]: While we wait, the budget is fine\.$/, 'context as of the try that worked');
+  assert.equal(said.filter((t: string) => t.startsWith('Conversation so far')).length, 1, 'told once');
+  assert.equal(said.at(-1), '[Call]: Bot A just pulled you into this call. Say a short hello.');
+});
+
+test('a setup that hangs is tried again; the late answer of a try that gave up is ignored', async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  let first = true;
+  const { call, timers, sockets, mints } = setup({ mintWait: (id) => (id === 'a' && first ? ((first = false), gate) : undefined) });
+  call.join([bot('a')]);
+  await flush();
+  const connect = timers.find((x) => !x.done && x.ms === CONNECT_TIMEOUT_MS)!;
+  connect.done = true;
+  connect.fn();
+  assert.deepEqual([call.view().bots[0].status, call.view().bots[0].error], ['connecting', 'Timed out connecting.']);
+  release();
+  await flush();
+  assert.equal(sockets.get('a'), undefined, 'the given-up try opens no socket');
+  const retry = timers.find((x) => !x.done && x.ms === SETUP_RETRY_MS[0])!;
+  retry.done = true;
+  retry.fn();
+  await flush();
+  assert.equal(mints.length, 2);
+  assert.equal(sockets.get('a')!.length, 1);
+});
+
+test('a socket that opened but never got its session is closed before the next try, and its close is not a drop', async () => {
+  const { call, ws, timers, sockets } = setup();
+  call.join([bot('a')]);
+  await flush();
+  const first = ws('a');
+  first.onopen!();
+  const connect = timers.find((x) => !x.done && x.ms === CONNECT_TIMEOUT_MS)!;
+  connect.done = true;
+  connect.fn();
+  assert.equal(first.closed, true);
+  first.onclose?.();
+  assert.ok(!call.timeline.some((e: any) => /lost its connection/.test(e.text)));
+  const retry = timers.find((x) => !x.done && x.ms === SETUP_RETRY_MS[0])!;
+  retry.done = true;
+  retry.fn();
+  await flush();
+  assert.equal(sockets.get('a')!.length, 2);
+});
+
+test('setup errors that trying again cannot fix fail at once, and a refused setup is not retried', async () => {
+  for (const why of ['Signed out. Sign in with your Grok Bot account.', 'No Grok Bot with id c on this account.', 'Grok Bot MintSandVoiceCallSecret failed (HTTP 403: Included usage used up)', 'Included usage used up']) {
+    const { call, timers } = setup({ mintFail: () => new Error(why) });
+    call.join([bot('a')]);
+    await flush();
+    assert.deepEqual([call.view().bots[0].status, call.view().bots[0].error], ['error', why], why);
+    assert.ok(!timers.some((x) => !x.done && SETUP_RETRY_MS.includes(x.ms)), `no new try: ${why}`);
+  }
+  const { call, ws, timers } = setup();
+  call.join([bot('a')]);
+  await flush();
+  ws('a').onopen!();
+  ws('a').emit('error', { error: { message: 'bad session' } }); // search refused: tries without it
+  ws('a').emit('error', { error: { message: 'bad session' } }); // nothing left to drop: refused
+  assert.deepEqual([call.view().bots[0].status, call.view().bots[0].error], ['error', 'Voice setup was refused: bad session']);
+  const connect = timers.find((x) => !x.done && x.ms === CONNECT_TIMEOUT_MS);
+  assert.equal(connect, undefined);
+});
+
+test('a bot removed while it waits for a new try is not set up again; a bot that joined gets fresh tries if it drops later', async () => {
+  let down = true;
+  const { call, ready, mints, timers, ws } = setup({ mintFail: (id) => (down && id === 'b' ? new Error('fetch failed') : null) });
+  call.join([bot('a'), bot('b')]);
+  await ready('a');
+  await flush();
+  call.removeBot('b');
+  for (const t of timers.filter((x) => !x.done && SETUP_RETRY_MS.includes(x.ms))) assert.fail('the wait was cancelled');
+  assert.equal(mints.filter((m) => m === 'b').length, 1);
+  // Bot A joined; later it drops and Grok Bot's server is down: it gets every try again.
+  down = false;
+  const failing = call.d.mintVoice;
+  call.d.mintVoice = async () => { throw new Error('fetch failed'); };
+  ws('a').onclose!();
+  await flush();
+  await useUpRetries(timers);
+  assert.equal(call.view().bots[0].status, 'error');
+  call.d.mintVoice = failing;
+});
+
+test('a timed-out setup that was refused first fails with the refusal, not a new try', async () => {
+  const { call, ws, timers } = setup();
+  call.join([bot('a')]);
+  await flush();
+  ws('a').onopen!();
+  ws('a').emit('error', { error: { message: 'no search here' } });
+  const connect = timers.find((x) => !x.done && x.ms === CONNECT_TIMEOUT_MS)!;
+  connect.done = true;
+  connect.fn();
+  assert.deepEqual([call.view().bots[0].status, call.view().bots[0].error], ['error', 'Voice setup was refused: no search here']);
+  assert.ok(!timers.some((x) => !x.done && SETUP_RETRY_MS.includes(x.ms)));
+});
+
+/** A call with two bots that have send_task, and a fake agent whose replies to this call the test controls. */
+async function withAgent() {
+  const t = await two({ tools: () => [SEND_TASK] });
+  const asks: { id: string; callId: string; after: number }[] = [];
+  let replies: unknown = [];
+  let fail = false;
+  t.call.d.landedWork = async (id: string, callId: string, after: number) => {
+    asks.push({ id, callId, after });
+    if (fail) throw new Error('Grok Bot ListGrokBotTranscriptEntries failed (HTTP 503)');
+    const r = replies;
+    replies = [];
+    return r;
+  };
+  const pending = () => t.timers.filter((x) => !x.done && (x.ms === LANDED_POLL_MS));
+  const tick = async () => {
+    const [timer] = pending();
+    assert.ok(timer, 'a check is due');
+    timer.done = true;
+    timer.fn();
+    await flush();
+    return timer.ms;
+  };
+  const sendJob = async (request = 'post the comment', reply: object = { kind: 'served', output: { relay: 'accepted' } }) => {
+    useTool(t.ws('a'), 'send_task', { request }, 'Posting that now.');
+    t.toolCalls.at(-1)!.resolve(reply);
+    await flush();
+  };
+  return { ...t, asks, pending, tick, sendJob, reply: (r: unknown) => (replies = r), failNext: (f: boolean) => (fail = f) };
+}
+
+test('a background job\'s reply from the agent comes back on the call, and the bot that sent it tells Shashank', async () => {
+  // Call of 2026-11-11 13:33: the agent asked "should I go ahead?" 10 s after the job; the call never heard it, so
+  // nothing was posted. In every logged call, all 14 jobs were answered on the call's channel and none reached it.
+  const t = await withAgent();
+  assert.equal(t.pending().length, 0, 'dependency installed after join; first job starts checks');
+  await t.sendJob();
+  assert.equal(t.pending().length, 1, 'checks start once a job is accepted');
+  assert.equal(await t.tick(), LANDED_POLL_MS);
+  assert.deepEqual(t.asks.at(-1), { id: 'a', callId: `${t.call.callId}-a`, after: 0 });
+  const creates = t.ws('a').types().filter((x: string) => x === 'response.create').length;
+  t.reply([{ seq: 167, at: 1, text: "I'm ready to post that comment. It's public and posts under your name, so should I go ahead?" }]);
+  await t.tick();
+  assert.equal(t.ws('a').updates().at(-1), "I'm ready to post that comment. It's public and posts under your name, so should I go ahead?");
+  assert.ok(!t.ws('b').said().some((x: string) => x.startsWith('[Work landed]')), 'only the bot whose job it is');
+  assert.equal(t.call.timeline.at(-1).text, "Bot A's agent: I'm ready to post that comment. It's public and posts under your name, so should I go ahead?");
+  assert.equal(t.ws('a').types().filter((x: string) => x === 'response.create').length, creates + 1, 'asked to tell Shashank');
+  assert.equal(t.call.links.get('a').holding, false);
+  t.ws('a').emit('response.created');
+  assert.equal(t.call.links.get('a').holding, true, 'held, so an update with nothing new is a silent pass');
+  t.ws('a').emit('response.done', { response: { status: 'completed' } });
+  await t.tick();
+  assert.equal(t.asks.at(-1)!.after, 167, 'the next check asks only for newer updates');
+  // Several at once: each is heard, in order, and one reply is asked for.
+  t.reply([{ seq: 170, at: 3, text: 'Posted.' }, { seq: 169, at: 2, text: 'Posting now.' }, { seq: 160, at: 0, text: 'old' }, { seq: 171, text: '  ' }, null, { seq: 'x', text: 'bad' }]);
+  await t.tick();
+  assert.deepEqual(t.ws('a').updates().slice(-2), ['Posting now.', 'Posted.'], 'oldest first; old, empty and broken ones dropped');
+  await t.tick();
+  assert.equal(t.asks.at(-1)!.after, 170);
+});
+
+test('local history checks keep going through errors and stop when the bot leaves or the call ends', async () => {
+  const t = await withAgent();
+  await t.sendJob();
+  t.failNext(true);
+  await t.tick();
+  assert.equal(t.pending().length, 1, 'a failed check is tried again');
+  t.failNext(false);
+  t.reply('not a list');
+  await t.tick();
+  assert.equal(t.pending()[0].ms, LANDED_POLL_MS);
+  t.setClock(120_000);
+  await t.tick();
+  assert.equal(t.pending()[0].ms, LANDED_POLL_MS, 'local history stays responsive throughout a call');
+  await t.sendJob('another job');
+  assert.equal(t.pending().length, 1, 'a new job does not add a second check');
+  await t.tick();
+  assert.equal(t.pending()[0].ms, LANDED_POLL_MS, 'and makes checks frequent again');
+  t.call.removeBot('a');
+  assert.equal(t.pending().length, 0, 'leaving stops the checks');
+  // A check that was under way when the bot left does nothing.
+  const u = await withAgent();
+  await u.sendJob();
+  let release!: (v: unknown) => void;
+  u.call.d.landedWork = () => new Promise((r) => (release = r));
+  const [timer] = u.pending();
+  timer.done = true;
+  timer.fn();
+  await u.sendJob('while checking');
+  assert.equal(u.pending().length, 0, 'no second check while one is under way');
+  u.call.links.get('a').close();
+  release([{ seq: 5, text: 'late' }]);
+  await flush();
+  assert.ok(!u.ws('a').said().includes('[Work landed]: late'));
+  assert.equal(u.pending().length, 0);
+});
+
+test('when the call ends, agent checks stop; an update that arrives as it ends is not passed on', async () => {
+  const t = await withAgent();
+  await t.sendJob();
+  let release!: (v: unknown) => void;
+  t.call.d.landedWork = () => new Promise((r) => (release = r));
+  const [timer] = t.pending();
+  timer.done = true;
+  timer.fn();
+  t.call.phase = 'wrapping';
+  release([{ seq: 9, text: 'done' }]);
+  await flush();
+  assert.ok(!t.ws('a').said().includes('[Work landed]: done'));
+  assert.equal(t.pending().length, 0);
+  const u = await withAgent();
+  await u.sendJob();
+  u.call.phase = 'wrapping';
+  await u.tick();
+  assert.equal(u.asks.length, 0, 'a check due after the call ended does not ask');
+});
+
+test('an update while Shashank talks, or during another bot\'s one-on-one, is heard by the bot but not spoken yet', async () => {
+  const t = await withAgent();
+  await t.sendJob();
+  const creates = () => t.ws('a').types().filter((x: string) => x === 'response.create').length;
+  t.call.userSpeaking = true;
+  let before = creates();
+  t.reply([{ seq: 1, text: 'Done.' }]);
+  await t.tick();
+  assert.equal(t.ws('a').updates().at(-1), 'Done.');
+  assert.equal(creates(), before, 'Shashank is talking');
+  t.call.userSpeaking = false;
+  t.call.setFocus(t.call.links.get('b'));
+  before = creates();
+  t.reply([{ seq: 2, text: 'Also done.' }]);
+  await t.tick();
+  assert.equal(creates(), before, 'one-on-one with another bot');
+  t.call.setFocus(t.call.links.get('a'));
+  t.reply([{ seq: 3, text: 'All done.' }]);
+  await t.tick();
+  assert.equal(creates(), before + 1, 'its own one-on-one: it tells him');
+  // Even while the call waits for Shashank, an update is told.
+  t.call.setFocus(null);
+  t.call.waitingForHost = true;
+  t.ws('a').emit('response.created');
+  t.ws('a').emit('response.done', { response: { status: 'completed' } });
+  const now = creates();
+  t.reply([{ seq: 4, text: 'One more thing.' }]);
+  await t.tick();
+  assert.equal(creates(), now + 1);
+});
+
+test('no agent checks without send_task accepted, or when the page cannot read updates', async () => {
+  const t = await withAgent();
+  await t.sendJob('refused job', { kind: 'invalid_input', output: { error: 'missing request' } });
+  assert.equal(t.pending().length, 0, 'a refused job has nothing to come back');
+  const { call, ws, toolCalls, timers } = await two({ tools: () => [SEND_TASK] });
+  assert.equal(call.d.landedWork, undefined);
+  useTool(ws('a'), 'send_task', { request: 'job' });
+  toolCalls.at(-1)!.resolve({ kind: 'served', output: { relay: 'accepted' } });
+  await flush();
+  assert.ok(!timers.some((x) => !x.done && x.ms === LANDED_POLL_MS), 'an older page without landedWork just works as before');
+});
+
+test('after a bot speaks, the turn goes round the others and stops when all of them pass; after Shashank, every bot gets its turn', async () => {
+  const t = setup();
+  t.call.join([bot('a'), bot('b'), bot('c')]);
+  for (const id of ['a', 'b', 'c']) await t.ready(id);
+  speak(t.ws('a'), 'The budget is fine.', 1);
+  fire(t.timers, t.call.nextTimer);
+  useTool(t.ws('b'), 'pass', {});
+  assert.notEqual(t.call.nextTimer, null, 'C still gets its turn');
+  assert.equal(t.call.waitingForHost, false);
+  fire(t.timers, t.call.nextTimer);
+  useTool(t.ws('c'), 'pass', {});
+  assert.equal(t.call.waitingForHost, true, 'B and C passed: A does not get the turn back to say it again');
+  assert.equal(t.call.timeline.at(-1).text, 'The other bots had nothing to add: waiting for you');
+  // After Shashank speaks, a pass by the first bot still lets the others answer.
+  t.call.hostSpoke('Anyone have thoughts?');
+  t.call.afterTurn(t.call.links.get('a'), '', { kind: 'pass' });
+  assert.equal(t.call.waitingForHost, false);
+  assert.notEqual(t.call.nextTimer, null);
+  t.call.afterTurn(t.call.links.get('b'), '', { kind: 'pass' });
+  assert.equal(t.call.waitingForHost, false);
+  t.call.afterTurn(t.call.links.get('c'), '', { kind: 'pass' });
+  assert.equal(t.call.waitingForHost, true, 'all three passed');
+  assert.equal(t.call.timeline.at(-1).text, 'Every bot passed: waiting for you');
+  // The bot that spoke left: back to the rule for everyone.
+  t.call.hostSpoke('Next.');
+  speak(t.ws('a'), 'Leaving soon.', 1);
+  t.call.removeBot('a');
+  t.call.afterTurn(t.call.links.get('b'), '', { kind: 'pass' });
+  assert.equal(t.call.waitingForHost, false, 'only one of the two left passed');
+  t.call.afterTurn(t.call.links.get('c'), '', { kind: 'pass' });
+  assert.equal(t.call.waitingForHost, true);
+});
+
+
+test('Grok greeting gives the caller a grace period; speech, leaving and a dropped link cancel it', async () => {
+  for (const mode of ['greet', 'news', 'host', 'leave', 'drop']) {
+    const t = setup({ voice: { greeting: { direction: 'Say hello', withLandedWork: 'Report news' } } });
+    t.call.join([bot('a')]);
+    await t.ready('a');
+    assert.equal(t.ws('a').types().includes('response.create'), false);
+    const timer = t.timers.find((x) => !x.done && x.ms === USER_FIRST_GRACE_MS)!;
+    const link = t.call.links.get('a');
+    if (mode === 'host') t.call.sendText('Hello there');
+    if (mode === 'leave') t.call.leave();
+    if (mode === 'drop') link.ready = false;
+    if (mode === 'news') link.newsOwed = true;
+    if (!timer.done) { timer.done = true; timer.fn(); }
+    if (mode === 'greet' || mode === 'news') assert.equal(t.ws('a').sent.find((m) => m.type === 'response.create').response.instructions, mode === 'greet' ? 'Say hello' : 'Report news');
+    if (mode === 'leave' || mode === 'drop') assert.ok(!t.ws('a').types().includes('response.create'));
+  }
+});
+
+test('a dropped voice socket resumes its conversation, or receives context if the server starts fresh', async () => {
+  for (const resumed of [true, false]) {
+    const t = await two();
+    t.ws('a').emit('conversation.created', { conversation: { id: 'conv-original' } });
+    t.call.sendText('Remember the nonce blue');
+    t.ws('a').onclose!();
+    await flush();
+    assert.match(t.ws('a').url, /conversation_id=conv-original/);
+    await t.ready('a');
+    t.ws('a').emit('conversation.created', { conversation: { id: resumed ? 'conv-original' : 'conv-new' } });
+    assert.equal(t.ws('a').said().some((s: string) => s.includes('Conversation so far')), !resumed);
+    t.ws('a').emit('conversation.created', {});
+  }
+  assert.equal(withParam('wss://voice.test/?a=1', 'conversation_id', 'a b'), 'wss://voice.test/?a=1&conversation_id=a+b');
+});
+
+test('async job and typed-chat updates are held; refused async updates use seeded tool items', async () => {
+  const t = await two();
+  const link = t.call.links.get('a');
+  link.deliverUpdate({ seq: 1, text: 'Job finished', at: 100 });
+  const sent = t.ws('a').sent.at(-1);
+  assert.equal(sent.async_update.trigger_response, false);
+  assert.equal(link.newsOwed, true);
+  t.ws('a').emit('error', { error: { event_id: sent.event_id, message: 'unsupported async update' } });
+  const result = t.ws('a').sent.at(-1).item;
+  assert.equal(result.type, 'function_call_output');
+  assert.match(result.output, /Job finished/);
+  link.deliverUpdate({ seq: 2, kind: 'written', text: 'Typed by host' });
+  assert.match(t.ws('a').said().at(-1), /Typed by host/);
+  link.nudgeWire = 'async-update';
+  link.deliverUpdate({ seq: 3, kind: 'written', text: 'Async host' });
+  assert.equal(t.ws('a').sent.at(-1).async_update.topic, 'user_message');
+});
+
+test('a result the voice server took in only after the bot\'s reply had started is told after that reply', async () => {
+  // Call of 2026-11-11 17:21:43: "The comment is live on 1240" landed as the host said "Thank you". The server had
+  // already started the reply ("Anytime.") and took the update in 0.3 s later, so the host never heard the result.
+  const { call, ws } = await three();
+  const a = call.links.get('a');
+  hostSays(ws('a'), 'Bot A, post the comment');
+  speak(ws('a'), 'Posting now.');
+  hostSays(ws('a'), 'Thank you.');
+  assert.equal(call.focusClosing, true);
+  ws('a').emit('response.created'); // the server's own reply to "Thank you."
+  a.deliverUpdate({ seq: 180, at: 1, text: 'The comment is live on pull request 1240.' });
+  ws('a').emit('async_update.added', { async_update: { topic: 'work_landed' } });
+  const before = creates(ws('a'));
+  ws('a').emit('response.output_audio_transcript.done', { transcript: 'Anytime.' });
+  ws('a').emit('response.done', { response: { status: 'completed' } });
+  assert.equal(creates(ws('a')), before + 1, 'asked again, now with the result in its conversation');
+  ws('a').emit('response.created');
+  assert.equal(a.holding, true, 'held, so a reply with nothing new is a silent pass');
+  speak(ws('a'), 'The comment is live on 1240.');
+  assert.equal(creates(ws('a')), before + 1, 'once only');
+});
+
+test('a result taken in before the reply started, or a reply cut off, the host talking, or a reply already coming: no extra ask', async () => {
+  const t = await two({ tools: () => [SEND_TASK] });
+  const a = t.call.links.get('a');
+  const ws = t.ws('a');
+  // taken in before the reply started: that reply had it
+  a.deliverUpdate({ seq: 1, at: 1, text: 'Done.' });
+  ws.emit('async_update.added', {});
+  let before = creates(ws);
+  speak(ws, 'It is done.');
+  assert.equal(creates(ws), before);
+  // cut off: the next reply has it anyway
+  ws.emit('response.created');
+  a.deliverUpdate({ seq: 2, at: 1, text: 'Second.' });
+  ws.emit('async_update.added', {});
+  ws.emit('response.done', { response: { status: 'cancelled' } });
+  assert.equal(creates(ws), before);
+  // the host is talking: it tells him at its next reply
+  ws.emit('response.created');
+  ws.emit('async_update.added', {});
+  t.call.userSpeaking = true;
+  ws.emit('response.output_audio_transcript.done', { transcript: 'Sure.' });
+  ws.emit('response.done', { response: { status: 'completed' } });
+  assert.equal(creates(ws), before);
+  t.call.userSpeaking = false;
+  // its tool asked for a follow-up: that reply starts after the update, so it has it
+  ws.emit('response.created');
+  ws.emit('async_update.added', {});
+  ws.emit('response.function_call_arguments.done', { call_id: 'c1', name: 'list_tasks', arguments: '{}' });
+  ws.emit('response.done', { response: { status: 'completed' } });
+  assert.equal(creates(ws), before + 1, 'only the follow-up');
+  ws.emit('response.created');
+  ws.emit('response.done', { response: { status: 'completed' } });
+  // a Grok Bot tool still running: its follow-up, if any, has it
+  before = creates(ws);
+  ws.emit('response.created');
+  ws.emit('async_update.added', {});
+  ws.emit('response.function_call_arguments.done', { call_id: 'c2', name: 'send_task', arguments: '{"request":"x"}' });
+  ws.emit('response.done', { response: { status: 'completed' } });
+  assert.equal(a.toolsBusy, true);
+  assert.equal(creates(ws), before);
+  // the call is ending: never
+  t.toolCalls.at(-1)!.resolve({ kind: 'served', output: { relay: 'accepted' } });
+  await flush();
+  before = creates(ws);
+  t.call.phase = 'wrapping';
+  ws.emit('response.created');
+  ws.emit('async_update.added', {});
+  ws.emit('response.done', { response: { status: 'completed' } });
+  assert.equal(creates(ws), before);
+});
+
+test('seeded updates: only the update\'s own item, taken in mid-reply, counts as missed', async () => {
+  const t = await two();
+  const a = t.call.links.get('a');
+  const ws = t.ws('a');
+  a.nudgeWire = 'seeded-tool-pair';
+  ws.emit('response.created');
+  a.deliverUpdate({ seq: 7, at: 1, text: 'Seeded result.' });
+  ws.emit('conversation.item.added', { item: { type: 'message' } });
+  ws.emit('conversation.item.added', { item: { type: 'function_call_output', call_id: 'some-tool-call' } });
+  let before = creates(ws);
+  ws.emit('response.output_audio_transcript.done', { transcript: 'Hm.' });
+  ws.emit('response.done', { response: { status: 'completed' } });
+  assert.equal(creates(ws), before, 'other items are not the update');
+  ws.emit('response.created');
+  ws.emit('conversation.item.added', { item: { type: 'function_call_output', call_id: `seeded-nudge-a-7` } });
+  before = creates(ws);
+  ws.emit('response.output_audio_transcript.done', { transcript: 'Hm.' });
+  ws.emit('response.done', { response: { status: 'completed' } });
+  assert.equal(creates(ws), before + 1);
+});
+
+test('a ping watchdog reconnects a silent voice socket; ordinary sessions without pings stay connected', async () => {
+  const t = await two();
+  assert.ok(!t.timers.some((x) => !x.done && x.ms === SILENCE_MS));
+  t.ws('a').emit('ping');
+  const timer = t.timers.find((x) => !x.done && x.ms === SILENCE_MS)!;
+  t.ws('a').emit('ping');
+  assert.equal(timer.done, true);
+  const next = t.timers.find((x) => !x.done && x.ms === SILENCE_MS)!;
+  next.done = true; next.fn(); await flush();
+  assert.equal(t.sockets.get('a')!.length, 2);
+});
+
+test('Grok job receipts return before the agent finishes; failures come back as news', async () => {
+  for (const accepted of [true, false]) {
+    const t = setup({ tools: () => [SEND_TASK], voice: { receipt: { output: { status: 'under_way' }, instructions: 'Keep talking' } } });
+    t.call.join([bot('a')]); await t.ready('a');
+    useTool(t.ws('a'), 'send_task', { request: 'Read the test file' });
+    assert.ok(t.ws('a').sent.some((m) => m.item?.output === JSON.stringify({ status: 'under_way' })));
+    assert.equal(t.toolCalls.length, 1);
+    assert.equal(t.call.links.get('a').receiptOwed, true);
+    t.toolCalls[0].resolve(accepted ? { kind: 'served', output: { relay: 'accepted' } } : { kind: 'invalid_input', output: { error: 'No request' } });
+    await flush();
+    if (!accepted) assert.match(t.ws('a').updates().at(-1), /not|No request/i);
+  }
+});
+
+test('agent capability instructions reflect skills, paused routines and computer availability', () => {
+  assert.equal(agentText(null, false), '');
+  const extras = { skills: [{ name: 'research', description: 'Read docs' }, { name: 'plain' }], routines: [{ name: 'daily', trigger: '9 am', enabled: true }, { name: 'paused' }], computers: [{ label: 'Mac', online: true }] };
+  assert.match(agentText(extras, true), /research.*Read docs/);
+  assert.match(agentText(extras, true), /paused/);
+  assert.match(agentText(extras, true), /online now/);
+  extras.computers[0].online = false;
+  assert.match(agentText(extras, true), /offline now/);
+  assert.ok(!agentText(extras, false).includes('Skills your agent'));
+});
+
+test('updates wait for a reconnect and are not consumed by a dead voice socket', async () => {
+  const t = await withAgent();
+  await t.sendJob();
+  const link = t.call.links.get('a');
+  link.ready = false;
+  t.reply([{ seq: 42, text: 'Durable answer' }]);
+  await t.tick();
+  assert.equal(link.landedSeq, 0);
+  link.ready = true;
+  await t.tick();
+  assert.equal(link.landedSeq, 42);
+});
+
+
+test('leaving notifies each joined agent before its link is removed; a failed notification cannot block Leave', async () => {
+  const t = await two({ tools: () => [SEND_TASK] });
+  const calls: any[] = [];
+  t.call.d.callTool = (id: string, request: any) => {
+    assert.ok(t.call.links.has(id), 'dispatch must occur while the bot can still be identified');
+    calls.push({ id, request });
+    return Promise.reject(new Error('offline'));
+  };
+  t.call.leave();
+  await flush();
+  assert.equal(calls.length, 2);
+  assert.match(calls[0].request.input.request, /call.*ended/i);
+  assert.equal(t.call.phase, 'idle');
+});
+
+test('receipt and update fallbacks retain their flags until a real spoken answer', async () => {
+  const t = setup({ tools: () => [SEND_TASK], voice: { receipt: { instructions: 'Receipt' }, skills: null, routines: null, computers: null } });
+  t.call.join([bot('a')]); await t.ready('a');
+  const link = t.call.links.get('a');
+  link.nudgeWire = 'seeded-tool-pair';
+  link.deliverUpdate({ seq: 1, text: 'No timestamp' });
+  useTool(t.ws('a'), 'send_task', { request: 'read test' }, 'I will check.');
+  t.toolCalls[0].resolve({ kind: 'served', output: { relay: 'accepted' } }); await flush();
+  link.resumeFrom = 'old'; link.pendingContext = null;
+  t.ws('a').emit('conversation.created', {});
+  link.conversationId = 'old';
+  await link.connect(null);
+  await t.ready('a');
+  t.ws('a').emit('conversation.created', { conversation: { id: 'old' } });
+  t.call.userSpeaking = true;
+  await t.call.runJob(link, { name: 'send_task', callId: 'duplicate', args: '{"request":"read test"}' }, {});
+  assert.equal(link.newsOwed, true);
+  link.nudgeWire = 'async-update';
+  t.call.onLanded(link, [{ seq: 2, kind: 'written', text: 'Host typed' }]);
+  assert.match(t.call.timeline.at(-1).text, /typed/);
+});
+
+test('greeting guards stale timers and uses discovered agent capabilities', async () => {
+  const t = setup({ voice: { greeting: { direction: 'Hello' }, skills: [{ name: 'research' }], routines: [{ name: 'daily' }], computers: [{ label: 'Mac', online: true }] } });
+  t.call.join([bot('a')]); await t.ready('a');
+  const timer = t.timers.find((x) => !x.done && x.ms === USER_FIRST_GRACE_MS)!;
+  t.call.sendText('I spoke first');
+  const before = t.ws('a').types().filter((x) => x === 'response.create').length;
+  timer.fn();
+  assert.equal(t.ws('a').types().filter((x) => x === 'response.create').length, before);
+  const link = t.call.links.get('a');
+  // A served-but-unaccepted answer is still delivered as failure news.
+  t.call.runHarnessTool = async () => ({ output: '{}', followUp: true });
+  await t.call.runJob(link, { name: 'send_task', callId: 'empty', args: '{}' }, {});
+  assert.match(t.ws('a').updates().at(-1), /did not go through/);
+});
+
+test('native local tools override the old local-task instructions with an explicit execution target', async () => {
+  const t = setup({ tools: () => [SEND_TASK, { type: 'function', name: 'mac_files', parameters: { type: 'object' } }] });
+  t.call.join([bot('a')]); await t.ready('a');
+  assert.match(t.call.links.get('a').instructions(), /These execute on This Mac independently/);
+  assert.match(t.call.links.get('a').instructions(), /Do not silently send the same task to another computer/);
 });

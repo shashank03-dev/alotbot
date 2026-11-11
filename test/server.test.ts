@@ -1,3 +1,4 @@
+import { APP_TOOLS } from '../src/apps.ts';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -6,7 +7,7 @@ import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { after, before, test } from 'node:test';
-import { createApp, isAllowed, parseToolCall, readJson, TOOL_BODY_LIMIT } from '../src/server.ts';
+import { createApp, isAllowed, parseLanded, parseToolCall, readJson, TOOL_BODY_LIMIT } from '../src/server.ts';
 import { mock, sendJson, until, type Mock } from './helpers.ts';
 
 let up: Mock;
@@ -18,6 +19,7 @@ let upstreamFail = false;
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'grok-call-srv-'));
 const SEARCH = { type: 'function', name: 'search_conversations', description: 'Search.', parameters: { type: 'object', properties: {} } };
 const toolBodies: unknown[] = [];
+let transcriptAt = Date.now() + 60_000; // later than the first check, so it counts as news
 
 before(async () => {
   up = await mock((req, res) => {
@@ -35,6 +37,12 @@ before(async () => {
       toolBodies.push(req.body);
       return sendJson(res, 200, { kind: 'VOICE_CALL_HARNESS_TOOL_OUTCOME_KIND_SERVED', output: { hits: [], more: false } });
     }
+    if (method === 'ListGrokBotTranscriptEntries') {
+      const body = { kind: 'send-message', message: { type: 'text', content: 'Posted it.', channel: 'voice:call-1-7' }, timestampMs: transcriptAt };
+      return sendJson(res, 200, { entries: [{ seq: '3', body: Buffer.from(JSON.stringify(body)).toString('base64') }] });
+    }
+    if (method === 'ListGrokBotUserComputers') return sendJson(res, 200, {});
+    if (method === 'GetAvailableMcpServers') return sendJson(res, 200, { servers: [{ name: 'Mail', serverIdentifier: 'user-Mail', type: 'HTTP', userHasAccessToken: true }] });
     if (method === 'MintSandVoiceCallSecret') {
       return sendJson(res, 200, { clientSecret: 's', model: 'm', websocketUrl: 'wss://voice.test/rt', expiresAtUnixSeconds: '5' });
     }
@@ -119,7 +127,7 @@ test('lists bots and mints a voice session for one', async () => {
   assert.deepEqual(bots, { bots: [{ id: '7', name: 'My Bot', voice: 'carina', speed: 1, language: null, color: null, shape: null }] });
   const r = await fetch(`${base}/api/bots/7/voice`, { method: 'POST' });
   assert.equal(r.status, 200);
-  assert.deepEqual(await r.json(), { clientSecret: 's', url: 'wss://voice.test/rt?model=m', expiresAt: 5, instructions: 'Be My Bot.', tools: [SEARCH] });
+  assert.deepEqual(await r.json(), { clientSecret: 's', url: 'wss://voice.test/rt?model=m', expiresAt: 5, instructions: 'Be My Bot.', tools: [SEARCH, ...APP_TOOLS], apps: [{ id: 'user-Mail', name: 'Mail', status: 'connected' }], greeting: null, receipt: null, skills: [], routines: [], computers: [] });
   assert.equal((await fetch(`${base}/api/bots/nope/voice`, { method: 'POST' })).status, 404);
   assert.equal((await fetch(`${base}/api/bots/7/voice`)).status, 405);
   assert.equal((await fetch(`${base}/api/bots/bad%20id/voice`, { method: 'POST' })).status, 404);
@@ -227,6 +235,7 @@ test('call tools: a bot\'s search goes to Grok Bot; hang-up and malformed calls 
   r = await post('7', { ...call, name: 'end_the_call' });
   assert.equal(r.status, 400);
   assert.match((await r.json()).error, /not one of this bot's call tools/);
+  assert.equal((await post('unknown', call)).status, 400);
   assert.equal((await post('7', call, 'text/plain')).status, 415);
   assert.equal((await post('7', 'x'.repeat(TOOL_BODY_LIMIT + 1))).status, 413);
   assert.equal((await fetch(`${base}/api/bots/7/tool`)).status, 405);
@@ -255,4 +264,55 @@ test('parseToolCall checks every field', () => {
     [{ ...ok, line: { ...LINE, newsOwed: 'no' } }, /line must have/],
   ];
   for (const [body, msg] of cases) assert.throws(() => parseToolCall(body), (e: any) => e.status === 400 && msg.test(e.message), String(msg));
+});
+
+test('agent updates: the page reads what a bot\'s agent sent back to this call', async () => {
+  await until(() => fs.existsSync(path.join(dataDir, 'auth.json')));
+  const post = (id: string, body: unknown) =>
+    fetch(`${base}/api/bots/${id}/landed`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  let r = await post('8', { callId: 'call-1-8', after: 0 });
+  assert.equal(r.status, 400, 'no voice session with this bot');
+  assert.match((await r.json()).error, /voice session with this bot first/);
+  await fetch(`${base}/api/bots/7/voice`, { method: 'POST' });
+  // The first ask marks the call live; the watcher reads the bot's chat and the next ask returns it.
+  let work: unknown[] = [];
+  for (let i = 0; i < 100 && !work.length; i++) {
+    r = await post('7', { callId: 'call-1-7', after: 0 });
+    assert.equal(r.status, 200);
+    work = (await r.json()).work;
+    if (!work.length) await new Promise((res) => setTimeout(res, 20));
+  }
+  assert.deepEqual(work, [{ seq: 3, at: transcriptAt, kind: 'reply', text: 'Posted it.', actionId: null }]);
+  assert.deepEqual(await (await post('7', { callId: 'call-1-7', after: 3 })).json(), { work: [] });
+  assert.equal((await post('7', { callId: 'bad id', after: 0 })).status, 400);
+  assert.equal((await fetch(`${base}/api/bots/7/landed`)).status, 405);
+  // Grok Bot being down does not fail the page: it reads the history, and the watcher tries Grok again.
+  upstreamFail = true;
+  r = await post('7', { callId: 'call-1-7', after: 3 });
+  upstreamFail = false;
+  assert.deepEqual([r.status, (await r.json()).work], [200, []]);
+});
+
+test('parseLanded checks every field', () => {
+  assert.deepEqual(parseLanded({ callId: 'call-1.a:b_c', after: 12, extra: 1 }), { callId: 'call-1.a:b_c', after: 12 });
+  const cases: [unknown, RegExp][] = [
+    [null, /body must be an object/],
+    [[], /body must be an object/],
+    [{ callId: '', after: 0 }, /callId/],
+    [{ callId: 'x'.repeat(129), after: 0 }, /callId/],
+    [{ callId: 5, after: 0 }, /callId/],
+    [{ callId: 'c', after: -1 }, /after/],
+    [{ callId: 'c', after: 1.5 }, /after/],
+    [{ callId: 'c', after: '1' }, /after/],
+    [{ callId: 'c' }, /after/],
+  ];
+  for (const [body, msg] of cases) assert.throws(() => parseLanded(body), (e: any) => e.status === 400 && msg.test(e.message), String(msg));
+});
+
+test('recorded action lists are available without sending full tool results again', async () => {
+  const response = await fetch(`${base}/api/actions`);
+  assert.equal(response.status, 200);
+  const list = (await response.json()).actions;
+  assert.ok(Array.isArray(list));
+  assert.ok(list.every((a: any) => a.result === undefined && a.input === undefined));
 });

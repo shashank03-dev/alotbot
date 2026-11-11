@@ -124,6 +124,8 @@ public enum ServerMessage: Equatable {
     case view(CallView)
     case lines([Line])
     case tasks(TaskList)
+    case actions([RecordedAction])
+    case localTool(LocalToolCommand)
     case stopAudio(Int)
     case ended
     case unknown(String)
@@ -141,6 +143,8 @@ public enum ServerMessage: Equatable {
             return .reply(req: (obj["req"] as? NSNumber)?.intValue, ok: obj["ok"] as? Bool ?? false, result: result, error: obj["error"] as? String, signedOut: obj["signedOut"] as? Bool ?? false)
         case "view": return .view(try dec.decode(CallView.self, from: try sub("view")))
         case "lines": return .lines(try dec.decode([Line].self, from: try sub("lines")))
+        case "localTool": return .localTool(try dec.decode(LocalToolCommand.self, from: data))
+        case "actions": return .actions(try dec.decode(ActionList.self, from: data).actions)
         case "tasks": return .tasks(try dec.decode(TaskList.self, from: data))
         case "stopAudio": return .stopAudio((obj["id"] as? NSNumber)?.intValue ?? -1)
         case "ended": return .ended

@@ -1,0 +1,10 @@
+{
+  "at": "2026-11-11T16:05:21.151Z",
+  "status": "passed",
+  "writesDispatched": 1,
+  "cleanup": true,
+  "initialHarnessError": "No draft ID returned; do not repeat the write.",
+  "draftsCreated": 1,
+  "draftsRemaining": 0,
+  "note": "The first harness parser did not handle Connect text.text. A read recovered the single draft, then cleanup deleted it and a second read verified zero remain. The write was not retried."
+}

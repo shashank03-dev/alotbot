@@ -186,40 +186,35 @@
   .round:active { transform: scale(.94); }
   .round svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   #mute[aria-pressed="true"] { background: #fff; color: #0b0d12; }
-  #people-btn[aria-expanded="true"], #notes-btn[aria-expanded="true"], #timeline-btn[aria-expanded="true"] { background: color-mix(in srgb, var(--accent) 30%, var(--surface-2)); }
-  #notes-btn { position: relative; }
-  #notes-btn[data-unseen="true"]::after {
-    content: ""; position: absolute; top: 12px; right: 12px; width: 9px; height: 9px; border-radius: 50%;
-    background: var(--accent); box-shadow: 0 0 0 2px var(--surface-2);
-  }
+  #people-btn[aria-expanded="true"], #tasks-btn[aria-expanded="true"], #timeline-btn[aria-expanded="true"] { background: color-mix(in srgb, var(--accent) 30%, var(--surface-2)); }
   #leave { background: var(--danger); width: 72px; border-radius: 999px; }
   #leave:hover { background: #dc2626; }
   #leave svg { fill: currentColor; stroke: none; }
 
   /* ---------- side panels ---------- */
-  #people, #notes, #timeline {
+  #people, #tasks, #timeline {
     position: fixed; top: 16px; right: 16px; bottom: 176px; width: min(360px, calc(100% - 32px));
     background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 16px;
     display: flex; flex-direction: column; gap: 12px; z-index: 5; box-shadow: 0 20px 60px rgb(0 0 0 / .5);
   }
   .panel-head { display: flex; align-items: center; justify-content: space-between; }
   .panel-head h2 { margin: 0; font-size: 1.05rem; }
-  #notes-body { overflow-y: auto; display: grid; gap: 18px; align-content: start; }
-  #notes-body h3 { margin: 0 0 8px; font-size: .78rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
-  #notes-body ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-  #notes-body li {
+  #tasks-body { overflow-y: auto; display: grid; gap: 18px; align-content: start; }
+  #tasks-body h3 { margin: 0 0 8px; font-size: .78rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+  #tasks-body ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  #tasks-body li {
     display: grid; gap: 2px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2);
     line-height: 1.4; overflow-wrap: anywhere;
   }
-  #notes-body li small { color: var(--muted); font-size: .78rem; }
+  #tasks-body li small { color: var(--muted); font-size: .78rem; }
   #direction li { background: color-mix(in srgb, var(--accent) 14%, var(--surface-2)); box-shadow: inset 3px 0 0 var(--accent); }
-  #tasks li.task { padding-left: 34px; position: relative; }
-  #tasks li.task::before {
+  #task-list li.task { padding-left: 34px; position: relative; }
+  #task-list li.task::before {
     content: ""; position: absolute; left: 12px; top: 12px; width: 12px; height: 12px; border-radius: 4px; border: 2px solid var(--line);
   }
-  #tasks li.done::before { background: var(--accent); border-color: var(--accent); }
-  #tasks li.done span { text-decoration: line-through; color: var(--muted); }
-  #notes-empty, #timeline-empty { color: var(--muted); margin: 0; }
+  #task-list li.done::before { background: var(--accent); border-color: var(--accent); }
+  #task-list li.done span { text-decoration: line-through; color: var(--muted); }
+  #tasks-empty, #timeline-empty { color: var(--muted); margin: 0; }
   #timeline-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; display: grid; gap: 2px; align-content: start; }
   #timeline-list li { display: grid; grid-template-columns: 3.2em 1fr; gap: 8px; padding: 5px 4px; font-size: .88rem; line-height: 1.4; overflow-wrap: anywhere; }
   #timeline-list time { color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -248,7 +243,7 @@
     .controls { gap: 6px; padding-left: 0; padding-right: 0; }
     .round { width: 50px; height: 50px; }
     #leave { width: 64px; }
-    #people, #notes, #timeline { top: auto; left: 12px; right: 12px; bottom: 168px; width: auto; max-height: calc(100dvh - 184px); }
+    #people, #tasks, #timeline { top: auto; left: 12px; right: 12px; bottom: 168px; width: auto; max-height: calc(100dvh - 184px); }
   }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition: none !important; }
@@ -278,7 +273,7 @@
       </section>
       <h1>Start a call</h1>
       <p class="muted">Pick the Grok Bots you want in the call. You can add or remove bots during the call too.</p>
-      <p id="memory-hint" class="muted" hidden>The bots will get the summary, notes and open action items from your last call.</p>
+      <p id="memory-hint" class="muted" hidden>The bots will get the summary and open action items from your last call.</p>
       <div id="picker" class="picker" role="group" aria-label="Grok Bots"></div>
       <div class="lobby-actions">
         <span id="count" aria-live="polite"></span>
@@ -306,7 +301,7 @@
     <nav class="controls" aria-label="Call controls">
       <button id="mute" class="round" type="button" aria-pressed="false" aria-label="Mute microphone"></button>
       <button id="people-btn" class="round" type="button" aria-expanded="false" aria-controls="people" aria-label="People: choose bots in the call"></button>
-      <button id="notes-btn" class="round" type="button" aria-expanded="false" aria-controls="notes" aria-label="Notepad: direction, notes and tasks" data-unseen="false"></button>
+      <button id="tasks-btn" class="round" type="button" aria-expanded="false" aria-controls="tasks" aria-label="Tasks and current direction"></button>
       <button id="timeline-btn" class="round" type="button" aria-expanded="false" aria-controls="timeline" aria-label="Call timeline"></button>
       <button id="leave" class="round" type="button" aria-label="Leave call"></button>
     </nav>
@@ -318,16 +313,15 @@
       </div>
       <div id="people-list"></div>
     </aside>
-    <aside id="notes" aria-label="Shared notepad" hidden>
+    <aside id="tasks" aria-label="Tasks and current direction" hidden>
       <div class="panel-head">
-        <h2>Notepad</h2>
-        <button id="notes-close" class="ghost" type="button">Done</button>
+        <h2>Tasks</h2>
+        <button id="tasks-close" class="ghost" type="button">Done</button>
       </div>
-      <div id="notes-body">
+      <div id="tasks-body">
         <section id="direction" hidden><h3>Current direction</h3><ul></ul></section>
-        <section id="tasks" hidden><h3>Tasks</h3><ul></ul></section>
-        <section id="notes-list" hidden><h3>Notes</h3><ul></ul></section>
-        <p id="notes-empty">Nothing here yet. Bots write notes and tasks here, and your corrections are pinned at the top.</p>
+        <section id="task-list" hidden><h3>Tasks</h3><ul></ul></section>
+        <p id="tasks-empty">No tasks yet. Bots can add action items here. Your corrections are pinned at the top.</p>
       </div>
     </aside>
     <aside id="timeline" aria-label="Call timeline" hidden>

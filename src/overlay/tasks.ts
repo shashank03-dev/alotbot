@@ -90,6 +90,7 @@ export class TaskBoard {
     for (const id of waitsOn) {
       this.get(id);
       if (id === parent) throw new TaskError(`A part can't wait on its own parent #${id}: the parent is only done when its parts are.`);
+      if (parent !== null && this.reaches(id, parent)) throw new TaskError(`Task #${id} already waits on parent #${parent}, so this part would make a loop.`);
     }
     const id = this.tasks.reduce((m, t) => Math.max(m, t.id), 0) + 1;
     const task: Task = { id, title, owner: n.owner ?? null, status: 'open', parent, waitsOn, by: n.by, doneBy: null };
@@ -154,7 +155,7 @@ export class TaskBoard {
       if (cur === to) return true;
       if (seen.has(cur)) continue;
       seen.add(cur);
-      stack.push(...this.get(cur).waitsOn);
+      stack.push(...this.get(cur).waitsOn, ...this.children(cur).map((t) => t.id));
     }
     return false;
   }

@@ -1,5 +1,5 @@
-// The overlay's call: the web app's call engine (public/core.js, unchanged) with tasks in place of
-// the shared notepad, plus what the overlay draws (who looks at whom, the live transcript).
+// The overlay's call: the shared call engine with bot-owned tasks and dependencies,
+// plus what the overlay draws (who looks at whom, the live transcript).
 
 import {
   BotLink,
@@ -11,8 +11,7 @@ import {
   USER,
   ADD_TASK_TOOL,
   DONE_TASK_TOOL,
-  READ_NOTES_TOOL,
-  WRITE_NOTE_TOOL,
+  LIST_TASKS_TOOL,
 } from '../../public/core.js';
 import type { Bot } from '../grokbot.ts';
 import type { CallLog } from './log.ts';
@@ -22,7 +21,7 @@ import { STATUSES, type Task, TaskBoard, TaskError, type TaskStatus } from './ta
 const LinkBase: new (call: any, bot: Bot) => any = BotLink;
 const CallBase: new (deps: any) => any = Call;
 
-const NOTEPAD_TOOLS = new Set<string>([WRITE_NOTE_TOOL.name, READ_NOTES_TOOL.name, ADD_TASK_TOOL.name, DONE_TASK_TOOL.name]);
+const REPLACED_TASK_TOOLS = new Set<string>(['write_note', 'read_notes', LIST_TASKS_TOOL.name, ADD_TASK_TOOL.name, DONE_TASK_TOOL.name]);
 
 const fn = (name: string, description: string, properties: Record<string, unknown> = {}, required: string[] = []) => ({
   type: 'function',
@@ -55,7 +54,7 @@ export const TASK_TOOLS = [
   fn('list_tasks', 'See every task: owner, status, parts and what each waits on.'),
 ];
 
-const NOTEPAD_SENTENCE = /There is a shared notepad[\s\S]*?someone changed it\. /;
+const TASK_SENTENCE = /There is a shared task list[\s\S]*?someone changed it\. /;
 
 export function tasksText(board: TaskBoard, me: string): string {
   const mine = board.ownText(me);
@@ -129,7 +128,7 @@ export function gaze(bots: { id: string; status: string }[], userSpeaking: boole
 class OverlayLink extends LinkBase {
   sessionUpdate() {
     const u = super.sessionUpdate();
-    u.session.tools = [...u.session.tools.filter((t: { name?: string }) => !NOTEPAD_TOOLS.has(t.name ?? '')), ...TASK_TOOLS];
+    u.session.tools = [...u.session.tools.filter((t: { name?: string }) => !REPLACED_TASK_TOOLS.has(t.name ?? '')), ...TASK_TOOLS];
     return u;
   }
 
@@ -137,7 +136,7 @@ class OverlayLink extends LinkBase {
     const call = this.call as OverlayCall;
     const tasks = tasksText(call.board, this.bot.name);
     let text = super.instructions() as string;
-    text = NOTEPAD_SENTENCE.test(text) ? text.replace(NOTEPAD_SENTENCE, tasks) : `${text}\n\n${tasks}`;
+    text = TASK_SENTENCE.test(text) ? text.replace(TASK_SENTENCE, tasks) : `${text}\n\n${tasks}`;
     return call.lastSummary ? `${text}\n\n# Your last call with ${USER}\nSummary: ${call.lastSummary}` : text;
   }
 }
@@ -188,7 +187,7 @@ export class OverlayCall extends CallBase {
   }
 
   onToolCall(link: any, c: { name: string; args: string }) {
-    if (NOTEPAD_TOOLS.has(c.name) && !TASK_TOOLS.some((t) => t.name === c.name)) {
+    if (REPLACED_TASK_TOOLS.has(c.name) && !TASK_TOOLS.some((t) => t.name === c.name)) {
       return { output: `"${c.name}" is not a tool in this call. Use add_task, update_task, link_tasks or list_tasks.`, followUp: false };
     }
     if (!TASK_TOOLS.some((t) => t.name === c.name)) return super.onToolCall(link, c);
@@ -229,7 +228,7 @@ export class OverlayCall extends CallBase {
     const t = this.board.add({ ...n, by });
     this.event('task', `${by} added task #${t.id}: "${t.title}"${t.owner ? ` for ${t.owner}` : ''}`);
     if (t.owner && t.owner !== by) this.tell(t.owner, `${by} gave you task #${t.id}: ${t.title}`, from);
-    this.refreshOwners([t.owner]);
+    this.refreshTaskInstructions();
     return t;
   }
 
@@ -238,7 +237,7 @@ export class OverlayCall extends CallBase {
     this.event('task', `${by} marked task #${id} ${status}`);
     if (task.owner && task.owner !== by) this.tell(task.owner, `${by} marked your task #${id} ${status}`, from);
     for (const r of ready) if (r.owner) this.tell(r.owner, `#${id} is done, so your task #${r.id} (${r.title}) can start`, from);
-    this.refreshOwners([task.owner, ...ready.map((r) => r.owner)]);
+    this.refreshTaskInstructions();
     return task;
   }
 
@@ -246,14 +245,14 @@ export class OverlayCall extends CallBase {
     const t = this.board.link(id, on);
     this.event('task', `${by} made task #${id} wait on #${on}`);
     if (t.owner && t.owner !== by) this.tell(t.owner, `${by} made your task #${id} wait on #${on}`, from);
-    this.refreshOwners([t.owner]);
+    this.refreshTaskInstructions();
     return t;
   }
 
   unlinkTasks(id: number, on: number, by: string): Task {
     const t = this.board.unlink(id, on);
     this.event('task', `${by} made task #${id} stop waiting on #${on}`);
-    this.refreshOwners([t.owner]);
+    this.refreshTaskInstructions();
     return t;
   }
 
@@ -261,7 +260,7 @@ export class OverlayCall extends CallBase {
     const gone = this.board.remove(id);
     this.event('task', `${by} removed task #${id}`);
     for (const t of gone) if (t.owner && t.owner !== by) this.tell(t.owner, `${by} removed your task #${t.id} (${t.title})`, null);
-    this.refreshOwners(gone.map((t) => t.owner));
+    this.refreshTaskInstructions();
     return gone;
   }
 
@@ -270,15 +269,14 @@ export class OverlayCall extends CallBase {
     for (const l of this.links.values()) if (l.bot.name === owner && l !== from) l.say(`[Tasks]: ${text}`);
   }
 
-  /** Owners' instructions list their open tasks, so refresh them after a change. */
-  private refreshOwners(owners: (string | null)[]) {
-    const names = new Set(owners.filter(Boolean));
-    for (const l of this.links.values()) if (names.has(l.bot.name)) l.updateInstructions();
+  /** Parent status and dependencies can change another owner's tasks, so refresh every bot. */
+  private refreshTaskInstructions() {
+    for (const l of this.links.values()) l.updateInstructions();
   }
 
   // ----- ending the call -----
 
-  /** The summary bot sees the task list (in the old notepad format) with the transcript. */
+  /** The summary bot sees the tasks with owners and completion marks alongside the transcript. */
   wrapUp() {
     this.notes = [];
     this.tasks = this.board.tasks.map((t) => ({ id: t.id, text: `${t.title}${t.owner ? ` (owner: ${t.owner})` : ''}`, by: t.by, done: this.board.statusOf(t) === 'done', doneBy: t.doneBy }));

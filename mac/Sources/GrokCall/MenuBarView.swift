@@ -61,6 +61,7 @@ struct MenuBarView: View {
             if model.inCall { callSection } else { pickSection }
             if let last = model.lastCall, !model.inCall { lastCallCard(last) }
             TasksSection(model: model)
+            ActionsView(model: model)
         case "signing-in":
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Finish signing in on the page that opened. This updates by itself.").font(.system(size: 13)).foregroundStyle(Theme.text) }

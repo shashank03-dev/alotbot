@@ -1,0 +1,9 @@
+{
+  "at": "2026-11-11T16:13:41.900Z",
+  "approvalsResolved": 0,
+  "status": "passed",
+  "executor": "agent-local-terminal",
+  "nonceMatched": true,
+  "ms": 20358,
+  "events": 2
+}

@@ -305,3 +305,42 @@ test('overlayView reports the one-on-one bot', async () => {
   hostSays(ws('a'), 'Bot B, just you: what is the plan?');
   assert.equal(call.overlayView().focus, 'b');
 });
+
+
+test('removing a blocker refreshes the dependent bot instructions', async () => {
+  const { call, ws } = await twoBots();
+  call.addTask({ title: 'Research', owner: 'Bot A', parent: null, waitsOn: [] }, USER);
+  call.addTask({ title: 'Write', owner: 'Bot B', parent: null, waitsOn: [1] }, USER);
+  assert.match(ws('b').lastSession().instructions, /waiting on #1/);
+  call.removeTask(1, USER);
+  assert.match(ws('b').lastSession().instructions, /#2 Write · owner: Bot B · open/);
+  assert.doesNotMatch(ws('b').lastSession().instructions, /waiting on #1/);
+});
+
+
+test('removing the unfinished part refreshes the parent owner and bots waiting on the parent', async () => {
+  const { call, ws } = await twoBots();
+  call.addTask({ title: 'Launch', owner: 'Bot A', parent: null, waitsOn: [] }, USER);
+  call.addTask({ title: 'Draft', owner: null, parent: 1, waitsOn: [] }, USER);
+  call.addTask({ title: 'Ship', owner: 'Bot B', parent: null, waitsOn: [1] }, USER);
+  call.addTask({ title: 'Review', owner: null, parent: 1, waitsOn: [] }, USER);
+  call.setTaskStatus(4, 'done', USER);
+  assert.match(ws('b').lastSession().instructions, /waiting on #1/);
+  call.removeTask(2, USER);
+  assert.doesNotMatch(ws('a').lastSession().instructions, /#1 Launch/);
+  assert.match(ws('b').lastSession().instructions, /#3 Ship · owner: Bot B · open/);
+});
+
+
+test('parent completion and newly added parts refresh every affected owner', async () => {
+  const { call, ws } = await twoBots();
+  call.addTask({ title: 'Launch', owner: 'Bot A', parent: null, waitsOn: [] }, USER);
+  call.addTask({ title: 'Draft', owner: null, parent: 1, waitsOn: [] }, USER);
+  call.addTask({ title: 'Ship', owner: 'Bot B', parent: null, waitsOn: [1] }, USER);
+  call.setTaskStatus(2, 'done', USER);
+  assert.doesNotMatch(ws('a').lastSession().instructions, /#1 Launch/);
+  assert.match(ws('b').lastSession().instructions, /#3 Ship · owner: Bot B · open/);
+  call.addTask({ title: 'Review', owner: null, parent: 1, waitsOn: [] }, USER);
+  assert.match(ws('a').lastSession().instructions, /#1 Launch · owner: Bot A · doing/);
+  assert.match(ws('b').lastSession().instructions, /waiting on #1/);
+});

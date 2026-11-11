@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { type Bot, GrokBotClient } from '../grokbot.ts';
 
-// Choices offered by the Grok Bot app (v0.79.3) for a bot's voice and look.
+// Choices offered by the Grok Bot app (v0.79.4) for a bot's voice and look.
 
 export const VOICES = [
   'altair', 'ara', 'atlas', 'aurora', 'carina', 'castor', 'celeste', 'cosmo', 'eve', 'helios', 'helix', 'iris', 'kepler', 'leo',

@@ -1,3 +1,6 @@
+import { LocalBrowser } from '../browser.ts';
+import { LOCAL_TOOLS, localTarget } from '../local-tools.ts';
+import { argumentError } from '../validation.ts';
 // The Mac app's backend: one local WebSocket that carries commands, the live call (view, transcript,
 // tasks) and audio both ways. The app does the mic and speakers; this runs the call engine.
 
@@ -12,6 +15,9 @@ import { OverlayCall, overlayMarkdown } from './call.ts';
 import { CallLog, loggedSocket, MicStats } from './log.ts';
 import { BadSetting, COLORS, LANGUAGES, OverlayGrokClient, parseNewBot, parseVoiceSettings, PICKER_SHAPES, SHAPES, SPEEDS, VOICES } from './grok.ts';
 import { OverlayStore } from './store.ts';
+import { ActionStore } from '../actions.ts';
+import { CallActions } from '../dispatch.ts';
+import { JobWatcher } from '../jobs.ts';
 import { STATUSES, TaskBoard, TaskError, type TaskStatus } from './tasks.ts';
 
 export const PROTOCOL_VERSION = 1;
@@ -22,6 +28,8 @@ export const VIEW_MS = 66;
 /** Largest message the app may send (a mic frame is ~2 KB; commands are small). */
 export const MAX_MESSAGE = 256 * 1024;
 export const MSG = { mic: 1, botAudio: 2 } as const;
+/** Newest actions the app is sent. */
+export const ACTIONS_SHOWN = 200;
 
 export interface OverlayOptions {
   dataDir: string;
@@ -96,6 +104,18 @@ export function createOverlayServer(opts: OverlayOptions) {
   const login = new Login({ store, apiUrl, siteUrl: opts.siteUrl ?? SITE_URL, fetch: opts.fetch, pollMs: opts.pollMs, timeoutMs: opts.loginTimeoutMs });
   const grok = new OverlayGrokClient({ store, apiUrl, fetch: opts.fetch });
   const calls = new OverlayStore(opts.dataDir);
+  // Every bot action, kept across calls and relaunches; jobs are watched until their agents answer.
+  const actionStore = new ActionStore(opts.dataDir);
+  actionStore.recoverInterrupted();
+  const watcher = new JobWatcher({
+    grok, store: actionStore, setTimer: (fn, ms) => setTimeout(fn, ms).unref(), clearTimer: (t) => clearTimeout(t), now: Date.now,
+    onChange: (botId) => client?.actionsChanged(botId),
+    log: (kind, data) => client?.log?.write(kind, data as Record<string, unknown>),
+  });
+  watcher.resume();
+  const actions: CallActions = new CallActions({ harnessTool: (id, call) => localTarget(call.name)
+    ? client!.localTool(id, call.name, call.input)
+    : grok.harnessTool(id, call) }, actionStore, watcher);
   const clock = opts.clock ?? (() => performance.now() / 1000);
   const openSocket = opts.openSocket ?? defaultOpenSocket;
 
@@ -131,6 +151,30 @@ export function createOverlayServer(opts: OverlayOptions) {
     /** This call's log (logs/call-<time>.jsonl), open while the call is. */
     log: CallLog | null = null;
     mic = new MicStats(0);
+    browser = new LocalBrowser(opts.dataDir);
+    localPending = new Map<string, { resolve: (v: any) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
+
+    async localTool(botId: string, name: string, input: Record<string, unknown>) {
+      const tool = LOCAL_TOOLS.find((t) => t.name === name)!;
+      const invalid = argumentError(tool.parameters, input);
+      if (invalid) return { kind: 'served' as const, output: { error: invalid } };
+      if (name === 'list_call_actions') return { kind: 'served' as const, output: { actions: actionStore.list().filter((a) => a.botId === botId && a.tool !== 'list_call_actions').map(({ input, result, ...a }) => a) } };
+      if (name === 'resolve_call_approval') {
+        const a = actionStore.get(String(input.id));
+        if (a?.botId !== botId) return { kind: 'served' as const, output: { error: 'This approval does not belong to you.' } };
+        const action = await actions.resolve(String(input.id), input.decision as 'approve' | 'deny', (id, approval, decision) => grok.resolveApproval(id, approval, decision));
+        this.actionsChanged(botId);
+        return { kind: 'served' as const, output: { id: action.id, status: action.status, approval: action.approval } };
+      }
+      if (name === 'mac_browser') return { kind: 'served' as const, output: await this.browser.run(input) };
+      const id = crypto.randomUUID();
+      const output = await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => { this.localPending.delete(id); reject(new Error('This Mac did not answer; outcome unknown. Do not retry a press automatically.')); }, 15_000);
+        this.localPending.set(id, { resolve, reject, timer });
+        this.send({ t: 'localTool', id, tool: name, input });
+      });
+      return { kind: 'served' as const, output };
+    }
 
     constructor(ws: WebSocket) {
       this.ws = ws;
@@ -148,6 +192,9 @@ export function createOverlayServer(opts: OverlayOptions) {
     }
 
     onClose() {
+      void this.browser.close();
+      for (const p of this.localPending.values()) { clearTimeout(p.timer); p.reject(new Error('The Mac app disconnected; outcome unknown.')); }
+      this.localPending.clear();
       if (client === this) client = null;
       this.stopCall();
     }
@@ -191,6 +238,18 @@ export function createOverlayServer(opts: OverlayOptions) {
 
     async run(op: string, m: Record<string, unknown>): Promise<unknown> {
       switch (op) {
+        case 'localConfig':
+          this.browser.enabled = m.browser === true;
+          if (!this.browser.enabled) await this.browser.close();
+          return;
+        case 'localResult': {
+          const pending = this.localPending.get(str(m.id, 'id'));
+          if (!pending) throw new ClientError('That local request expired.');
+          this.localPending.delete(String(m.id));
+          clearTimeout(pending.timer);
+          pending.resolve(m.error ? { error: String(m.error) } : { text: String(m.text ?? '') });
+          return;
+        }
         case 'hello':
           return {
             version: PROTOCOL_VERSION,
@@ -255,6 +314,23 @@ export function createOverlayServer(opts: OverlayOptions) {
         case 'taskUnlink':
         case 'taskRemove':
           return this.changeTasks(op, m);
+        case 'botResources': {
+          const id = str(m.botId, 'botId');
+          await this.freshBots();
+          const meta = grok.botMeta(id);
+          const [skills, routines, files] = await Promise.all([grok.skills(meta.uuid), grok.routines(meta.uuid), grok.files(id)]);
+          return { text: JSON.stringify({ skills, routines, files }, null, 2) };
+        }
+        case 'actions':
+          return { actions: actionStore.list({ limit: ACTIONS_SHOWN }).map(({ result, input, ...a }) => a) };
+        case 'action':
+          return { action: actionStore.get(str(m.id, 'id')) };
+        case 'resolveApproval': {
+          if (m.decision !== 'approve' && m.decision !== 'deny') throw new ClientError('decision must be approve or deny');
+          const action = await actions.resolve(str(m.id, 'id'), m.decision, (id, approval, decision) => grok.resolveApproval(id, approval, decision));
+          this.actionsChanged(action.botId);
+          return { action };
+        }
         case 'calls':
           return { calls: calls.listCalls() };
         case 'callFile':
@@ -281,18 +357,24 @@ export function createOverlayServer(opts: OverlayOptions) {
       const name = (id: string): string => call.links.get(id)!.bot.name;
       log.write('join', { bots: picked.map((b) => b.name) });
       const call = new OverlayCall({
-        mintVoice: (id: string) => grok.voiceSession(id),
+        mintVoice: async (id: string) => { const voice = await grok.voiceSession(id); return { ...voice, tools: [...voice.tools, ...LOCAL_TOOLS] }; },
         // A bot used one of its own Grok Bot call tools (send_task, search_conversations): Grok Bot runs it.
         callTool: async (id: string, req: ToolCall) => {
           log.write('grok-tool', { bot: name(id), req });
           try {
-            const r = await grok.harnessTool(id, req);
+            const r = await actions.tool(id, name(id), req);
             log.write('grok-tool-result', { bot: name(id), result: r });
             return r;
           } catch (err) {
             log.write('grok-tool-failed', { bot: name(id), error: (err as Error).message });
             throw err;
           }
+        },
+        // What a bot's agent sent back about its jobs: Grok Bot's work_landed, which the bot then tells Shashank.
+        landedWork: async (id: string, callId: string, after: number) => {
+          const work = actions.updates(id, callId, after);
+          if (work.length) log.write('landed', { bot: name(id), work });
+          return work;
         },
         // Everything sent and received on a bot's voice socket is logged under its name.
         openSocket: (url: string, protocols: string[], botId: string) => loggedSocket(openSocket(url, protocols) as any, name(botId), log),
@@ -356,7 +438,19 @@ export function createOverlayServer(opts: OverlayOptions) {
       return { file, summary: data.summary, actionItems: data.actionItems };
     }
 
+    /** A bot's agent sent something: the call hears it now (not at its next check), and the app's list refreshes. */
+    actionsChanged(botId: string) {
+      const link = this.call?.links.get(botId);
+      if (link && link.landedTimer !== null) {
+        this.call!.d.clearTimer(link.landedTimer);
+        link.landedTimer = null;
+        void link.checkLanded();
+      }
+      this.send({ t: 'actions', actions: actionStore.list({ limit: ACTIONS_SHOWN }).map(({ result, input, ...a }) => a) });
+    }
+
     stopCall() {
+      for (const id of this.call?.links.keys() ?? []) actions.callEnded(id);
       if (this.timer) clearInterval(this.timer);
       this.timer = null;
       this.call?.leave(); // closing the bots' sockets is logged too, so the log ends after it
@@ -462,6 +556,9 @@ export function createOverlayServer(opts: OverlayOptions) {
       client?.close(1001, 'backend stopping');
       login.cancel();
       wss.close();
+      watcher.stop();
+      actionStore.recoverInterrupted();
+      actionStore.close();
     },
   };
 }

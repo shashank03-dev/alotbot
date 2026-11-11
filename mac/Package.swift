@@ -10,6 +10,7 @@ let package = Package(
         // The app: menu bar, overlay, audio, backend process.
         .executableTarget(name: "GrokCall", dependencies: ["GrokCallCore"]),
         .testTarget(name: "GrokCallCoreTests", dependencies: ["GrokCallCore"]),
+        .testTarget(name: "GrokCallNativeTests", dependencies: ["GrokCall", "GrokCallCore"]),
     ],
     swiftLanguageModes: [.v5]
 )

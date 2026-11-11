@@ -54,7 +54,7 @@ final class Prefs: ObservableObject {
     }
 }
 
-enum Tray: Equatable { case add, newBot, chat, voice }
+enum Tray: Equatable { case add, newBot, chat, voice, actions }
 
 /// How the call shows on screen: the small circle, the pill with its buttons, or the full view (a tile per bot).
 enum OverlayMode: Equatable { case circle, pill, full }
@@ -63,9 +63,12 @@ enum Connection: Equatable { case starting, ready, failed(String) }
 
 @MainActor
 final class AppModel: ObservableObject {
-    let backend = Backend()
+    let backend: Backend
     let audio = AudioIO()
     let prefs = Prefs()
+    let macTools = MacTools()
+    @Published var resourceText = ""
+    @Published var browserEnabled = false
 
     @Published var connection: Connection = .starting
     @Published var login = LoginState(state: "signed-out", error: nil)
@@ -76,6 +79,10 @@ final class AppModel: ObservableObject {
     @Published var picked = Set<String>()
     @Published var view: CallView?
     @Published var lines: [Line] = []
+    @Published var actions: [RecordedAction] = []
+    @Published var actionDetail: RecordedAction?
+    @Published var resolvingActions = Set<String>()
+    private var actionPoll: Task<Void, Never>?
     @Published var tasks: [TaskItem] = []
     @Published var pastCalls: [PastCall] = []
     @Published var joining = false
@@ -103,14 +110,15 @@ final class AppModel: ObservableObject {
     var inCall: Bool { view != nil }
     var callBots: [CallBot] { view?.bots ?? [] }
 
-    init() {
+    init(backend: Backend = Backend(), demo: Bool? = nil) {
+        self.backend = backend
         backend.onConnected = { [weak self] hello, clock in self?.connected(hello, clock) }
         backend.onStopped = { [weak self] why in self?.stopped(why) }
         backend.onMessage = { [weak self] msg in self?.handle(msg) }
         backend.onAudio = { [weak self] chunk in self?.audio.play(chunk) }
         audio.onMic = { [weak self] level, pcm in self?.backend.sendMic(AudioFrames.encodeMic(level: level, samples: pcm)) }
         audio.onFailure = { [weak self] why in self?.show(why) }
-        if Self.demo { startDemo() } else { backend.start() }
+        if demo ?? Self.demo { startDemo() } else { backend.start() }
     }
 
     // MARK: backend lifecycle
@@ -120,16 +128,27 @@ final class AppModel: ObservableObject {
         hostName = hello.user
         choices = hello.choices
         connection = .ready
+        browserEnabled = false
         AppLog.write("backend connected")
-        Task {
+        Task { [self] in
             await refreshLogin()
             await refreshTasks()
             await refreshCalls()
+            actionPoll?.cancel()
+            actionPoll = Task { [weak self] in
+                while !Task.isCancelled {
+                    guard let self else { return }
+                    await self.refreshActions()
+                    try? await Task.sleep(nanoseconds: 3_000_000_000)
+                }
+            }
         }
     }
 
     private func stopped(_ why: String) {
         AppLog.write("backend stopped: \(why)")
+        actionPoll?.cancel()
+        browserEnabled = false
         connection = .failed(why)
         if inCall { endCallLocally() }
     }
@@ -148,6 +167,15 @@ final class AppModel: ObservableObject {
         case .lines(let l):
             lines.append(contentsOf: l)
             if lines.count > 500 { lines.removeFirst(lines.count - 500) }
+        case .localTool(let command):
+            Task {
+                do {
+                    let text = try await macTools.run(command)
+                    try await backend.send("localResult", ["id": command.id, "text": text])
+                } catch { try? await backend.send("localResult", ["id": command.id, "error": error.localizedDescription]) }
+            }
+        case .actions(let a):
+            actions = a
         case .tasks(let t):
             tasks = t.tasks
         case .stopAudio(let id):
@@ -337,6 +365,35 @@ final class AppModel: ObservableObject {
         await refreshBots()
         show("\(r.bot.name) is ready\(inCall ? " and joining the call" : "").")
         return true
+    }
+
+    func setBrowserEnabled(_ enabled: Bool) async {
+        do { try await backend.send("localConfig", ["browser": enabled]); browserEnabled = enabled }
+        catch { show(error.localizedDescription) }
+    }
+
+    func refreshResources(_ botId: String) async {
+        struct Resources: Decodable { var text: String }
+        if let r: Resources = await attempt("Load bot resources", { try await backend.request("botResources", ["botId": botId]) }) { resourceText = r.text }
+    }
+
+    func refreshActions() async {
+        if let list: ActionList = try? await backend.request("actions") {
+            actions = list.actions
+            if let detail = actionDetail, let latest = actions.first(where: { $0.id == detail.id }), latest.updatedAt != detail.updatedAt { await inspectAction(detail.id) }
+        }
+    }
+
+    func inspectAction(_ id: String) async {
+        if let detail: ActionDetail = await attempt("Read action", { try await backend.request("action", ["id": id]) }) { actionDetail = detail.action }
+    }
+
+    func resolveAction(_ action: RecordedAction, decision: String) async {
+        guard !resolvingActions.contains(action.id) else { return }
+        resolvingActions.insert(action.id)
+        defer { resolvingActions.remove(action.id) }
+        if let detail: ActionDetail = await attempt("Resolve approval", { try await backend.request("resolveApproval", ["id": action.id, "decision": decision]) }) { actionDetail = detail.action }
+        await refreshActions()
     }
 
     // MARK: tasks

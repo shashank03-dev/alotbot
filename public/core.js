@@ -54,6 +54,12 @@ export const STOP_MAX_WORDS = 8;
 export const REPEAT_LOOKBACK = 6;
 /** Replies a bot is asked for in a row after using a tool (spoken or not) before its turn simply ends. */
 export const MAX_TOOL_ROUNDS = 3;
+/**
+ * The same, for rounds that use a connected-app tool: real app work (list apps, find tools, then several actions,
+ * such as creating a chat and sending it a prompt) takes more steps than 3.
+ */
+export const MAX_APP_TOOL_ROUNDS = 8;
+const APP_TOOLS = new Set(['list_connected_apps', 'find_app_tools', 'use_app_tool']);
 /** In a one-on-one, this much quiet from Shashank after the bot's reply means the conversation is over. */
 export const FOCUS_IDLE_MS = 20000;
 /** A host line this long or shorter can be a "we're done" line ("thanks", "got it"). */
@@ -64,6 +70,24 @@ export const RESPONSE_START_MS = 10000;
 export const RESPONSE_STALL_MS = 45000;
 /** A bot whose voice session isn't up this long after it was asked for is marked as failed. */
 export const CONNECT_TIMEOUT_MS = 15000;
+/**
+ * A voice setup that Grok Bot's server didn't answer is tried again after these waits, so a short outage doesn't
+ * leave a bot out of the call (call of 2026-11-11 12:57: every bot pulled in failed after one try).
+ */
+export const SETUP_RETRY_MS = [3000, 8000];
+/**
+ * How often a bot in the call asks for what reached it: its agent's answers to its jobs, approvals waiting, and what
+ * Shashank typed in its chat. The backend watches Grok Bot; this only reads what it recorded.
+ */
+export const LANDED_POLL_MS = 3000;
+/** As in the Grok Bot app: after connecting, the bot waits this long for Shashank to speak before it greets. */
+export const USER_FIRST_GRACE_MS = 15000;
+/** As in the Grok Bot app: once the voice server has pinged, this long without a ping means the line is dead. */
+export const SILENCE_MS = 20000;
+/** What the Grok Bot app tells each bot's agent when a call ends (its own words). */
+export const VOICE_CALL_ENDED_MESSAGE = 'The call ended. This channel is closed from now on, so anything still owed goes in the chat.';
+/** Setup errors that trying again can't fix. */
+const PERMANENT_SETUP_ERROR = /Signed out|No Grok Bot|HTTP 4\d\d|usage/i;
 /** How long the page waits for Grok Bot to run a call tool (the server gives up at 20 s). */
 export const TOOL_TIMEOUT_MS = 25000;
 
@@ -80,6 +104,9 @@ export function normalize(text) {
 /** Words that are never a bot's short name on their own: "Shashank's Bot" does not shrink to "bot". */
 const GENERIC_NAME_WORDS = new Set(['bot', 'bots', 'ai', 'assistant', 'agent', 'grok']);
 
+/** How speech-to-text wrote a short name in real calls (2026-11-11): "X bot" as "ex bot", "exbot" or "export". */
+const HEARD_FORMS = new Map([['x bot', ['ex bot', 'exbot', 'export']]]);
+
 /**
  * The ways a bot's name can be said: the full name, the name without its owner ("Shashank's X bot" → "x bot"),
  * and each of those run together, as speech-to-text often writes them ("xbot", "mybot"). Normalized.
@@ -90,6 +117,7 @@ function ownForms(name) {
   const short = normalize(String(name).replace(/^\s*\S+?['’]s\s+/u, ''));
   const words = short.split(' ');
   if (short && short !== full && !(words.length === 1 && (GENERIC_NAME_WORDS.has(short) || short.length < 3))) forms.add(short);
+  for (const f of [...forms]) for (const heard of HEARD_FORMS.get(f) ?? []) forms.add(heard);
   for (const f of [...forms]) if (f.includes(' ')) forms.add(f.replaceAll(' ', ''));
   return forms;
 }
@@ -120,6 +148,38 @@ export function findAddressee(text, bots) {
     if (!best || i < best.i || (i === best.i && form.length > best.len)) best = { id, i, len: form.length };
   }
   return best ? best.id : null;
+}
+
+/** Words that may come before a bot's name when a line speaks to it ("Hey Bot B, ...", "Okay, Bot B: ..."). */
+const CALL_OUT_LEAD = new Set(['hey', 'hi', 'hello', 'ok', 'okay', 'so', 'alright', 'right', 'and', 'now']);
+
+/**
+ * The bot a line speaks to directly, or null: a name set off as its own phrase at the start of a sentence
+ * ("Bot B, check the reach."). A name only mentioned ("Bot B is here.", "Thanks, Bot B.") is not speaking to it.
+ */
+export function spokenTo(text, bots) {
+  const forms = nameForms(bots);
+  for (const sentence of String(text).split(/[.!?]+/)) {
+    const phrases = sentence.split(/[,:;\u2014\u2013]| - /).map((p) => normalize(p).split(' ').filter(Boolean));
+    if (phrases.length < 2) continue; // a name with nothing set off after it is not a call-out
+    for (const words of phrases) {
+      const i = words.findIndex((w) => !CALL_OUT_LEAD.has(w));
+      if (i < 0) continue; // "Okay," before the name
+      const hit = forms.find((f) => f.form === words.slice(i).join(' '));
+      if (hit) return hit.id;
+      break;
+    }
+  }
+  return null;
+}
+
+/** Words that call for a reply: a greeting, or calling the bots by Grok's name. */
+const CALL_WORDS = new Set(['hey', 'hi', 'hello', 'grok']);
+
+/** True if a host line wants a spoken reply: a question, a greeting, or calling Grok ("Hey Grok."). */
+export function wantsAnswer(text) {
+  const t = String(text).trim();
+  return t.endsWith('?') || normalize(t).split(' ').some((w) => CALL_WORDS.has(w));
 }
 
 /** True if the text has a correction word ("no", "wait", "stop", "actually", "wrong") as a whole word. */
@@ -203,7 +263,8 @@ export function focusText(me, focus) {
   if (focus === me) {
     return (
       `\n\n# One-on-one right now\n${USER} is talking with you one-on-one. The other bots are listening and stay quiet. ` +
-      `Answer ${USER} directly and keep it a two-way conversation; don't hand the turn to another bot or bring others in unless ${USER} asks.`
+      `Answer ${USER} directly and keep it a two-way conversation; don't hand the turn to another bot or bring others in unless ${USER} asks. ` +
+      `When ${USER} asks you to tell another bot something, say it to that bot, starting with its name ("Name, ..."): that bot then takes over the one-on-one.`
     );
   }
   return (
@@ -326,15 +387,14 @@ export const LEAVE_CALL_TOOL = fn(
   `Leave this call yourself, when ${USER} asks you to or when you are no longer needed. Say a short goodbye before you use it.`,
 );
 
-/** Shared notepad tools: everyone in the call, and Shashank on his screen, sees the same notepad. */
+/** Shared task tools. Saved notes remain readable in historical exports. */
 const textParam = (what) => ({ text: { type: 'string', description: what } });
-export const WRITE_NOTE_TOOL = fn('write_note', 'Write a short note on the shared notepad: a fact, decision or idea worth keeping.', textParam('The note, one or two sentences.'), ['text']);
-export const READ_NOTES_TOOL = fn('read_notes', 'Read the shared notepad: every note and task so far.');
-export const ADD_TASK_TOOL = fn('add_task', 'Add an action item to the shared notepad.', textParam('The task, starting with a verb.'), ['text']);
+export const LIST_TASKS_TOOL = fn('list_tasks', 'Read the shared task list.');
+export const ADD_TASK_TOOL = fn('add_task', 'Add an action item to the shared task list.', textParam('The task, starting with a verb.'), ['text']);
 export const DONE_TASK_TOOL = fn(
   'done_task',
-  'Mark a task on the shared notepad as done.',
-  { id: { type: 'integer', description: 'The task number, as shown by read_notes.' } },
+  'Mark a task on the shared task list as done.',
+  { id: { type: 'integer', description: 'The task number, as shown by list_tasks.' } },
   ['id'],
 );
 
@@ -354,8 +414,7 @@ export const TOOLS = [
   HAND_TO_TOOL,
   WAIT_FOR_HOST_TOOL,
   LEAVE_CALL_TOOL,
-  WRITE_NOTE_TOOL,
-  READ_NOTES_TOOL,
+  LIST_TASKS_TOOL,
   ADD_TASK_TOOL,
   DONE_TASK_TOOL,
   SAVE_SUMMARY_TOOL,
@@ -364,9 +423,9 @@ export const TOOLS = [
 /** xAI's built-in search tools: they run on xAI's side, so the call never sees or answers them. */
 export const SEARCH_TOOLS = [{ type: 'web_search' }, { type: 'x_search' }];
 
-/** The notepad as plain text, for read_notes. */
+/** Tasks and historical notes as plain text, for task reads and saved call summaries. */
 export function notepadText(notes, tasks) {
-  if (!notes.length && !tasks.length) return 'The notepad is empty.';
+  if (!notes.length && !tasks.length) return 'The task list is empty.';
   const parts = [];
   if (notes.length) parts.push(`Notes:\n${notes.map((n) => `- ${n.text} (${n.by})`).join('\n')}`);
   if (tasks.length) {
@@ -390,7 +449,7 @@ export function lastCallText(memory) {
   let text = `\n\n# Your last call with ${USER}\n`;
   if (memory.summary) text += `Summary: ${memory.summary}\n`;
   if (memory.actionItems.length) text += `Open action items:\n${memory.actionItems.map((a) => `- ${a}`).join('\n')}\n`;
-  return `${text}The shared notepad starts with the notes and open action items from that call. Bring them up when they fit; don't recite them.`;
+  return `${text}Unfinished work carries into this call. Bring it up when it fits; don't recite it.`;
 }
 
 /** The one-off instructions for the bot writing the summary as the call ends. */
@@ -399,7 +458,7 @@ export function wrapUpInstructions(lines, notes, tasks) {
     `${USER} is ending this group voice call now. Do not speak. Call the save_summary tool once, right now, with ` +
     `a summary of three to six sentences on what was discussed and decided, and every concrete next step as an action item ` +
     `(with who does it, if known). Use only what is in this record.\n\n` +
-    `${contextText(lines.slice(-SUMMARY_LINES))}\n\nShared notepad:\n${notepadText(notes, tasks)}`
+    `${contextText(lines.slice(-SUMMARY_LINES))}\n\nTasks and saved context:\n${notepadText(notes, tasks)}`
   );
 }
 
@@ -434,23 +493,111 @@ export function exportMarkdown(data, formatTime = (ms) => new Date(ms).toISOStri
  * Grok Bot's own call instructions are written for a one-to-one phone call. These rules adapt them to a group call.
  * `canSendTasks`: the bot has its send_task tool here.
  */
-export function groupRulesText(canSendTasks) {
+export function groupRulesText(canSendTasks, canUseApps = false, apps = []) {
   return (
     `\n\n# Group call rules (these override anything above)\n` +
     `- This is a group call, not a one-to-one phone call. There is no end_the_call here: a goodbye, "stop" or "wait" from the host never ends the call. ` +
     `"Stop" or "wait" means go quiet. Use leave_call only when the host asks you to leave.\n` +
     `- Do not end a turn with a question just to keep the call going. Ask only when you need the host's answer.\n` +
     `- Tools are silent actions. Never say a tool's name, never say "pass" or "silence", and never describe what you are doing with a tool.\n` +
-    `- No work_landed, work_overheard or user_message entries arrive on this call; ignore what the instructions above say about them.` +
     (canSendTasks
-      ? `\n- send_task hands a job to your own agent, which has ${USER}'s computer, files, web, browser, mail and connected apps. ` +
-        `Its result does not come back on this call: it lands in your chat with ${USER}. Say that in a few words when you send a job. ` +
-        `If ${USER} asks for the result later, look for it with search_conversations, scope "this-chat".`
+      ? `- work_landed entries do arrive on this call: they are your agent's answers to jobs you sent, and approvals waiting. ` +
+        `user_message entries are what ${USER} typed in your chat during the call. No work_overheard entries arrive; ignore what the instructions above say about those.`
+      : `- No work_landed, work_overheard or user_message entries arrive on this call; ignore what the instructions above say about them.`) +
+    // App rule first, and send_task never claims apps when the app tools are here: a bot that sent app work as a job
+    // left the host waiting for an answer that never comes back on the call (call of 2026-11-11 11:42).
+    (canUseApps
+      ? `\n- You can access ${USER}'s connected Grok apps here, such as his X account, mail, GitHub or T3 Code. ` +
+        `Anything about his own accounts or data in an app (his posts and their numbers, mail, repos, threads, projects) goes through these tools. ` +
+        `Do not claim you lack app access before checking, and do not guess with web or X search when an app has his real data. ` +
+        appListText(apps) +
+        `find_app_tools reads an app's matching tools and argument schemas, ` +
+        `then use_app_tool runs one with the exact discovered name and arguments. These results return directly to this call within seconds; speak from the actual result. ` +
+        `Respect disabled tools, sign-in errors and approval requirements. Do not retry an app action automatically after a failure or timeout: it may already have completed.`
+      : '') +
+    (canSendTasks
+      ? `\n- send_task hands a job to your own agent, which has ${USER}'s computer, files, web, browser, mail${canUseApps ? '' : ' and connected apps'}. ` +
+        `Its updates and its result come back on this call as work_landed entries, usually within a minute. ` +
+        `When one arrives, tell ${USER} right away in a few words of your own what it says; if it only says the job has started or is under way, pass without a word. ` +
+        `If it asks something, such as whether to go ahead, ask ${USER}, then send his answer to the same job with send_task. ` +
+        `Never tell ${USER} to check the chat for a result, and never say a result arrived before a work_landed entry says so. ` +
+        (canUseApps
+          ? `It is slower than the app tools (tens of seconds, not seconds). Never send_task anything a connected app can do, even when a search came up empty ` +
+            `and even where the instructions above say to send it as a job: check list_connected_apps first. ` +
+            `Use send_task for work on ${USER}'s computer, files or browser that no connected app covers, and whenever ${USER} asks for it to be done on his computer ` +
+            `(a terminal command such as gh or git, a file, an app on his Mac), even if a connected app could do it too. A background receipt is not a completed result. `
+          : '') +
+        `If ${USER} asks about a job from an earlier call, look for it with search_conversations, scope "this-chat". ` +
+        `A "[Call]: <bot> sent its agent a background job" message means that bot already has that work: do not send the same job, ` +
+        `unless ${USER} asks you by name to do it too. Pass unless you have something different to add.`
       : '')
   );
 }
 
-export function groupInstructions(base, me, roster, invitable = [], direction = [], memory = null, focus = null, canSendTasks = false) {
+/** A URL with one more query parameter. */
+export function withParam(url, key, value) {
+  const u = new URL(url);
+  u.searchParams.set(key, value);
+  return u.toString();
+}
+
+/**
+ * The bot's skills and routines and Shashank's computers, from its voice session, so it knows what its agent can do
+ * and whether work on his Mac can run now.
+ */
+export function agentText(extras, canSendTasks) {
+  const { skills = [], routines = [], computers = [] } = extras ?? {};
+  const out = [];
+  if (canSendTasks && skills.length) {
+    out.push(`Skills your agent has: ${skills.slice(0, 20).map((s) => `${cleanNote(s.name, 60)}${s.description ? ` (${cleanNote(s.description, 120)})` : ''}`).join('; ')}. To use one, send_task asking your agent to use that skill by name.`);
+  }
+  if (routines.length) {
+    out.push(`Your routines: ${routines.slice(0, 20).map((r) => `${cleanNote(r.name, 80)}${r.trigger ? `, ${cleanNote(r.trigger, 80)}` : ''}${r.enabled ? '' : ', paused'}`).join('; ')}.`);
+  }
+  if (canSendTasks && computers.length) {
+    const on = computers.filter((c) => c.online).map((c) => cleanNote(c.label, 60));
+    out.push(on.length
+      ? `${USER}'s computer is online now (${on.join(', ')}): work on it can run, and he may have to allow each action.`
+      : `${USER}'s computer is offline now (${computers.map((c) => cleanNote(c.label, 60)).join(', ')}): work on it waits until the Grok Bot app is running there. Say so if he asks for it.`);
+  }
+  return out.length ? `\n- ${out.join('\n- ')}` : '';
+}
+
+/** Most apps named in a bot's instructions. */
+export const MAX_APPS_LISTED = 40;
+
+/**
+ * The apps connected when the bot joined, so it goes straight to find_app_tools instead of spending a step (and a
+ * spoken line) listing them. Without that list, it lists them first.
+ */
+function appListText(apps) {
+  const usable = (a) => a.status === 'connected' || a.status === 'available';
+  const label = (a) => `${cleanNote(a.name, 60)}${a.account && a.account !== 'default' ? ` (${cleanNote(a.account, 40)})` : ''}`;
+  const ok = apps.filter(usable).slice(0, MAX_APPS_LISTED);
+  const off = apps.filter((a) => !usable(a)).slice(0, MAX_APPS_LISTED);
+  if (!ok.length && !off.length) return 'Use list_connected_apps first to see the real apps and connection states. ';
+  return (
+    (ok.length ? `Apps connected when you joined: ${ok.map((a) => `${label(a)} = ${cleanNote(a.id, 80)}`).join(', ')}. ` : 'No app was connected when you joined. ') +
+    (off.length ? `Not usable when you joined: ${off.map((a) => `${label(a)} (${cleanNote(a.status, 20)})`).join(', ')}. ` : '') +
+    `Go straight to find_app_tools with the app id; use list_connected_apps only to check again. `
+  );
+}
+
+/**
+ * The bot's own Grok Bot tools as this call offers them. With the app tools here, Grok's send_task and
+ * search_conversations descriptions (which send app work to a background job) say that app work goes to the app tools.
+ */
+export function callHarnessTools(tools) {
+  if (!tools.some((t) => t.name === 'list_connected_apps')) return tools;
+  const note = {
+    send_task: ' On this group call: never for anything a connected app can do (posts and their numbers on X, mail, GitHub, T3 Code ' +
+      'and the other connected apps); use list_connected_apps, find_app_tools and use_app_tool, whose results come back on this call.',
+    search_conversations: ' On this group call, word from a connected app comes from use_app_tool, not send_task.',
+  };
+  return tools.map((t) => (note[t.name] ? { ...t, description: t.description + note[t.name] } : t));
+}
+
+export function groupInstructions(base, me, roster, invitable = [], direction = [], memory = null, focus = null, canSendTasks = false, canUseApps = false, apps = []) {
   const others = roster.filter((n) => n !== me);
   const who = others.length
     ? `The other Grok bots in the call: ${others.join(', ')}.`
@@ -466,19 +613,20 @@ export function groupInstructions(base, me, roster, invitable = [], direction = 
     `when the host corrects you, changes the subject or asks for something, drop what you were doing and follow the host right away. ` +
     `A line tagged "(cut off by the host)" is only the part the host heard before cutting that speaker off. ` +
     `Speak only as yourself and never say a "[Name]:" prefix. Keep each turn to one to three short spoken sentences. ` +
-    `To ask someone to answer, say their name. ${invite} ` +
+    `To ask someone to answer, say their name. ` +
+    `Speech-to-text can garble a bot's name ("X bot" may come through as "export" or "ex-bot"): read it as the closest bot name. ${invite} ` +
     `Bots take turns on their own. After you speak, the turn goes to the bot you name, or round the call in order. ` +
     `Manage turns with your tools: hand_to gives the next turn to one bot, pass skips your turn when you have nothing to add, ` +
     `wait_for_host stops the bots and waits for ${USER} (use it when the topic is done or you are going in circles), ` +
+    `and leave_call takes you out of the call. ` +
     `Never repeat a point already made in the call; if you have nothing new, pass. ` +
     `When the host says stop or wait, every bot goes quiet until the host speaks again. ` +
     `When the host names one bot, that is a one-on-one: only that bot answers, and the others stay silent until it is over. ` +
-    `and leave_call takes you out of the call. ` +
-    `There is a shared notepad that every bot and ${USER} can see: write_note keeps a fact, decision or idea, add_task adds an action item, ` +
-    `done_task ticks one off, and read_notes shows it all. A "[Notepad]:" message tells you someone changed it. ` +
+    `There is a shared task list that every bot and ${USER} can see: add_task adds an action item, ` +
+    `done_task ticks one off, and list_tasks shows it all. A "[Tasks]:" message tells you someone changed it. ` +
     `You can search the web and X for current facts and posts; say in a few words that you are looking it up, and keep what you found short. ` +
     `Only the tools given here are available during this call.` +
-    groupRulesText(canSendTasks) +
+    groupRulesText(canSendTasks, canUseApps, apps) +
     lastCallText(memory) +
     directionText(direction) +
     focusText(me, focus)
@@ -668,6 +816,26 @@ export class BotLink {
     this.base = '';
     this.readyAt = 0;
     this.retried = false;
+    this.setupTries = 0; // voice setups Grok Bot's server didn't answer, in a row
+    this.retryTimer = null;
+    this.landedSeq = 0; // the newest update already passed to this bot
+    this.landedTimer = null;
+    this.checkingLanded = false;
+    this.greeting = null; // Grok's opening directions for this bot (from its voice session)
+    this.receipt = null; // Grok's answer to a job's tool call, and how the bot speaks it
+    this.extras = { skills: [], routines: [], computers: [] };
+    this.conversationId = null; // the voice server's conversation, so a reconnect resumes it
+    this.resumeFrom = null; // the conversation a reconnect asked to resume
+    this.pendingContext = null; // the conversation so far, said only if the resume did not happen
+    this.heardPing = false;
+    this.silenceTimer = null;
+    this.nextInstructions = null; // directions for the next reply only (Grok's receipt)
+    this.receiptOwed = false; // it sent a job and has not spoken since
+    this.newsOwed = false; // an answer landed and it has not spoken since
+    this.updateMissed = false; // an update reached its conversation only after the current reply had started
+    this.owesHost = false; // Shashank spoke to it while it was connecting: it answers him once it is in
+    this.nudgeWire = 'async-update'; // how updates reach its session: xAI async updates, else Grok's seeded tool items
+    this.sentUpdates = new Map(); // event id -> update, to send again the other way if async updates are refused
     this.pending = false; // response.create sent, not started yet
     this.active = false; // a reply is being generated
     this.discard = false; // drop the current reply's audio
@@ -684,6 +852,7 @@ export class BotLink {
     this.joined = false; // has been ready at least once (so a later ready is a reconnect)
     this.toolRounds = 0; // follow-up replies after a tool, in a row
     this.harnessTools = []; // the bot's own Grok Bot call tools (send_task, search_conversations), run by Grok Bot
+    this.apps = []; // the account's connected apps when this bot joined (from Grok Bot), named in its instructions
     this.harness = true; // those tools are on; turned off if this session refuses them
     this.lastError = ''; // why the voice setup was last refused
     this.connectTimer = null;
@@ -695,6 +864,7 @@ export class BotLink {
     this.held = []; // [itemKey, samples] held back
     this.toolsBusy = false; // waiting for Grok Bot to run one of the bot's call tools
     this.sessionGen = 0; // bumped per connection, so late tool results for a dead session are dropped
+    this.tasksInFlight = new Set(); // reserve jobs before awaiting their receipts
     this.tasksSent = new Set(); // send_task jobs already sent this call (normalized), so a job is never sent twice
   }
 
@@ -715,27 +885,44 @@ export class BotLink {
     this.error = null;
     this.lastError = '';
     const gen = ++this.sessionGen;
-    if (context) this.say(context);
+    this.heardPing = false;
+    // Reconnecting with a conversation to resume: the conversation so far is said only if the resume does not happen.
+    this.resumeFrom = this.conversationId;
+    this.pendingContext = this.resumeFrom ? (context ?? null) : null;
+    if (context && !this.resumeFrom) this.say(context);
     // The whole setup, from asking Grok Bot for a session to the session being ready, gets CONNECT_TIMEOUT_MS.
     this.clearConnectTimer();
     this.connectTimer = this.call.d.setTimer(() => {
       this.connectTimer = null;
-      this.fail(new Error(this.lastError ? `Voice setup was refused: ${this.lastError}` : 'Timed out connecting.'));
+      if (this.lastError) this.fail(new Error(`Voice setup was refused: ${this.lastError}`));
+      else this.setupFailed(new Error('Timed out connecting.'));
     }, CONNECT_TIMEOUT_MS);
     let voice;
     try {
       voice = await this.call.d.mintVoice(this.bot.id);
     } catch (err) {
-      if (gen === this.sessionGen) this.fail(err);
+      if (gen === this.sessionGen) this.setupFailed(err);
       return;
     }
     if (this.closed || gen !== this.sessionGen) return; // left the call, or already timed out
     this.base = voice.instructions;
     this.harnessTools = Array.isArray(voice.tools) ? voice.tools : [];
-    const ws = this.call.d.openSocket(voice.url, [`xai-client-secret.${voice.clientSecret}`], this.bot.id);
+    this.apps = Array.isArray(voice.apps) ? voice.apps : [];
+    this.greeting = voice.greeting && typeof voice.greeting.direction === 'string' ? voice.greeting : null;
+    this.receipt = voice.receipt && typeof voice.receipt.instructions === 'string' ? voice.receipt : null;
+    this.extras = {
+      skills: Array.isArray(voice.skills) ? voice.skills : [],
+      routines: Array.isArray(voice.routines) ? voice.routines : [],
+      computers: Array.isArray(voice.computers) ? voice.computers : [],
+    };
+    const ws = this.call.d.openSocket(this.resumeFrom ? withParam(voice.url, 'conversation_id', this.resumeFrom) : voice.url, [`xai-client-secret.${voice.clientSecret}`], this.bot.id);
     this.ws = ws;
-    ws.onopen = () => ws.send(JSON.stringify(this.sessionUpdate()));
-    ws.onmessage = (m) => this.onEvent(m.data);
+    ws.onopen = () => {
+      if (gen === this.sessionGen) ws.send(JSON.stringify(this.sessionUpdate()));
+    };
+    ws.onmessage = (m) => {
+      if (gen === this.sessionGen) this.onEvent(m.data);
+    };
     ws.onclose = () => this.onClose(ws);
     ws.onerror = () => {}; // a close event always follows
   }
@@ -746,8 +933,9 @@ export class BotLink {
       type: 'session.update',
       session: {
         ...(voice ? { voice } : {}),
+        resumption: { enabled: true },
         instructions: this.instructions(),
-        tools: [...TOOLS, ...(this.harness ? this.harnessTools : []), ...(this.search ? SEARCH_TOOLS : [])],
+        tools: [...TOOLS, ...(this.harness ? callHarnessTools(this.harnessTools) : []), ...(this.search ? SEARCH_TOOLS : [])],
         turn_detection: { type: 'server_vad' },
         audio: {
           input: {
@@ -761,7 +949,7 @@ export class BotLink {
   }
 
   instructions() {
-    return groupInstructions(this.base, this.bot.name, this.call.roster(), this.call.invitable().map((b) => b.name), this.call.direction, this.call.memory, this.call.focus?.bot.name ?? null, this.isHarnessTool('send_task'));
+    return groupInstructions(this.base, this.bot.name, this.call.roster(), this.call.invitable().map((b) => b.name), this.call.direction, this.call.memory, this.call.focus?.bot.name ?? null, this.isHarnessTool('send_task'), this.isHarnessTool('list_connected_apps'), this.apps) + agentText(this.extras, this.isHarnessTool('send_task')) + (this.isHarnessTool('mac_files') ? `\n# This Mac tools\nFor the selected folder use mac_files; for the dedicated browser use mac_browser; for the shared window use mac_window. These execute on This Mac independently of the Grok agent. If access is off, ask ${USER} to enable the specific scope in settings. Do not silently send the same task to another computer. Use send_task for the Grok agent's computer or when ${USER} explicitly requests its local executor. For approvals, list_call_actions gives the exact action and resolve_call_approval grants once only after explicit user consent.` : '');
   }
 
   send(msg) {
@@ -775,6 +963,8 @@ export class BotLink {
 
   /** Ask for a reply; `instructions` replace the session's instructions for this one reply only. */
   respond(instructions) {
+    if (instructions === undefined && this.nextInstructions) instructions = this.nextInstructions;
+    this.nextInstructions = null;
     this.suppressNext = false;
     this.clearReplyTimer();
     this.pending = true;
@@ -915,12 +1105,25 @@ export class BotLink {
     } catch {
       return;
     }
+    if (e?.type === 'ping') this.heardPing = true;
+    if (this.heardPing && this.ready) this.armSilence();
     switch (e?.type) {
+      case 'conversation.created': {
+        const id = typeof e.conversation?.id === 'string' ? e.conversation.id : null;
+        // Resumed: the voice server still has the whole conversation. Fresh: tell it the conversation so far.
+        if (this.resumeFrom && id !== this.resumeFrom && this.pendingContext) this.say(this.pendingContext);
+        if (this.resumeFrom) this.call.event('join', `${this.bot.name} ${id === this.resumeFrom ? 'resumed its conversation' : 'started a new conversation'}`);
+        this.pendingContext = null;
+        this.resumeFrom = null;
+        if (id) this.conversationId = id;
+        return;
+      }
       case 'session.updated':
         if (this.ready) return;
         this.clearConnectTimer();
         this.ready = true;
         this.readyAt = this.call.d.now();
+        this.setupTries = 0;
         this.status = 'ready';
         for (const msg of this.queue.splice(0)) this.ws.send(JSON.stringify(msg));
         return this.call.onReady(this);
@@ -937,6 +1140,7 @@ export class BotLink {
         this.holding = this.holdNext;
         this.holdNext = false;
         this.held = [];
+        this.updateMissed = false;
         if (this.suppressNext) {
           this.suppressNext = false;
           this.cancel();
@@ -981,6 +1185,8 @@ export class BotLink {
         const status = heard ? (e.response?.status ?? 'completed') : 'cancelled';
         const calls = this.toolCalls.splice(0);
         const ran = heard && status === 'completed';
+        const missed = ran && this.updateMissed;
+        this.updateMissed = false;
         const names = this.call.roster();
         let text = heard ? cleanTranscript(this.text) : '';
         const filler = text !== '' && isFiller(text, names);
@@ -998,6 +1204,10 @@ export class BotLink {
           }
           text = '';
         }
+        if (ran && text) {
+          this.receiptOwed = false;
+          this.newsOwed = false;
+        }
         let followUp = false;
         const remote = [];
         for (const c of calls) {
@@ -1014,20 +1224,37 @@ export class BotLink {
           }
           this.sendToolOutput(c.callId, output);
         }
-        if (remote.length) {
-          void this.runRemote(remote, text, followUp);
-          return;
+        if (remote.length) void this.runRemote(remote, text, followUp);
+        else {
+          this.call.onBotDone(this, text, status, followUp);
+          this.flushQueued();
         }
-        this.call.onBotDone(this, text, status, followUp);
-        this.flushQueued();
+        // That reply could not include the update: it gets a turn to tell it, unless a reply that has it is coming.
+        if (missed && !this.pending && !this.toolsBusy) this.call.tellNews(this);
         return;
       }
+      // The voice server took in an update. Taken in while a reply was already under way, that reply could not
+      // include it (call of 2026-11-11 17:21: "The comment is live" landed as the host said "Thank you").
+      case 'async_update.added':
+        if (this.active) this.updateMissed = true;
+        return;
+      case 'conversation.item.added':
+        if (this.active && e.item?.type === 'function_call_output' && this.sentUpdates.has(e.item.call_id)) this.updateMissed = true;
+        return;
       case 'input_audio_buffer.speech_started':
         return this.call.onSpeechStart(this);
       case 'conversation.item.input_audio_transcription.completed':
         return this.call.onTranscript(this, typeof e.transcript === 'string' ? e.transcript : '');
       case 'error': {
         const message = typeof e.error?.message === 'string' && e.error.message ? e.error.message : 'unknown error';
+        // An update the voice server refused as an async update: from now on use Grok Bot's seeded items.
+        const refused = this.sentUpdates.get(e.error?.event_id);
+        if (refused && this.nudgeWire === 'async-update') {
+          this.nudgeWire = 'seeded-tool-pair';
+          this.call.event('error', `${this.bot.name}: async updates were refused (${message}); using seeded updates`);
+          this.deliverUpdate(refused);
+          return;
+        }
         // Before the session is set up, an error means our setup was refused (the session keeps its old one).
         // Try again without the parts most likely to be refused: search first, then the bot's own call tools.
         if (!this.ready && this.ws) {
@@ -1085,6 +1312,7 @@ export class BotLink {
     this.clearReplyTimer();
     this.clearWatch();
     this.clearConnectTimer();
+    this.clearSilence();
     return busy;
   }
 
@@ -1098,8 +1326,96 @@ export class BotLink {
     this.call.onFailed(this, busy);
   }
 
+  /** While it is in the call, it asks every LANDED_POLL_MS for what reached it. */
+  watchLanded() {
+    if (!this.call.d.landedWork) return;
+    if (this.landedTimer === null && !this.checkingLanded) this.landedTimer = this.call.d.setTimer(() => this.checkLanded(), LANDED_POLL_MS);
+  }
+
+  async checkLanded() {
+    this.landedTimer = null;
+    if (this.closed || this.call.phase !== 'in-call') return;
+    if (!this.ready) { this.watchLanded(); return; }
+    this.checkingLanded = true;
+    let news = [];
+    try {
+      news = await this.call.d.landedWork(this.bot.id, this.callId, this.landedSeq);
+    } catch {
+      // Grok Bot didn't answer this time: the next check asks again
+    }
+    this.checkingLanded = false;
+    if (this.closed || this.call.phase !== 'in-call') return;
+    news = (Array.isArray(news) ? news : [])
+      .filter((w) => w && Number(w.seq) > this.landedSeq && typeof w.text === 'string' && w.text.trim())
+      .sort((x, y) => Number(x.seq) - Number(y.seq));
+    if (news.length) {
+      this.landedSeq = Math.max(...news.map((w) => Number(w.seq)));
+      this.call.onLanded(this, news);
+    }
+    this.landedTimer = this.call.d.setTimer(() => this.checkLanded(), LANDED_POLL_MS);
+  }
+
+  /** Passes one update to its voice session the way the Grok Bot app does: an async update, held for its turn. */
+  deliverUpdate(w) {
+    const written = w.kind === 'written';
+    const id = `${written ? 'written-turn' : 'seeded-nudge'}-${this.bot.id}-${w.seq}`;
+    this.sentUpdates.set(id, w);
+    if (!written) this.newsOwed = true;
+    if (this.nudgeWire === 'async-update') {
+      const at = Number(w.at) || this.call.d.now();
+      this.send({ type: 'async_update.add', event_id: id, async_update: { topic: written ? 'user_message' : 'work_landed', payload: [{ message: { type: 'text', content: w.text }, timestampMs: at }], trigger_response: false } });
+    } else if (written) {
+      this.say(`[${HOST}, typed in your chat]: ${w.text}`);
+    } else {
+      // Grok Bot's other way: a work_landed tool call and its output, seeded into the conversation.
+      const at = new Date(Number(w.at) || this.call.d.now()).toISOString().replace(/\.\d{3}Z$/, 'Z');
+      this.send({ type: 'conversation.item.create', item: { type: 'function_call', name: 'work_landed', call_id: id, arguments: '{}' } });
+      this.send({ type: 'conversation.item.create', item: { type: 'function_call_output', call_id: id, output: JSON.stringify({ status: 'landed', updates: [w.text], at }) } });
+    }
+  }
+
+  /** Once the voice server has pinged: no ping for SILENCE_MS means the line is dead, so it reconnects. */
+  armSilence() {
+    this.clearSilence();
+    this.silenceTimer = this.call.d.setTimer(() => {
+      this.silenceTimer = null;
+      const ws = this.ws;
+      this.onClose(ws);
+      ws?.close();
+    }, SILENCE_MS);
+  }
+
+  clearSilence() {
+    if (this.silenceTimer !== null) this.call.d.clearTimer(this.silenceTimer);
+    this.silenceTimer = null;
+  }
+
+  /** The voice setup got no usable answer: try again after a wait, unless retrying can't help or the tries are used up. */
+  setupFailed(err) {
+    const why = err?.message || 'Could not connect.';
+    if (this.closed || this.setupTries >= SETUP_RETRY_MS.length || PERMANENT_SETUP_ERROR.test(why)) return this.fail(err);
+    const wait = SETUP_RETRY_MS[this.setupTries++];
+    this.stopEverything();
+    const ws = this.ws;
+    this.ws = null; // its close event is ours, not a drop
+    ws?.close();
+    this.status = this.retried ? 'reconnecting' : 'connecting';
+    this.error = why;
+    this.call.event('error', `${this.bot.name}: ${why} Trying again in ${wait / 1000} s (try ${this.setupTries + 1} of ${SETUP_RETRY_MS.length + 1}).`);
+    this.retryTimer = this.call.d.setTimer(() => {
+      this.retryTimer = null;
+      // The conversation so far, as of now: lines said during the failed tries are in it too.
+      const lines = this.call.lines;
+      if (!this.closed) void this.connect(lines.length ? contextText(lines.slice(-CONTEXT_LINES)) : null);
+    }, wait);
+  }
+
   close() {
     this.closed = true;
+    if (this.retryTimer) this.call.d.clearTimer(this.retryTimer);
+    this.retryTimer = null;
+    if (this.landedTimer) this.call.d.clearTimer(this.landedTimer);
+    this.landedTimer = null;
     this.stopEverything();
     if (this.ws) this.ws.close();
   }
@@ -1112,13 +1428,32 @@ export class BotLink {
    * The reply used the bot's own Grok Bot tools: its words count now, but its turn waits until Grok Bot answers,
    * so the bot never speaks again before it has the result.
    */
-  async runRemote(calls, text, followUp) {
+  async runRemote(allCalls, text, followUp) {
     const gen = this.sessionGen;
     const callGen = this.call.gen;
     const theyJustTalked = this.call.lines.at(-1)?.who === USER;
+    const line = { theyJustTalked, newsOwed: this.newsOwed, receiptOwed: this.receiptOwed, alreadySpokeThisTurn: text !== '' };
+    // As in the Grok Bot app, a job gets Grok's receipt at once and the bot keeps talking; the relay runs meanwhile,
+    // and a job that did not go through comes back as news.
+    const jobs = this.receipt ? allCalls.filter((c) => c.name === 'send_task') : [];
+    const calls = allCalls.filter((c) => !jobs.includes(c));
+    for (const c of jobs) {
+      this.sendToolOutput(c.callId, JSON.stringify(this.receipt.output ?? {}));
+      void this.call.runJob(this, c, line);
+    }
+    if (jobs.length && !text) {
+      this.receiptOwed = true;
+      this.nextInstructions = this.receipt.instructions;
+      followUp = true;
+    }
+    if (!calls.length) {
+      const said = this.call.onBotSaid(this, text, 'completed');
+      if (said !== null) this.call.onTurnDone(this, said, followUp);
+      this.flushQueued();
+      return;
+    }
     this.toolsBusy = true;
     const said = this.call.onBotSaid(this, text, 'completed');
-    const line = { theyJustTalked, newsOwed: false, receiptOwed: false, alreadySpokeThisTurn: text !== '' };
     const results = await Promise.all(calls.map((c) => this.call.runHarnessTool(this, c, line)));
     if (gen !== this.sessionGen) return; // the connection dropped or closed meanwhile; that session is gone
     this.toolsBusy = false;
@@ -1128,7 +1463,7 @@ export class BotLink {
     });
     // If the host cut in meanwhile, the call has moved on: only a reply the host asked for (queued) is given.
     if (said !== null && callGen === this.call.gen) {
-      this.call.onTurnDone(this, said, followUp);
+      this.call.onTurnDone(this, said, followUp, calls.some((c) => APP_TOOLS.has(c.name)));
     } else {
       this.turn = null; // its turn decision belonged to the moment that has passed
       this.toolRounds = 0;
@@ -1144,7 +1479,9 @@ export class BotLink {
  *   mintVoice(botId) -> Promise<{ clientSecret, url, instructions }>,
  *   openSocket(url, protocols, botId) -> WebSocket-like (botId: whose voice session it is),
  *   audio: { now(), play(samples, when) -> { stop() } },
- *   setTimer(fn, ms), clearTimer(handle), now() -> ms
+ *   setTimer(fn, ms), clearTimer(handle), now() -> ms,
+ *   callTool(botId, req) -> Promise<{ kind, output }> (optional: the bot's own Grok Bot tools),
+ *   landedWork(botId, callId, afterSeq) -> Promise<[{ seq, at, text }]> (optional: its agent's replies to its jobs)
  * }
  */
 export class Call {
@@ -1163,7 +1500,7 @@ export class Call {
     this.order = [];
     this.lines = [];
     this.direction = []; // pinned host corrections, newest last
-    this.notes = []; // shared notepad: { text, by }
+    this.notes = []; // historical notes kept for saved call exports: { text, by }
     this.tasks = []; // { id, text, by, done, doneBy }
     this.notepadVersion = 0; // bumped on every notepad change, so the page redraws only then
     this.memory = null; // { summary, actionItems, notes } from the last call
@@ -1175,10 +1512,12 @@ export class Call {
     this.seq = 0;
     this.ear = null; // the bot hearing Shashank's mic right now
     this.opened = false;
+    this.greetTimer = null;
     this.muted = false;
     this.userSpeaking = false;
     this.waitingForHost = false; // a bot used wait_for_host (or every bot passed): no bot turns until Shashank speaks
     this.passes = 0; // passes in a row
+    this.lastSpeaker = null; // the bot that said the last bot line since Shashank last spoke
     this.gen = 0;
     this.nextTimer = null;
     this.preroll = [];
@@ -1188,6 +1527,7 @@ export class Call {
     this.cutBot = null; // the bot last cut off by speech that may turn out to be echo
     this.stuckTimer = null;
     this.focus = null; // the bot in a one-on-one with Shashank: only it talks
+    this.answerOwed = null; // the bot his last line went to, if that line wants a spoken reply
     this.focusClosing = false; // Shashank said he's done: suggestions follow the bot's last reply
     this.focusTimer = null;
     this.suggesting = null; // after a one-on-one: { from, queue, current } asking the others for a suggestion
@@ -1222,10 +1562,11 @@ export class Call {
     this.phase = 'wrapping';
     this.interrupt();
     this.waitingForHost = true;
-    const link = this.ear && this.readyLinks().includes(this.ear) ? this.ear : this.readyLinks()[0];
+    let link = this.ear && this.readyLinks().includes(this.ear) ? this.ear : this.readyLinks()[0];
     if (!link || !this.lines.length) return Promise.resolve(this.exportData());
     return new Promise((resolve) => {
       const ask = () => link.respondWhenFree(wrapUpInstructions(this.lines, this.notes, this.tasks));
+      const tried = new Set([link]);
       let asked = 1;
       const finish = () => {
         this.d.clearTimer(timer);
@@ -1240,6 +1581,17 @@ export class Call {
           if (replier !== link) return;
           if (asked++ < WRAP_UP_ASKS) ask();
           else finish();
+        },
+        // Its reply never came (calls of 2026-11-11 11:45 and 13:42: the voice server never started it, and Leave
+        // sat out its full wait with no summary): the next bot is asked, or the call ends now.
+        lost: (loser) => {
+          if (loser !== link) return;
+          const next = this.readyLinks().find((l) => !tried.has(l));
+          if (!next) return finish();
+          link = next;
+          tried.add(next);
+          asked = 1;
+          ask();
         },
       };
       ask();
@@ -1265,6 +1617,14 @@ export class Call {
 
   leave() {
     if (this.phase === 'idle') return;
+    this.cancelGreeting();
+    // As the Grok Bot app does: each bot's agent hears that the call ended, so what it still owes goes in the chat.
+    for (const link of this.links.values()) {
+      if (!link.joined || !link.isHarnessTool('send_task') || !this.d.callTool) continue;
+      const line = { theyJustTalked: false, newsOwed: false, receiptOwed: false, alreadySpokeThisTurn: false };
+      Promise.resolve(this.d.callTool(link.bot.id, { callId: link.callId, name: 'send_task', input: { request: VOICE_CALL_ENDED_MESSAGE }, line }))
+        .catch(() => {}); // the call is over either way; the agent's chat still has the job's messages
+    }
     this.stopNext();
     this.clearStuck();
     this.clearFocusIdle();
@@ -1310,7 +1670,8 @@ export class Call {
       return true;
     }
     this.hostSpoke(said);
-    const target = this.hostTarget(said, ready.includes(this.ear) ? this.ear : ready[0]);
+    const target = this.routeHost(said, ready.includes(this.ear) ? this.ear : ready[0]);
+    if (!target) return true; // the bot he named answers once it is in
     this.setEar(target);
     target.respondWhenFree();
     return true;
@@ -1322,6 +1683,7 @@ export class Call {
     this.interrupt();
     this.waitingForHost = true;
     this.passes = 0;
+    this.lastSpeaker = null;
     this.cutBot = null;
     this.suggesting = null;
     this.clearFocusIdle();
@@ -1357,13 +1719,14 @@ export class Call {
     ear.appendAudio(int16);
   }
 
+  /** Names of the bots in the call; a bot that could not join, or dropped out for good, is not one. */
   roster() {
-    return this.order.map((id) => this.links.get(id).bot.name);
+    return this.order.map((id) => this.links.get(id)).filter((l) => l.status !== 'error').map((l) => l.bot.name);
   }
 
   /** Grok Bots not in the call that a bot could pull in. */
   invitable() {
-    return this.available.filter((b) => !this.links.has(b.id));
+    return this.available.filter((b) => !this.links.has(b.id) || this.links.get(b.id).status === 'error');
   }
 
   readyLinks() {
@@ -1455,20 +1818,55 @@ export class Call {
   onReady(link) {
     this.event('join', `${link.bot.name} ${link.joined ? 'reconnected' : 'joined'}`);
     link.joined = true;
+    link.watchLanded();
     const by = this.invited.get(link.bot.id);
-    if (by !== undefined) {
-      this.invited.delete(link.bot.id);
+    this.invited.delete(link.bot.id);
+    if (link.owesHost) {
+      // He spoke to it while it was connecting; that line is in its conversation, and its answer is its hello.
+      link.owesHost = false;
+      link.say(`[Call]: You are in the call now. ${USER} spoke to you while you were connecting: answer him in one short spoken line.`);
+      link.respond();
+    } else if (by !== undefined) {
       link.say(`[Call]: ${by} just pulled you into this call. Say a short hello.`);
       link.respond();
     }
     if (!this.opened) {
       this.opened = true;
       this.setEar(link);
-      link.say(`[Call]: ${USER} just joined. Open the call with one short spoken line.`);
-      link.respond();
+      if (link.greeting) {
+        // As in the Grok Bot app: give Shashank USER_FIRST_GRACE_MS to speak first; then the bot greets.
+        this.greetTimer = this.d.setTimer(() => {
+          this.greetTimer = null;
+          if (this.phase !== 'in-call' || this.lines.some((l) => l.who === USER) || !link.ready) return;
+          link.respondWhenFree(link.newsOwed ? link.greeting.withLandedWork : link.greeting.direction);
+        }, USER_FIRST_GRACE_MS);
+      } else {
+        link.say(`[Call]: ${USER} just joined. Open the call with one short spoken line.`);
+        link.respond();
+      }
     } else if (!this.ear) {
       this.setEar(link);
     }
+  }
+
+  /**
+   * What reached a bot: its agent's answers (and approvals waiting), as Grok's work_landed, and what Shashank typed
+   * in its chat, as user_message. The bot hears them and, at its turn, tells Shashank.
+   */
+  onLanded(link, news) {
+    for (const w of news) {
+      this.event('task', w.kind === 'written' ? `${USER} typed to ${link.bot.name}: ${cleanNote(w.text, 200)}` : `${link.bot.name}'s agent: ${cleanNote(w.text, 200)}`);
+      link.deliverUpdate(w);
+    }
+    this.tellNews(link);
+  }
+
+  /** Gives a bot a turn to tell Shashank what reached it. */
+  tellNews(link) {
+    // Shashank talking, or in a one-on-one with another bot: it tells him when it next speaks.
+    if (this.phase !== 'in-call' || this.userSpeaking || (this.focus && this.focus !== link)) return;
+    link.holdNext = true; // an update with nothing new is a silent pass
+    link.respondWhenFree();
   }
 
   /** A bot's connection dropped: it reconnects; meanwhile the mic and its turn go to the others. */
@@ -1484,17 +1882,46 @@ export class Call {
     if (this.ear === link) this.setEar(this.readyLinks()[0] ?? null);
     if (this.focus === link) this.setFocus(null);
     if (busy) this.moveOn(link);
+    // The others are told it is not in the call, and the bot that invited it says so: otherwise they talk to it
+    // and say it is here (call of 2026-11-11 12:57: "All three of us are here now." with two bots that timed out).
+    const what = link.joined ? 'dropped out of the call' : 'could not join the call';
+    for (const l of this.links.values()) if (l !== link) l.say(`[Call]: ${link.bot.name} ${what} (${link.error}). It is not in the call; it can be invited again.`);
+    this.rosterChanged();
+    const by = this.invited.get(link.bot.id);
+    this.invited.delete(link.bot.id);
+    // The bot that invited it tells Shashank; if he was waiting on it, any bot in the call does.
+    const teller = this.readyLinks().find((l) => l.bot.name === by) ?? (link.owesHost ? this.readyLinks()[0] : undefined);
+    link.owesHost = false;
+    if (teller) this.tellNews(teller);
   }
 
   /** A bot's reply was lost (refused, never started, or stalled): the talk goes on without it. */
   onReplyLost(link, why) {
     this.event('error', `${link.bot.name} ${why}: moving on`);
+    if (this.phase === 'wrapping') return this.wrap?.lost(link);
     this.moveOn(link);
   }
 
   /** Hands on the turn of a bot that can't finish it, unless Shashank is talking or the call is ending. */
   moveOn(link) {
     if (this.phase === 'in-call' && !this.userSpeaking) this.afterTurn(link, '', { kind: 'resume' });
+  }
+
+  /** A job relayed after its receipt: one that did not go through comes back to the bot as news. Never throws. */
+  async runJob(link, c, line) {
+    const r = await this.runHarnessTool(link, c, line);
+    let accepted = false;
+    try {
+      accepted = JSON.parse(r.output)?.relay === 'accepted';
+    } catch {
+      // "Not done: ..." or "Not sent again: ..." in words
+    }
+    if (accepted || !this.links.has(link.bot.id) || this.phase !== 'in-call') return;
+    link.deliverUpdate({ seq: `job-${c.callId}`, at: this.d.now(), kind: 'reply', text: r.output.startsWith('Not ') ? r.output : `The job did not go through: ${r.output}` });
+    if (!this.userSpeaking) {
+      link.holdNext = true;
+      link.respondWhenFree();
+    }
   }
 
   /** Runs one of a bot's own Grok Bot tools. Returns { output, followUp } like onToolCall. Never throws. */
@@ -1507,31 +1934,43 @@ export class Call {
     }
     if (!input || typeof input !== 'object' || Array.isArray(input)) input = {};
     const job = name === 'send_task' ? normalize(String(input.request ?? '')) : '';
-    if (job && link.tasksSent.has(job)) {
+    if (job && (link.tasksSent.has(job) || link.tasksInFlight.has(job))) {
       return { output: 'Not sent again: that same job is already under way. Its result lands in your chat with the host.', followUp: 'if-quiet' };
     }
+    if (job) link.tasksInFlight.add(job);
     if (name === 'send_task') this.event('task', `${link.bot.name} sent a job to its agent: "${cleanNote(input.request, 200)}"`);
     else if (name === 'search_conversations') this.event('tool', `${link.bot.name} searched its past chats for "${cleanNote(input.query, 100)}"`);
     else this.event('tool', `${link.bot.name} used ${name}`);
     try {
       const r = await this.d.callTool(link.bot.id, { callId: link.callId, name, input, line });
+      if (job) link.tasksInFlight.delete(job);
       if (r.kind === 'served') {
-        if (job) link.tasksSent.add(job);
+        if (job) {
+          link.tasksSent.add(job);
+          link.watchLanded();
+          // The others hear this bot's words, not that it sent a job, so without this they send the same job again.
+          const note = `[Call]: ${link.bot.name} sent its agent a background job: "${cleanNote(input.request, 200)}"`;
+          for (const other of this.links.values()) if (other !== link) other.say(note);
+        }
         // A job's receipt only needs words if the bot said none; a search result always needs telling.
         return { output: JSON.stringify(r.output ?? {}), followUp: name === 'send_task' ? 'if-quiet' : true };
       }
       const why = typeof r.output?.error === 'string' ? r.output.error : r.kind.replace('_', ' ');
       this.event('error', `${link.bot.name}: ${name} was refused (${why})`);
-      return { output: `Not done: ${why}.`, followUp: 'if-quiet' };
+      return { output: `Not done: ${why}.`, followUp: true };
     } catch (err) {
+      if (job) link.tasksInFlight.delete(job);
       const why = err?.message || 'no answer';
       this.event('error', `${link.bot.name}: ${name} failed (${why})`);
-      return { output: `Not done: ${why}. Tell ${USER} in a few words that it did not go through.`, followUp: 'if-quiet' };
+      return { output: name === 'use_app_tool'
+        ? `App error: ${why}. The action may have completed. Do not repeat it automatically; explain the error and check the result first.`
+        : `Not done: ${why}. Tell ${USER} in a few words that it did not go through.`, followUp: true };
     }
   }
 
   onSpeechStart(link) {
     if (link !== this.ear || this.phase !== 'in-call') return;
+    this.cancelGreeting();
     this.userSpeaking = true;
     this.echoRisk = this.player.remainingMs() > 0;
     // What could be coming back through the speakers: the last bot lines and any reply being spoken now.
@@ -1578,7 +2017,11 @@ export class Call {
       return;
     }
     this.hostSpoke(text.trim());
-    const target = this.hostTarget(text.trim(), link);
+    const target = this.routeHost(text.trim(), link);
+    if (!target) {
+      link.suppress(); // the bot he named answers once it is in
+      return;
+    }
     if (target === link && !link.toolsBusy) {
       link.expectReply();
     } else {
@@ -1616,10 +2059,18 @@ export class Call {
     if (part) this.record(link.bot.name, part, link, true);
   }
 
+  /** Shashank spoke first: no greeting (the bot answers him instead). */
+  cancelGreeting() {
+    if (this.greetTimer) this.d.clearTimer(this.greetTimer);
+    this.greetTimer = null;
+  }
+
   /** Shashank said something: bots may take turns again, and a correction is pinned for every bot. */
   hostSpoke(text) {
+    this.cancelGreeting();
     this.waitingForHost = false;
     this.passes = 0;
+    this.lastSpeaker = null;
     this.cutBot = null;
     this.suggesting = null;
     this.clearFocusIdle();
@@ -1651,6 +2102,9 @@ export class Call {
         const others = this.readyLinks().filter((l) => l !== link);
         const wanted = String(a.name ?? '');
         const id = matchBot(wanted, others.map((l) => l.bot));
+        const joining = [...this.links.values()].filter((l) => !l.ready && l.status !== 'error');
+        const coming = id ? null : matchBot(wanted, joining.map((l) => l.bot));
+        if (coming) return { output: `${this.links.get(coming).bot.name} is still joining; it says hello itself once it is in.`, followUp: false };
         if (!id) {
           const list = others.map((l) => l.bot.name).join(', ') || 'nobody';
           return { output: `No bot called "${wanted}" can take the turn. Bots in the call: ${list}. The turn goes on as usual.`, followUp: false };
@@ -1667,19 +2121,13 @@ export class Call {
         link.turn = { kind: 'leave' };
         this.event('tool', `${link.bot.name} is leaving the call`);
         return { output: 'You are leaving the call.', followUp: false };
-      case WRITE_NOTE_TOOL.name:
       case ADD_TASK_TOOL.name: {
         const text = cleanNote(a.text);
         if (!text) return { output: 'Nothing written: the text was empty.', followUp: 'if-quiet' };
-        if (this.notes.length + this.tasks.length >= NOTEPAD_MAX) {
-          return { output: `Nothing written: the notepad is full (${NOTEPAD_MAX} items).`, followUp: 'if-quiet' };
+        if (this.tasks.length >= NOTEPAD_MAX) {
+          return { output: `Nothing written: the task list is full (${NOTEPAD_MAX} items).`, followUp: 'if-quiet' };
         }
         const by = link.bot.name;
-        if (name === WRITE_NOTE_TOOL.name) {
-          this.notes = [...this.notes, { text, by }];
-          this.notepadChanged(link, `${by} wrote a note: "${text}"`);
-          return { output: 'Note written.', followUp: 'if-quiet' };
-        }
         const id = this.tasks.reduce((m, t) => Math.max(m, t.id), 0) + 1;
         this.tasks = [...this.tasks, { id, text, by, done: false, doneBy: null }];
         this.notepadChanged(link, `${by} added task ${id}: "${text}"`);
@@ -1693,9 +2141,9 @@ export class Call {
         this.wrap?.finish();
         return { output: 'Saved.', followUp: false };
       }
-      case READ_NOTES_TOOL.name:
-        this.event('tool', `${link.bot.name} read the notepad`);
-        return { output: notepadText(this.notes, this.tasks), followUp: true };
+      case LIST_TASKS_TOOL.name:
+        this.event('tool', `${link.bot.name} read the task list`);
+        return { output: notepadText([], this.tasks), followUp: true };
       case DONE_TASK_TOOL.name: {
         const id = Number(String(a.id ?? '').replace(/^#/, ''));
         const task = this.tasks.find((t) => t.id === id);
@@ -1713,11 +2161,11 @@ export class Call {
     }
   }
 
-  /** Tell the other bots what changed on the notepad, and let the page redraw it. */
+  /** Share task changes with the other bots and refresh the page. */
   notepadChanged(from, what) {
     this.notepadVersion++;
-    this.event('notepad', what);
-    for (const link of this.links.values()) if (link !== from) link.say(`[Notepad]: ${what}`);
+    this.event('task', what);
+    for (const link of this.links.values()) if (link !== from) link.say(`[Tasks]: ${what}`);
   }
 
   invite(link, wanted) {
@@ -1725,11 +2173,14 @@ export class Call {
     const list = this.invitable().map((b) => b.name).join(', ') || 'nobody';
     if (!id) return `There is no Grok Bot called "${wanted}". Bots you can invite: ${list}.`;
     const bot = this.available.find((b) => b.id === id);
-    if (this.links.has(id)) return `${bot.name} is already in the call.`;
+    const existing = this.links.get(id);
+    if (existing && existing.status !== 'error') return `${bot.name} is already in the call.`;
+    if (existing) this.removeBot(id); // it could not join, or dropped out for good: a fresh try
     this.invited.set(id, link.bot.name);
     this.event('tool', `${link.bot.name} pulled ${bot.name} into the call`);
     this.addBot(bot);
-    return `${bot.name} is joining the call now. Tell everyone in one short line.`;
+    // Not "it is here": it may still fail to connect (call of 2026-11-11 12:57, "X bot's in." for a bot that never joined).
+    return `${bot.name} is connecting now and says hello itself once it is in; you will hear if it cannot join. Say in one short line that it is on its way, not that it is here.`;
   }
 
   onBotDone(link, text, status, followUp = false) {
@@ -1763,7 +2214,7 @@ export class Call {
   }
 
   /** A bot's reply (and any tool it used) is over: decide who speaks next. */
-  onTurnDone(link, said, followUp) {
+  onTurnDone(link, said, followUp, appWork = false) {
     if (!this.links.has(link.bot.id) || this.phase !== 'in-call') {
       link.turn = null;
       return;
@@ -1773,11 +2224,14 @@ export class Call {
     // says a line and reads something every time would otherwise keep the turn, talking on its own forever.
     link.toolRounds = followUp ? link.toolRounds + 1 : 0;
     const ending = link.turn && link.turn.kind !== 'hand';
+    const limit = appWork ? MAX_APP_TOOL_ROUNDS : MAX_TOOL_ROUNDS;
     // A repeated line gets no follow-up: the loop breaker below stops the round instead.
-    if (followUp && !ending && !link.repeated && link.toolRounds <= MAX_TOOL_ROUNDS) {
+    if (followUp && !ending && !link.repeated && link.toolRounds <= limit) {
       if (!this.userSpeaking && !this.waitingForHost && this.phase === 'in-call') link.respond();
       return;
     }
+    // Say why the bot went quiet, or it looks like it just stopped mid-task.
+    if (followUp && !ending && !link.repeated) this.event('loop', `${link.bot.name} used tools ${link.toolRounds} times in a row: its turn moved on`);
     link.toolRounds = 0;
     const turn = link.turn;
     link.turn = null;
@@ -1794,9 +2248,41 @@ export class Call {
 
   /** A bot's turn is over: carry on the suggestion round, the one-on-one, or the group talk. */
   afterTurn(link, said, turn) {
+    if (this.answerOwed === link) {
+      this.answerOwed = null;
+      // Shashank called or asked it, and it passed without a word (call of 2026-11-11 11:39: "Hey Grok." twice,
+      // met with silence both times): it is asked once to answer.
+      if (!said && turn?.kind === 'pass' && !this.userSpeaking) {
+        this.event('tool', `${link.bot.name} passed on your line: asked it to answer`);
+        link.say(`[Call]: ${USER} spoke to you and is waiting. Answer him in one short spoken line; do not pass.`);
+        link.respond();
+        return;
+      }
+    }
     if (this.suggesting) return this.nextSuggestion(link, turn);
-    if (this.focus) return this.focusTurnDone(link);
+    if (this.focus) return this.focusTurnDone(link, said);
     this.nextTurn(link, said, turn);
+  }
+
+  /**
+   * Who answers a host line (hostTarget), or null if he named a bot that is still joining: that bot answers him
+   * once it is in, and nobody answers for it (call of 2026-11-11 12:57: "Hey Xbot" went to My Bot, which passed).
+   */
+  routeHost(text, fallback) {
+    const ready = this.readyLinks();
+    const joining = [...this.links.values()].filter((l) => !l.ready && !l.leaving && l.status !== 'error');
+    const id = namedBots(text, ready.map((l) => l.bot)).length ? null : findAddressee(text, joining.map((l) => l.bot));
+    if (id) {
+      const link = this.links.get(id);
+      if (this.focus) this.setFocus(null); // he turned to another bot
+      link.owesHost = true;
+      this.answerOwed = null;
+      this.event('focus', `${link.bot.name} is still joining: it answers you once it is in`);
+      return null;
+    }
+    const target = this.hostTarget(text, fallback);
+    this.answerOwed = wantsAnswer(text) ? target : null;
+    return target;
   }
 
   /**
@@ -1838,11 +2324,21 @@ export class Call {
     for (const l of this.links.values()) l.updateInstructions();
   }
 
-  /** The one-on-one bot finished a reply: if Shashank wrapped up, the others get their say; else wait for him. */
-  focusTurnDone(link) {
+  /**
+   * The one-on-one bot finished a reply: if Shashank wrapped up, the others get their say; else wait for him.
+   * A reply that speaks to another bot by name ("Bot C, check the reach") hands it the one-on-one, as Shashank
+   * naming it would: Shashank asked this bot to pass something on, and that bot is the one to act on it.
+   */
+  focusTurnDone(link, said) {
     if (link !== this.focus) return;
     if (this.focusClosing) return this.startSuggestions();
     this.armFocusIdle();
+    const others = this.readyLinks().filter((l) => l !== link);
+    const id = spokenTo(said, others.map((l) => l.bot));
+    if (id) {
+      const next = this.links.get(id);
+      this.cueTurn(next, () => this.setFocus(next));
+    }
   }
 
   armFocusIdle() {
@@ -1899,13 +2395,18 @@ export class Call {
       this.waitingForHost = true;
       return;
     }
-    if (said) this.passes = 0;
-    else if (turn?.kind === 'pass') this.passes++;
+    if (said) {
+      this.passes = 0;
+      this.lastSpeaker = link;
+    } else if (turn?.kind === 'pass') this.passes++;
     const others = this.readyLinks().filter((l) => l !== link);
-    if (this.passes > 0 && this.passes >= others.length + 1) {
-      // Every bot passed in a row: nobody has anything to add.
+    // After a bot's line, every other bot passing means nobody adds anything; without this the turn went back to
+    // that bot and it answered the same question again in new words (call of 2026-11-11 13:42, three times).
+    const after = this.lastSpeaker && this.lastSpeaker !== link && this.readyLinks().includes(this.lastSpeaker);
+    if (this.passes > 0 && this.passes >= others.length + (after ? 0 : 1)) {
+      // Every bot passed in a row (or every bot but the one that spoke): nobody has anything to add.
       this.waitingForHost = true;
-      this.event('tool', 'Every bot passed: waiting for you');
+      this.event('tool', after ? 'The other bots had nothing to add: waiting for you' : 'Every bot passed: waiting for you');
       return;
     }
     if (!others.length || this.userSpeaking || this.waitingForHost) return;

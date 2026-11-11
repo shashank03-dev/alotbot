@@ -192,3 +192,28 @@ test('parseTasks refuses broken files with the reason', () => {
   ];
   for (const [raw, why] of bad) assert.throws(() => parseTasks(raw), (e) => e instanceof TaskError && why.test(e.message), String(why));
 });
+
+
+test('dependency cycles through a parent and its parts are refused in either link order', () => {
+  for (const reverse of [false, true]) {
+    const b = new TaskBoard();
+    b.add({ title: 'Launch', by: 'Host' });
+    b.add({ title: 'Write', parent: 1, by: 'A' });
+    b.add({ title: 'Review', by: 'B' });
+    const first = reverse ? [2, 3] : [3, 1];
+    const second = reverse ? [3, 1] : [2, 3];
+    b.link(first[0], first[1]);
+    assert.throws(() => b.link(second[0], second[1]), /loop/);
+    assert.deepEqual(b.get(second[0]).waitsOn, []);
+  }
+});
+
+test('adding a part cannot make it wait on its parent through another task', () => {
+  const b = new TaskBoard();
+  b.add({ title: 'Launch', by: 'Host' });
+  b.add({ title: 'Review launch', waitsOn: [1], by: 'A' });
+  const version = b.version;
+  assert.throws(() => b.add({ title: 'Write', parent: 1, waitsOn: [2], by: 'B' }), /loop/);
+  assert.equal(b.tasks.length, 2);
+  assert.equal(b.version, version);
+});

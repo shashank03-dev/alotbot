@@ -19,6 +19,9 @@
     "typescript": "^5.8.0"
   },
   "dependencies": {
-    "ws": "8.18.3"
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "playwright-core": "^1.61.1",
+    "ws": "8.22.2"
   }
 }

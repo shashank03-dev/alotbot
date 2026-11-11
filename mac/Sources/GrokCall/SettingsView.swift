@@ -13,6 +13,12 @@ struct SettingsView: View {
                 account
                 look
                 overlay
+                LocalToolsSettings(model: model, tools: model.macTools)
+                VStack(alignment: .leading, spacing: 10) {
+                    SectionTitle(text: "Bot skills, routines and files")
+                    ForEach(model.bots) { bot in Button("Load \(bot.name)") { Task { await model.refreshResources(bot.id) } } }
+                    if !model.resourceText.isEmpty { Text(model.resourceText).font(.system(size: 11, design: .monospaced)).textSelection(.enabled) }
+                }
                 calls
             }
             .padding(24)
@@ -127,5 +133,29 @@ struct SettingsView: View {
         p.allowsMultipleSelection = false
         guard p.runModal() == .OK, let url = p.url else { return }
         do { try prefs.setPhoto(from: url) } catch { model.show("Couldn't use that photo: \(error.localizedDescription)") }
+    }
+}
+
+
+struct LocalToolsSettings: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var tools: MacTools
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionTitle(text: "This Mac")
+            Text(tools.folder?.path ?? "File access is off").font(.caption).textSelection(.enabled)
+            HStack {
+                Button("Choose folder…") { tools.chooseFolder() }
+                if tools.folder != nil { Button("Remove access") { tools.forgetFolder() } }
+            }
+            Text("Bots can list and read UTF-8 files up to 256 KiB inside this folder.").font(.caption).foregroundStyle(Theme.secondary)
+            Toggle("Dedicated browser", isOn: Binding(get: { model.browserEnabled }, set: { enabled in Task { await model.setBrowserEnabled(enabled) } }))
+            Text(tools.sharedWindow).font(.caption)
+            HStack {
+                Button("Share one window…") { tools.chooseWindow() }
+                Button("Stop sharing") { tools.stopSharing() }
+            }
+            if let error = tools.error { Text(error).font(.caption).foregroundStyle(Theme.danger) }
+        }
     }
 }

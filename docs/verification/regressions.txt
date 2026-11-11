@@ -1,0 +1,340 @@
+=== grok-validation-red.log ===
+✖ invalid connector arguments execute zero times, valid nested arguments execute once (27.064541ms)
+✖ one malformed connector or tool leaves the others usable (7.5135ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 0
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 191.5855
+
+✖ failing tests:
+
+test at test/apps.test.ts:528:1
+✖ invalid connector arguments execute zero times, valid nested arguments execute once (27.064541ms)
+  AssertionError [ERR_ASSERTION]: The "string" argument must be of type string. Received type undefined (undefined)
+      at TestContext.<anonymous> (file:///Users/shashank/bot%20CLI%20proxy/test/apps.test.ts:533:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: /arguments/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at test/apps.test.ts:540:1
+✖ one malformed connector or tool leaves the others usable (7.5135ms)
+  Error: Grok returned an unusable app entry.
+      at file:///Users/shashank/bot%20CLI%20proxy/src/apps.ts:92:63
+      at Array.flatMap (<anonymous>)
+      at ConnectedApps.inventory (file:///Users/shashank/bot%20CLI%20proxy/src/apps.ts:91:34)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async ConnectedApps.call (file:///Users/shashank/bot%20CLI%20proxy/src/apps.ts:130:18)
+      at async GrokBotClient.harnessTool (file:///Users/shashank/bot%20CLI%20proxy/src/grokbot.ts:381:87)
+      at async call (file:///Users/shashank/bot%20CLI%20proxy/test/apps.test.ts:70:91)
+      at async TestContext.<anonymous> (file:///Users/shashank/bot%20CLI%20proxy/test/apps.test.ts:544:17)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7)
+
+
+=== grok-watcher-red.log ===
+✖ stopping while a transcript read is in flight never touches a closed database (2.66875ms)
+✖ relaunch without a transcript cursor recovers an old job instead of filtering it by restart time (3.857542ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 0
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 138.623834
+
+✖ failing tests:
+
+test at test/jobs.test.ts:281:1
+✖ stopping while a transcript read is in flight never touches a closed database (2.66875ms)
+  Error: database is not open
+      at ActionStore.watchedJobs (file:///Users/shashank/bot%20CLI%20proxy/src/actions.ts:181:8)
+      at JobWatcher.interval (file:///Users/shashank/bot%20CLI%20proxy/src/jobs.ts:130:31)
+      at JobWatcher.check (file:///Users/shashank/bot%20CLI%20proxy/src/jobs.ts:160:23)
+      at async TestContext.<anonymous> (file:///Users/shashank/bot%20CLI%20proxy/test/jobs.test.ts:288:3)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    code: 'ERR_INVALID_STATE'
+  }
+
+test at test/jobs.test.ts:292:1
+✖ relaunch without a transcript cursor recovers an old job instead of filtering it by restart time (3.857542ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + null
+  - 'Recovered result'
+  
+      at TestContext.<anonymous> (file:///Users/shashank/bot%20CLI%20proxy/test/jobs.test.ts:298:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: null,
+    expected: 'Recovered result',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+
+=== grok-ended-red.log ===
+✖ leaving notifies each joined agent before its link is removed; a failed notification cannot block Leave (4.384083ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 118.427667
+
+✖ failing tests:
+
+test at test/core.test.ts:3654:1
+✖ leaving notifies each joined agent before its link is removed; a failed notification cannot block Leave (4.384083ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  0 !== 2
+  
+      at TestContext.<anonymous> (file:///Users/shashank/bot%20CLI%20proxy/test/core.test.ts:3664:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 2,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+
+=== grok-dedupe-red.log ===
+✖ a write still running beyond the dedupe window never executes twice (6.173792ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 141.053125
+
+✖ failing tests:
+
+test at test/dispatch.test.ts:187:1
+✖ a write still running beyond the dedupe window never executes twice (6.173792ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  2 !== 1
+  
+      at TestContext.<anonymous> (file:///Users/shashank/bot%20CLI%20proxy/test/dispatch.test.ts:194:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.start (node:internal/test_runner/test:1262:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 2,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+
+=== grok-large-backlog-red.log ===
+✖ transcript reads back page by page to the cursor, oldest first, once per entry (23.860791ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 183.791042
+
+✖ failing tests:
+
+test at test/grokbot.test.ts:447:1
+✖ transcript reads back page by page to the cursor, oldest first, once per entry (23.860791ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+  +   true,
+  +   500
+  -   false,
+  -   600
+    ]
+  
+      at TestContext.<anonymous> (file:///Users/shashank/bot%20CLI%20proxy/test/grokbot.test.ts:465:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ true, 500 ],
+    expected: [ false, 600 ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+
+=== grok-fifo-red.log ===
+Building for debugging...
+[3 / 22] GrokCallCore
+[4 / 23] GrokCallCore
+[10 / 22] GrokCallCoreTests-product
+[12 / 24] GrokCall
+[16 / 28] GrokCallCoreTests-product
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCallCoreTests-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/usr/lib' not found
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCallCoreTests-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[22 / 33] GrokCallCoreTests-product
+[28 / 38] GrokCall-product
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCall: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCall-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/usr/lib' not found
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCall-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[32 / 41] GrokCall-product
+[35 / 36] GrokCallNativeTests-product/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCallNativeTests-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/usr/lib' not found
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCallNativeTests-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+
+Build complete! (2.57 secs)
+◇ Test run started.
+↳ Testing Library Version: 2084
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite SpecialFileTests started.
+◇ Test namedPipesAreRejectedWithoutBlockingTheCall() started.
+✘ Test namedPipesAreRejectedWithoutBlockingTheCall() recorded an issue at ActionTests.swift:52:9: Expectation failed: returned
+↳ Reading a special file must not block the call thread
+↳ returned → <not evaluated>
+✘ Test namedPipesAreRejectedWithoutBlockingTheCall() failed after 0.307 seconds with 1 issue.
+✘ Suite SpecialFileTests failed after 0.307 seconds with 1 issue.
+✘ Test run with 1 test in 1 suite failed after 0.307 seconds with 1 issue.
+Note: Some test targets reported failures:
+  - GrokCallCoreTests (Swift Testing)
+
+
+=== grok-root-red.log ===
+Building for debugging...
+[Pre-planning 1 / 182]
+[Planning deferred tasks]
+[3 / 20] GrokCallCore
+[12 / 29] GrokCallCore
+[17 / 36] GrokCallCore
+[17 / 36] GrokCall
+[27 / 58] GrokCall-product
+[30 / 58] GrokCallCore
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCallCore: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[31 / 58] GrokCallCore
+[34 / 58] GrokCall
+[38 / 59] GrokCall
+[42 / 60] GrokCall-product
+[44 / 63] GrokCall
+[45 / 63] GrokCall
+[47 / 62] GrokCall
+[51 / 69] GrokCallCoreTests-product
+[52 / 69] GrokCallCoreTests-product
+[54 / 69] GrokCallCoreTests-product
+[56 / 69] GrokCall
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCall: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[58 / 71] GrokCall-product
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCall-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/usr/lib' not found
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCall-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[62 / 70] GrokCallCoreTests-product
+[62 / 70] GrokCallNativeTests-product
+[65 / 76]
+[68 / 76] GrokCallNativeTests-product
+[75 / 81] GrokCallCoreTests-product
+[79 / 82] GrokCallCoreTests-product
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCallCoreTests-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/usr/lib' not found
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCallCoreTests-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCallNativeTests-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/usr/lib' not found
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCallNativeTests-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[81 / 82] GrokCallNativeTests-product
+Build complete! (6.31 secs)
+◇ Test run started.
+↳ Testing Library Version: 2084
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite FolderBoundaryTests started.
+◇ Test rootFolderAndExactSizeAndListCaps() started.
+✘ Test rootFolderAndExactSizeAndListCaps() recorded an issue at ActionTests.swift:57:6: Caught error: Error Domain=GrokCall.Files Code=1 "That path leaves the selected folder." UserInfo={NSLocalizedDescription=That path leaves the selected folder.}
+✘ Test rootFolderAndExactSizeAndListCaps() failed after 0.002 seconds with 1 issue.
+✘ Suite FolderBoundaryTests failed after 0.002 seconds with 1 issue.
+✘ Test run with 1 test in 1 suite failed after 0.002 seconds with 1 issue.
+Note: Some test targets reported failures:
+  - GrokCallCoreTests (Swift Testing)
+
+== Live approval resolution (2026-11-11) ==
+Before fix, real Grok rejected the resolver payload:
+{"at":"2026-11-11T16:58:05.023Z","status":"failed","approvalsResolved":0,"restored":true,"temporaryPermission":"ask","error":"Grok Bot ResolveGrokBotLocalToolPermission failed (HTTP 400: resolution must be allow_once, deny, always, or never.)"}
+After fix (numeric protobuf enum values 1 = approve/allow once, 2 = deny):
+{"at":"2026-11-11T17:06:08.324Z","status":"passed","approvalsResolved":1,"restored":true,"temporaryPermission":"ask","approvalKind":"local_tool","nonceMatched":true,"ms":14095}
+
+== Mac backend restart (2026-11-11) ==
+With the process/socket identity guards removed from Backend.swift, BackendFlowTests failed:
+✘ Test nativeHistoryApprovalsAndReconnectUseTheRealBackendConnection() recorded an issue at BackendFlowTests.swift:7:6: Caught error: Error Domain=BackendFlowTest Code=1 "Native flow timed out: failed("Lost the backend connection: The operation couldn’t be completed. Socket is not connected")" UserInfo={NSLocalizedDescription=Native flow timed out: failed("Lost the backend connection: The operation couldn’t be completed. Socket is not connected")}
+With the guards restored, all Swift tests pass (see swift-tests.txt).
+
+== One-on-one hand-off to another bot (2026-11-11) ==
+Call log call-2026-11-11T17-14-23Z.jsonl: one-on-one with My Bot; at 17:15:32.543 My Bot said "Shashank's X bot, Shashank wants you to check whether his X reach today is up from yesterday and report the numbers." The line reached the X bot (conversation.item.create) but no response.create followed; the X bot answered only at 17:15:57 after the host named it.
+Before fix (new tests, helper present, hand-off not wired):
+✖ in a one-on-one, the bot speaking to another bot by name passes the one-on-one to it, and that bot answers
+  AssertionError [ERR_ASSERTION]: C is cued
+    actual: false,
+    expected: true,
+After fix: both tests pass; full suite 431/431 with 100% coverage (see node-tests.txt).
+
+== Job result missed by a reply already under way (2026-11-11) ==
+Call log call-2026-11-11T17-14-23Z.jsonl, Shashank's Bot: 17:21:43.572 async_update.add ("The comment is live on pull request 1240..."), 17:21:43.992 response.created (server reply to "Thank you."), 17:21:44.268 async_update.added, reply "Anytime.". In every other landing the ack came before response.created.
+Before fix:
+✖ a result the voice server took in only after the bot's reply had started is told after that reply
+  AssertionError [ERR_ASSERTION]: asked again, now with the result in its conversation
+    actual: 1,
+    expected: 2,
+
+== Bot that could not join (2026-11-11) ==
+Call log call-2026-11-11T12-56-54Z.jsonl: "My Bot: X bot's in." 12:57:25, "[error] Shashank's X bot: Timed out connecting." 12:57:38, "My Bot: Shashank's Bot is in. All three of us are here now." 12:57:58, "[error] Shashank's Bot: Timed out connecting." 12:58:10.
+Before fix:
+✖ a bot that cannot join: the others are told, the bot that invited it says so, and it can be invited again
+    actual: '[Call]: Shashank just joined. Open the call with one short spoken line.',
+    expected: '[Call]: Bot C could not join the call (Timed out connecting.). It is not in the call; it can be invited again.',
+✖ hand_to a bot that is still joining says so, instead of "nobody"
+    actual: 'No bot called "Bot B" can take the turn. Bots in the call: nobody. The turn goes on as usual.',
+    expected: 'Bot B is still joining; it says hello itself once it is in.',
+
+== Misheard bot names (2026-11-11) ==
+Host lines: "Okay, call in, call in export." (11:42), "Hey, export, um, I wanted to know about the statistics of today's post." (11:42, answered by My Bot), "Call in my export." (12:55, My Bot searched past chats for "export"), "call in my ex-bot" (17:15).
+Before fix:
+✖ misheard names: speech-to-text writing "X bot" as "export" or "ex-bot" still reaches the X bot
+    actual: null,
+    expected: 'x',
+
+After all fixes: Node 26 and Node 22.18.0 suites 438/438 with 100% lines, branches, functions; typecheck clean; Swift 85 + 5 tests pass.
+
+== Silent pass, bot still joining, lost summary request (2026-11-11) ==
+Logs: 11:39:51 "Hey Grok." -> My Bot calls pass, no words; 11:39:55 again; "Every bot passed: waiting for you".
+12:57:31 "Hey Xbot. Hey Xbot." while Shashank's X bot was connecting -> My Bot passed.
+11:45:43 and 13:42:31 summary response.create -> "never started its reply" 10 s later -> call ended at the 20 s limit.
+Before fix:
+✖ Leave: a summary request the voice server never starts goes to the next bot, or ends the call at once
+  TypeError [Error]: Cannot read properties of undefined (reading 'response')
+✖ Leave: the second bot asked can still save the summary
+  TypeError [Error]: call.wrap.lost is not a function
+✖ a bot that passes without a word on a line that wants a reply is asked once to answer
+    actual: '[Call]: Shashank just joined. Open the call with one short spoken line.',
+    expected: '[Call]: Shashank spoke to you and is waiting. Answer him in one short spoken line; do not pass.',
+✖ naming a bot that is still joining: nobody else answers for it, and it answers once it is in
+  AssertionError [ERR_ASSERTION]: A's own automatic reply never plays
+    actual: false,
+    expected: true,
+After fix: Node 26 and Node 22.18.0 443/443 with 100% lines, branches, functions; typecheck clean; Swift 85 + 5 pass.

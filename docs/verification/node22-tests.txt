@@ -1,0 +1,2714 @@
+
+> grok-call@1.0.0 test
+> node --test --experimental-test-coverage --test-coverage-include=src/**/*.ts --test-coverage-include=public/core.js --test-coverage-exclude=src/main.ts --test-coverage-exclude=src/overlay/main.ts --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100 "test/*.test.ts"
+
+TAP version 13
+# (node:47569) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: an action is recorded before dispatch, then updated, and survives reopening the file
+ok 1 - an action is recorded before dispatch, then updated, and survives reopening the file
+  ---
+  duration_ms: 6.945
+  type: 'test'
+  ...
+# Subtest: bad updates are refused; unknown ids are null; lists are newest first and per call
+ok 2 - bad updates are refused; unknown ids are null; lists are newest first and per call
+  ---
+  duration_ms: 4.779292
+  type: 'test'
+  ...
+# Subtest: a huge result is kept up to RESULT_MAX with a note
+ok 3 - a huge result is kept up to RESULT_MAX with a note
+  ---
+  duration_ms: 28.50575
+  type: 'test'
+  ...
+# Subtest: jobs to watch: open ones for a day, answered ones for a quiet window; only agent jobs
+ok 4 - jobs to watch: open ones for a day, answered ones for a quiet window; only agent jobs
+  ---
+  duration_ms: 5.841709
+  type: 'test'
+  ...
+# Subtest: request ids find their job; dedupe finds a recent action that did not fail
+ok 5 - request ids find their job; dedupe finds a recent action that did not fail
+  ---
+  duration_ms: 2.9685
+  type: 'test'
+  ...
+# Subtest: chat entries are recorded once per bot and seq, and read back per call
+ok 6 - chat entries are recorded once per bot and seq, and read back per call
+  ---
+  duration_ms: 3.097333
+  type: 'test'
+  ...
+# Subtest: cursors start unknown and move
+ok 7 - cursors start unknown and move
+  ---
+  duration_ms: 4.484792
+  type: 'test'
+  ...
+# Subtest: a transaction is all or nothing
+ok 8 - a transaction is all or nothing
+  ---
+  duration_ms: 1.847584
+  type: 'test'
+  ...
+# Subtest: a damaged history file is set aside, not fatal
+ok 9 - a damaged history file is set aside, not fatal
+  ---
+  duration_ms: 2.869459
+  type: 'test'
+  ...
+# Subtest: a row edited by hand with broken JSON still lists
+ok 10 - a row edited by hand with broken JSON still lists
+  ---
+  duration_ms: 5.312291
+  type: 'test'
+  ...
+# Subtest: startup reconciles interrupted direct actions as unknown without replaying them
+ok 11 - startup reconciles interrupted direct actions as unknown without replaying them
+  ---
+  duration_ms: 3.565083
+  type: 'test'
+  ...
+# Subtest: a filesystem open failure is surfaced without renaming or replacing user files
+ok 12 - a filesystem open failure is surfaced without renaming or replacing user files
+  ---
+  duration_ms: 0.269541
+  type: 'test'
+  ...
+# Subtest: every bot is offered direct app tools even without background harness tools
+ok 13 - every bot is offered direct app tools even without background harness tools
+  ---
+  duration_ms: 63.281167
+  type: 'test'
+  ...
+# Subtest: discovery lists real names and connection states without credentials or schemas
+ok 14 - discovery lists real names and connection states without credentials or schemas
+  ---
+  duration_ms: 28.824375
+  type: 'test'
+  ...
+# Subtest: find returns the qualified name and actual schema for matching tools, with paging
+ok 15 - find returns the qualified name and actual schema for matching tools, with paging
+  ---
+  duration_ms: 38.357208
+  type: 'test'
+  ...
+# Subtest: find ranks tools by how many query words they match, so a long spoken query still finds them
+ok 16 - find ranks tools by how many query words they match, so a long spoken query still finds them
+  ---
+  duration_ms: 14.786083
+  type: 'test'
+  ...
+# Subtest: each bot executes the discovered qualified name and gets its actual result
+ok 17 - each bot executes the discovered qualified name and gets its actual result
+  ---
+  duration_ms: 48.739417
+  type: 'test'
+  ...
+# Subtest: unknown apps, disconnected apps, stale or invented tools and invalid args never execute
+ok 18 - unknown apps, disconnected apps, stale or invented tools and invalid args never execute
+  ---
+  duration_ms: 27.928833
+  type: 'test'
+  ...
+# Subtest: fresh discovery prevents execution after an app is disabled
+ok 19 - fresh discovery prevents execution after an app is disabled
+  ---
+  duration_ms: 19.78575
+  type: 'test'
+  ...
+# Subtest: saved disabled tools and blocked or approval-required permission overrides are respected
+ok 20 - saved disabled tools and blocked or approval-required permission overrides are respected
+  ---
+  duration_ms: 21.610167
+  type: 'test'
+  ...
+# Subtest: permissions follow Grok Bot: tool rule, then the reads or writes rule, and the default (auto review) runs without asking
+ok 21 - permissions follow Grok Bot: tool rule, then the reads or writes rule, and the default (auto review) runs without asking
+  ---
+  duration_ms: 150.793208
+  type: 'test'
+  ...
+# Subtest: backend result refusals are returned intact and unusable results are errors
+ok 22 - backend result refusals are returned intact and unusable results are errors
+  ---
+  duration_ms: 47.719417
+  type: 'test'
+  ...
+# Subtest: tool HTTP failures and timeouts are surfaced without automatically retrying
+ok 23 - tool HTTP failures and timeouts are surfaced without automatically retrying
+  ---
+  duration_ms: 71.209
+  type: 'test'
+  ...
+# Subtest: malformed tool schemas never reach execution
+ok 24 - malformed tool schemas never reach execution
+  ---
+  duration_ms: 38.050958
+  type: 'test'
+  ...
+# Subtest: empty, malformed and incomplete discovery responses are distinguished
+ok 25 - empty, malformed and incomplete discovery responses are distinguished
+  ---
+  duration_ms: 24.668458
+  type: 'test'
+  ...
+# Subtest: multiple accounts require an exact id and execute only the selected account
+ok 26 - multiple accounts require an exact id and execute only the selected account
+  ---
+  duration_ms: 42.554875
+  type: 'test'
+  ...
+# Subtest: pagination rejects invalid offsets and can browse past the end without repeating tools
+ok 27 - pagination rejects invalid offsets and can browse past the end without repeating tools
+  ---
+  duration_ms: 22.351333
+  type: 'test'
+  ...
+# Subtest: object schemas, missing descriptions and unknown annotations remain usable, and unreadable annotations count as writes
+ok 28 - object schemas, missing descriptions and unknown annotations remain usable, and unreadable annotations count as writes
+  ---
+  duration_ms: 26.769708
+  type: 'test'
+  ...
+# Subtest: missing tools and annotations do not invent capabilities
+ok 29 - missing tools and annotations do not invent capabilities
+  ---
+  duration_ms: 20.319917
+  type: 'test'
+  ...
+# Subtest: a call bot receives the HTTP app result before speaking and shares its reply with the other bot
+ok 30 - a call bot receives the HTTP app result before speaking and shares its reply with the other bot
+  ---
+  duration_ms: 37.572042
+  type: 'test'
+  ...
+# Subtest: parallel app discovery refreshes an expired sign-in once and retries the same Dashboard endpoints
+ok 31 - parallel app discovery refreshes an expired sign-in once and retries the same Dashboard endpoints
+  ---
+  duration_ms: 34.139834
+  type: 'test'
+  ...
+# Subtest: a late 401 reuses the refreshed token instead of rotating credentials again
+ok 32 - a late 401 reuses the refreshed token instead of rotating credentials again
+  ---
+  duration_ms: 89.812625
+  type: 'test'
+  ...
+# Subtest: signing out during discovery cannot be undone by a token refresh
+ok 33 - signing out during discovery cannot be undone by a token refresh
+  ---
+  duration_ms: 4.830583
+  type: 'test'
+  ...
+# Subtest: unknown saved permission values require review instead of silently granting access
+ok 34 - unknown saved permission values require review instead of silently granting access
+  ---
+  duration_ms: 9.818917
+  type: 'test'
+  ...
+# Subtest: listing apps does not wait for connector tool catalogs, and finding tools only loads the selected app
+ok 35 - listing apps does not wait for connector tool catalogs, and finding tools only loads the selected app
+  ---
+  duration_ms: 5.75575
+  type: 'test'
+  ...
+# Subtest: public and static-credential connectors do not require OAuth, but missing tool discovery is reported
+ok 36 - public and static-credential connectors do not require OAuth, but missing tool discovery is reported
+  ---
+  duration_ms: 6.110667
+  type: 'test'
+  ...
+# Subtest: an app action loads the app list, its tool list and the permission rules at the same time, and still checks all of them
+ok 37 - an app action loads the app list, its tool list and the permission rules at the same time, and still checks all of them
+  ---
+  duration_ms: 12.600041
+  type: 'test'
+  ...
+# Subtest: the first action, before any app list, still loads the permission rules alongside discovery
+ok 38 - the first action, before any app list, still loads the permission rules alongside discovery
+  ---
+  duration_ms: 6.570917
+  type: 'test'
+  ...
+# Subtest: a wrong guess about the app is caught by the fresh app list, and its failed early load is ignored
+ok 39 - a wrong guess about the app is caught by the fresh app list, and its failed early load is ignored
+  ---
+  duration_ms: 30.494709
+  type: 'test'
+  ...
+# Subtest: a failed tool list for the right app is an error, and failed permission reads are ignored only when the tool was refused first
+ok 40 - a failed tool list for the right app is an error, and failed permission reads are ignored only when the tool was refused first
+  ---
+  duration_ms: 41.962292
+  type: 'test'
+  ...
+# Subtest: a tool search reuses a connected app's tool list for a minute; an action always loads it fresh
+ok 41 - a tool search reuses a connected app's tool list for a minute; an action always loads it fresh
+  ---
+  duration_ms: 23.97775
+  type: 'test'
+  ...
+# Subtest: two apps with the same name are never guessed by name
+ok 42 - two apps with the same name are never guessed by name
+  ---
+  duration_ms: 7.570625
+  type: 'test'
+  ...
+# Subtest: invalid connector arguments execute zero times, valid nested arguments execute once
+ok 43 - invalid connector arguments execute zero times, valid nested arguments execute once
+  ---
+  duration_ms: 24.203375
+  type: 'test'
+  ...
+# Subtest: one malformed connector or tool leaves the others usable
+ok 44 - one malformed connector or tool leaves the others usable
+  ---
+  duration_ms: 8.424042
+  type: 'test'
+  ...
+# Subtest: AuthStore reads nothing when the file is missing, corrupt or incomplete
+ok 45 - AuthStore reads nothing when the file is missing, corrupt or incomplete
+  ---
+  duration_ms: 1.894
+  type: 'test'
+  ...
+# Subtest: AuthStore writes a private file and reads it back
+ok 46 - AuthStore writes a private file and reads it back
+  ---
+  duration_ms: 2.327542
+  type: 'test'
+  ...
+# Subtest: pkce: challenge is the SHA-256 of the verifier
+ok 47 - pkce: challenge is the SHA-256 of the verifier
+  ---
+  duration_ms: 0.428125
+  type: 'test'
+  ...
+# Subtest: Login: opens the Grok Bot sign-in page and stores tokens once the account approves
+ok 48 - Login: opens the Grok Bot sign-in page and stores tokens once the account approves
+  ---
+  duration_ms: 111.137416
+  type: 'test'
+  ...
+# Subtest: Login: no refresh token is stored as null
+ok 49 - Login: no refresh token is stored as null
+  ---
+  duration_ms: 13.437667
+  type: 'test'
+  ...
+# Subtest: Login: gives up with a message after the timeout, retrying through network errors
+ok 50 - Login: gives up with a message after the timeout, retrying through network errors
+  ---
+  duration_ms: 64.461958
+  type: 'test'
+  ...
+# Subtest: Login: starting again replaces the old attempt; cancel stops it
+ok 51 - Login: starting again replaces the old attempt; cancel stops it
+  ---
+  duration_ms: 143.041333
+  type: 'test'
+  ...
+# Subtest: Login: uses defaults when options are omitted
+ok 52 - Login: uses defaults when options are omitted
+  ---
+  duration_ms: 0.233458
+  type: 'test'
+  ...
+# Subtest: a dedicated browser navigates, reads, fills, clicks once, and verifies resulting state
+ok 53 - a dedicated browser navigates, reads, fills, clicks once, and verifies resulting state
+  ---
+  duration_ms: 3448.220458
+  type: 'test'
+  ...
+# Subtest: closing the browser tab does not leave the next command using a dead page
+ok 54 - closing the browser tab does not leave the next command using a dead page
+  ---
+  duration_ms: 190.271208
+  type: 'test'
+  ...
+# Subtest: defaults to 127.0.0.1:8787
+ok 55 - defaults to 127.0.0.1:8787
+  ---
+  duration_ms: 1.122167
+  type: 'test'
+  ...
+# Subtest: accepts other local hosts and a port, trimming spaces
+ok 56 - accepts other local hosts and a port, trimming spaces
+  ---
+  duration_ms: 0.068958
+  type: 'test'
+  ...
+# Subtest: refuses to listen beyond this machine
+ok 57 - refuses to listen beyond this machine
+  ---
+  duration_ms: 0.196916
+  type: 'test'
+  ...
+# Subtest: rejects a bad port
+ok 58 - rejects a bad port
+  ---
+  duration_ms: 7.758875
+  type: 'test'
+  ...
+# Subtest: normalize strips case, apostrophes and punctuation
+ok 59 - normalize strips case, apostrophes and punctuation
+  ---
+  duration_ms: 1.725375
+  type: 'test'
+  ...
+# Subtest: findAddressee: first named bot wins; longest name breaks ties
+ok 60 - findAddressee: first named bot wins; longest name breaks ties
+  ---
+  duration_ms: 0.594542
+  type: 'test'
+  ...
+# Subtest: isNoiseOrEcho: empty speech and speaker echo are ignored, real speech is not
+ok 61 - isNoiseOrEcho: empty speech and speaker echo are ignored, real speech is not
+  ---
+  duration_ms: 0.164042
+  type: 'test'
+  ...
+# Subtest: groupInstructions tells each bot who is in the call and how lines are tagged
+ok 62 - groupInstructions tells each bot who is in the call and how lines are tagged
+  ---
+  duration_ms: 0.673833
+  type: 'test'
+  ...
+# Subtest: contextText lists the conversation
+ok 63 - contextText lists the conversation
+  ---
+  duration_ms: 0.140666
+  type: 'test'
+  ...
+# Subtest: audio helpers: resample, PCM16 round trip, base64, rms
+ok 64 - audio helpers: resample, PCM16 round trip, base64, rms
+  ---
+  duration_ms: 9.536834
+  type: 'test'
+  ...
+# Subtest: Player queues voices back to back and reports what was heard when cut
+ok 65 - Player queues voices back to back and reports what was heard when cut
+  ---
+  duration_ms: 0.563875
+  type: 'test'
+  ...
+# Subtest: join opens one voice session per chosen bot with its own voice and the group instructions
+ok 66 - join opens one voice session per chosen bot with its own voice and the group instructions
+  ---
+  duration_ms: 63.512791
+  type: 'test'
+  ...
+# Subtest: bot audio plays, then its words are passed to the others, and the next bot answers
+ok 67 - bot audio plays, then its words are passed to the others, and the next bot answers
+  ---
+  duration_ms: 13.580625
+  type: 'test'
+  ...
+# Subtest: a bot that names another hands the turn to that bot
+ok 68 - a bot that names another hands the turn to that bot
+  ---
+  duration_ms: 7.959792
+  type: 'test'
+  ...
+# Subtest: there is no fixed turn limit: bots keep talking until one of them stops it
+ok 69 - there is no fixed turn limit: bots keep talking until one of them stops it
+  ---
+  duration_ms: 72.36825
+  type: 'test'
+  ...
+# Subtest: a single bot answers and then waits
+ok 70 - a single bot answers and then waits
+  ---
+  duration_ms: 4.537792
+  type: 'test'
+  ...
+# Subtest: a bot told to respond after Shashank starts talking stays quiet
+ok 71 - a bot told to respond after Shashank starts talking stays quiet
+  ---
+  duration_ms: 8.077083
+  type: 'test'
+  ...
+# Subtest: Shashank speaks: mic goes to the listening bot, others get his words as text, the bot replies
+ok 72 - Shashank speaks: mic goes to the listening bot, others get his words as text, the bot replies
+  ---
+  duration_ms: 6.791084
+  type: 'test'
+  ...
+# Subtest: if the listening bot does not reply by itself, it is nudged
+ok 73 - if the listening bot does not reply by itself, it is nudged
+  ---
+  duration_ms: 1.931625
+  type: 'test'
+  ...
+# Subtest: Shashank names another bot: the listener is held back and the named bot answers
+ok 74 - Shashank names another bot: the listener is held back and the named bot answers
+  ---
+  duration_ms: 2.883709
+  type: 'test'
+  ...
+# Subtest: Shashank names a bot while the listener is already replying: that reply is cut
+ok 75 - Shashank names a bot while the listener is already replying: that reply is cut
+  ---
+  duration_ms: 0.925083
+  type: 'test'
+  ...
+# Subtest: barge-in: Shashank talking over a bot silences it and cuts its reply where he stopped hearing it
+ok 76 - barge-in: Shashank talking over a bot silences it and cuts its reply where he stopped hearing it
+  ---
+  duration_ms: 10.304125
+  type: 'test'
+  ...
+# Subtest: barge-in while a bot is mid-reply sends a cancel
+ok 77 - barge-in while a bot is mid-reply sends a cancel
+  ---
+  duration_ms: 0.54425
+  type: 'test'
+  ...
+# Subtest: speaker echo and empty speech are dropped and the auto reply is suppressed
+ok 78 - speaker echo and empty speech are dropped and the auto reply is suppressed
+  ---
+  duration_ms: 6.910917
+  type: 'test'
+  ...
+# Subtest: a bot finishing while Shashank is mid-sentence does not steal his mic
+ok 79 - a bot finishing while Shashank is mid-sentence does not steal his mic
+  ---
+  duration_ms: 2.377584
+  type: 'test'
+  ...
+# Subtest: mic: held back while a bot talks unless Shashank is loud; preroll keeps his first word
+ok 80 - mic: held back while a bot talks unless Shashank is loud; preroll keeps his first word
+  ---
+  duration_ms: 17.946625
+  type: 'test'
+  ...
+# Subtest: adding a bot mid-call: it gets the conversation so far and everyone learns the new roster
+ok 81 - adding a bot mid-call: it gets the conversation so far and everyone learns the new roster
+  ---
+  duration_ms: 5.887083
+  type: 'test'
+  ...
+# Subtest: context for a late joiner is capped
+ok 82 - context for a late joiner is capped
+  ---
+  duration_ms: 0.744125
+  type: 'test'
+  ...
+# Subtest: removing a bot closes it, silences it, and moves the mic if it was listening
+ok 83 - removing a bot closes it, silences it, and moves the mic if it was listening
+  ---
+  duration_ms: 7.551209
+  type: 'test'
+  ...
+# Subtest: adding a bot before joining or after leaving does nothing
+ok 84 - adding a bot before joining or after leaving does nothing
+  ---
+  duration_ms: 0.208666
+  type: 'test'
+  ...
+# Subtest: a bot whose voice session cannot start shows the reason; the rest of the call goes on
+ok 85 - a bot whose voice session cannot start shows the reason; the rest of the call goes on
+  ---
+  duration_ms: 1.262875
+  type: 'test'
+  ...
+# Subtest: a failure with no message gets a generic one
+ok 86 - a failure with no message gets a generic one
+  ---
+  duration_ms: 0.469916
+  type: 'test'
+  ...
+# Subtest: a dropped bot reconnects once with the conversation so far
+ok 87 - a dropped bot reconnects once with the conversation so far
+  ---
+  duration_ms: 3.758875
+  type: 'test'
+  ...
+# Subtest: a bot that stayed up a while may reconnect again
+ok 88 - a bot that stayed up a while may reconnect again
+  ---
+  duration_ms: 0.865833
+  type: 'test'
+  ...
+# Subtest: a listening bot that fails hands the mic to another bot
+ok 89 - a listening bot that fails hands the mic to another bot
+  ---
+  duration_ms: 4.98725
+  type: 'test'
+  ...
+# Subtest: the first ready bot becomes the listener if the opener failed
+ok 90 - the first ready bot becomes the listener if the opener failed
+  ---
+  duration_ms: 0.767333
+  type: 'test'
+  ...
+# Subtest: leaving closes every bot; a bot still connecting is dropped quietly
+ok 91 - leaving closes every bot; a bot still connecting is dropped quietly
+  ---
+  duration_ms: 7.085583
+  type: 'test'
+  ...
+# Subtest: bad or unknown socket messages are ignored
+ok 92 - bad or unknown socket messages are ignored
+  ---
+  duration_ms: 2.556708
+  type: 'test'
+  ...
+# Subtest: groupInstructions lists who can be invited, or says nobody is left
+ok 93 - groupInstructions lists who can be invited, or says nobody is left
+  ---
+  duration_ms: 0.193875
+  type: 'test'
+  ...
+# Subtest: groupInstructions: the turn tools read as one list, and garbled names map to the closest bot
+ok 94 - groupInstructions: the turn tools read as one list, and garbled names map to the closest bot
+  ---
+  duration_ms: 0.087042
+  type: 'test'
+  ...
+# Subtest: matchBot: exact name first, then a name mentioned in the request
+ok 95 - matchBot: exact name first, then a name mentioned in the request
+  ---
+  duration_ms: 0.189834
+  type: 'test'
+  ...
+# Subtest: short names: "Xbot" and "X bot" reach Shashank's X bot, unless the short form is generic or shared
+ok 96 - short names: "Xbot" and "X bot" reach Shashank's X bot, unless the short form is generic or shared
+  ---
+  duration_ms: 0.216708
+  type: 'test'
+  ...
+# Subtest: misheard names: speech-to-text writing "X bot" as "export" or "ex-bot" still reaches the X bot
+ok 97 - misheard names: speech-to-text writing "X bot" as "export" or "ex-bot" still reaches the X bot
+  ---
+  duration_ms: 0.230959
+  type: 'test'
+  ...
+# Subtest: short names work in stop, wrap-up and pass lines too
+ok 98 - short names work in stop, wrap-up and pass lines too
+  ---
+  duration_ms: 0.103917
+  type: 'test'
+  ...
+# Subtest: every bot gets the invite tool and the list of bots it can pull in
+ok 99 - every bot gets the invite tool and the list of bots it can pull in
+  ---
+  duration_ms: 1.287875
+  type: 'test'
+  ...
+# Subtest: a bot pulls another bot in: it joins, hears the conversation, says hello, and the inviter confirms
+ok 100 - a bot pulls another bot in: it joins, hears the conversation, says hello, and the inviter confirms
+  ---
+  duration_ms: 4.088125
+  type: 'test'
+  ...
+# Subtest: a bot that cannot join: the others are told, the bot that invited it says so, and it can be invited again
+ok 101 - a bot that cannot join: the others are told, the bot that invited it says so, and it can be invited again
+  ---
+  duration_ms: 1.727541
+  type: 'test'
+  ...
+# Subtest: hand_to a bot that is still joining says so, instead of "nobody"
+ok 102 - hand_to a bot that is still joining says so, instead of "nobody"
+  ---
+  duration_ms: 0.84475
+  type: 'test'
+  ...
+# Subtest: invite refusals: unknown bot, already in the call, bad arguments, unknown tool
+ok 103 - invite refusals: unknown bot, already in the call, bad arguments, unknown tool
+  ---
+  duration_ms: 1.064916
+  type: 'test'
+  ...
+# Subtest: a tool call in a reply Shashank cut off is not run
+ok 104 - a tool call in a reply Shashank cut off is not run
+  ---
+  duration_ms: 0.677167
+  type: 'test'
+  ...
+# Subtest: tool call events without an id or name are ignored; an invited bot removed before it connects is forgotten
+ok 105 - tool call events without an id or name are ignored; an invited bot removed before it connects is forgotten
+  ---
+  duration_ms: 0.845958
+  type: 'test'
+  ...
+# Subtest: Shashank starting to talk as a bot finishes keeps his mic on the same bot
+ok 106 - Shashank starting to talk as a bot finishes keeps his mic on the same bot
+  ---
+  duration_ms: 7.503916
+  type: 'test'
+  ...
+# Subtest: leaked voice-model markup is stripped before other bots hear a line
+ok 107 - leaked voice-model markup is stripped before other bots hear a line
+  ---
+  duration_ms: 4.386625
+  type: 'test'
+  ...
+# Subtest: the next bot is not cued again if it is already about to speak
+ok 108 - the next bot is not cued again if it is already about to speak
+  ---
+  duration_ms: 8.101791
+  type: 'test'
+  ...
+# Subtest: hasCorrection matches whole correction words only
+ok 109 - hasCorrection matches whole correction words only
+  ---
+  duration_ms: 0.258125
+  type: 'test'
+  ...
+# Subtest: isNoiseOrEcho keeps a correction word the bots did not say, and drops the bots' own one coming back
+ok 110 - isNoiseOrEcho keeps a correction word the bots did not say, and drops the bots' own one coming back
+  ---
+  duration_ms: 0.121541
+  type: 'test'
+  ...
+# Subtest: tagOf and contextText label the host and cut-off lines
+ok 111 - tagOf and contextText label the host and cut-off lines
+  ---
+  duration_ms: 0.085958
+  type: 'test'
+  ...
+# Subtest: groupInstructions tells bots the host comes before the current topic
+ok 112 - groupInstructions tells bots the host comes before the current topic
+  ---
+  duration_ms: 0.069542
+  type: 'test'
+  ...
+# Subtest: heardPart keeps whole words up to the share of audio heard
+ok 113 - heardPart keeps whole words up to the share of audio heard
+  ---
+  duration_ms: 0.073625
+  type: 'test'
+  ...
+# Subtest: the host’s words reach the other bots tagged as host
+ok 114 - the host’s words reach the other bots tagged as host
+  ---
+  duration_ms: 1.779791
+  type: 'test'
+  ...
+# Subtest: echo check runs only while bot audio plays: the same words with nothing playing are kept
+ok 115 - echo check runs only while bot audio plays: the same words with nothing playing are kept
+  ---
+  duration_ms: 4.186
+  type: 'test'
+  ...
+# Subtest: a correction spoken over a bot is kept even if it sounds like the bot
+ok 116 - a correction spoken over a bot is kept even if it sounds like the bot
+  ---
+  duration_ms: 15.1225
+  type: 'test'
+  ...
+# Subtest: cutting a bot off: the others get only the part the host heard
+ok 117 - cutting a bot off: the others get only the part the host heard
+  ---
+  duration_ms: 33.726708
+  type: 'test'
+  ...
+# Subtest: cut off before any audio played: nothing is passed on
+ok 118 - cut off before any audio played: nothing is passed on
+  ---
+  duration_ms: 5.012459
+  type: 'test'
+  ...
+# Subtest: cut off after all its audio had played: the whole reply is passed on
+ok 119 - cut off after all its audio had played: the whole reply is passed on
+  ---
+  duration_ms: 6.00025
+  type: 'test'
+  ...
+# Subtest: cutting off a bot that is not the listener; a reply already being dropped is not passed on twice
+ok 120 - cutting off a bot that is not the listener; a reply already being dropped is not passed on twice
+  ---
+  duration_ms: 7.273542
+  type: 'test'
+  ...
+# Subtest: stuck "host is talking" state is reset when the mic goes quiet and no transcript comes
+ok 121 - stuck "host is talking" state is reset when the mic goes quiet and no transcript comes
+  ---
+  duration_ms: 4.239958
+  type: 'test'
+  ...
+# Subtest: stuck timer: cleared by a transcript, harmless after leaving, and fine with no listener
+ok 122 - stuck timer: cleared by a transcript, harmless after leaving, and fine with no listener
+  ---
+  duration_ms: 0.774417
+  type: 'test'
+  ...
+# Subtest: groupInstructions explains the turn tools
+ok 123 - groupInstructions explains the turn tools
+  ---
+  duration_ms: 0.159958
+  type: 'test'
+  ...
+# Subtest: hand_to gives the next turn to that bot, over a name in the words and over round-robin
+ok 124 - hand_to gives the next turn to that bot, over a name in the words and over round-robin
+  ---
+  duration_ms: 0.918333
+  type: 'test'
+  ...
+# Subtest: hand_to with an unknown bot, itself, or bad arguments: refused, turn goes on as usual
+ok 125 - hand_to with an unknown bot, itself, or bad arguments: refused, turn goes on as usual
+  ---
+  duration_ms: 0.801958
+  type: 'test'
+  ...
+# Subtest: a hand_to target that left before its turn: falls back to round-robin
+ok 126 - a hand_to target that left before its turn: falls back to round-robin
+  ---
+  duration_ms: 0.986917
+  type: 'test'
+  ...
+# Subtest: pass: the bot says nothing and the turn moves on; when every bot passes, they wait for the host
+ok 127 - pass: the bot says nothing and the turn moves on; when every bot passes, they wait for the host
+  ---
+  duration_ms: 19.143042
+  type: 'test'
+  ...
+# Subtest: a solo bot that passes waits for the host
+ok 128 - a solo bot that passes waits for the host
+  ---
+  duration_ms: 0.574041
+  type: 'test'
+  ...
+# Subtest: wait_for_host stops bot turns until the host speaks
+ok 129 - wait_for_host stops bot turns until the host speaks
+  ---
+  duration_ms: 34.665584
+  type: 'test'
+  ...
+# Subtest: leave_call: the bot says goodbye, leaves once it has played, and the others are told
+ok 130 - leave_call: the bot says goodbye, leaves once it has played, and the others are told
+  ---
+  duration_ms: 7.926
+  type: 'test'
+  ...
+# Subtest: leave_call: a bot already removed by the host is not removed twice; the last bot leaving ends nothing else
+ok 131 - leave_call: a bot already removed by the host is not removed twice; the last bot leaving ends nothing else
+  ---
+  duration_ms: 1.3575
+  type: 'test'
+  ...
+# Subtest: wait_for_host in the same reply as invite_bot is honoured at once
+ok 132 - wait_for_host in the same reply as invite_bot is honoured at once
+  ---
+  duration_ms: 0.998083
+  type: 'test'
+  ...
+# Subtest: a turn decision in a reply the host cut off is dropped
+ok 133 - a turn decision in a reply the host cut off is dropped
+  ---
+  duration_ms: 0.56525
+  type: 'test'
+  ...
+# Subtest: isDirection: a correction of at least three words
+ok 134 - isDirection: a correction of at least three words
+  ---
+  duration_ms: 0.249458
+  type: 'test'
+  ...
+# Subtest: directionText lists the pinned corrections, newest last, or nothing
+ok 135 - directionText lists the pinned corrections, newest last, or nothing
+  ---
+  duration_ms: 0.083375
+  type: 'test'
+  ...
+# Subtest: a host correction is pinned for every bot, and kept for bots that join or reconnect later
+ok 136 - a host correction is pinned for every bot, and kept for bots that join or reconnect later
+  ---
+  duration_ms: 2.512209
+  type: 'test'
+  ...
+# Subtest: only the newest DIRECTION_MAX corrections are kept, and leaving clears them
+ok 137 - only the newest DIRECTION_MAX corrections are kept, and leaving clears them
+  ---
+  duration_ms: 2.525042
+  type: 'test'
+  ...
+# Subtest: notepadText shows notes and tasks, or says it is empty
+ok 138 - notepadText shows notes and tasks, or says it is empty
+  ---
+  duration_ms: 0.221625
+  type: 'test'
+  ...
+# Subtest: cleanNote trims, joins lines and caps length
+ok 139 - cleanNote trims, joins lines and caps length
+  ---
+  duration_ms: 0.094542
+  type: 'test'
+  ...
+# Subtest: groupInstructions explains tasks without offering a notepad
+ok 140 - groupInstructions explains tasks without offering a notepad
+  ---
+  duration_ms: 0.147458
+  type: 'test'
+  ...
+# Subtest: added tasks are shared with the other bots and the page
+ok 141 - added tasks are shared with the other bots and the page
+  ---
+  duration_ms: 4.827959
+  type: 'test'
+  ...
+# Subtest: empty or full task writes are refused; historical notes do not take task slots
+ok 142 - empty or full task writes are refused; historical notes do not take task slots
+  ---
+  duration_ms: 1.494917
+  type: 'test'
+  ...
+# Subtest: done_task: ticks a task, accepts "\#2" or "2", refuses unknown or done ones
+ok 143 - done_task: ticks a task, accepts "\#2" or "2", refuses unknown or done ones
+  ---
+  duration_ms: 1.446792
+  type: 'test'
+  ...
+# Subtest: list_tasks returns tasks without historical notes and the bot speaks with them
+ok 144 - list_tasks returns tasks without historical notes and the bot speaks with them
+  ---
+  duration_ms: 1.477459
+  type: 'test'
+  ...
+# Subtest: every bot gets web search and X search
+ok 145 - every bot gets web search and X search
+  ---
+  duration_ms: 0.615834
+  type: 'test'
+  ...
+# Subtest: if a session refuses the setup, the bot retries once without search and still joins
+ok 146 - if a session refuses the setup, the bot retries once without search and still joins
+  ---
+  duration_ms: 0.931833
+  type: 'test'
+  ...
+# Subtest: an error before the socket exists, or after setup, does not resend the setup
+ok 147 - an error before the socket exists, or after setup, does not resend the setup
+  ---
+  duration_ms: 0.554417
+  type: 'test'
+  ...
+# Subtest: lastCallText gives the summary and open items, or nothing when there is no memory
+ok 148 - lastCallText gives the summary and open items, or nothing when there is no memory
+  ---
+  duration_ms: 0.234791
+  type: 'test'
+  ...
+# Subtest: openItems merges open tasks and summary items without repeats
+ok 149 - openItems merges open tasks and summary items without repeats
+  ---
+  duration_ms: 0.244542
+  type: 'test'
+  ...
+# Subtest: wrapUpInstructions holds the record of the call, capped
+ok 150 - wrapUpInstructions holds the record of the call, capped
+  ---
+  duration_ms: 0.280042
+  type: 'test'
+  ...
+# Subtest: exportMarkdown: summary, items, done tasks, notes, direction and transcript
+ok 151 - exportMarkdown: summary, items, done tasks, notes, direction and transcript
+  ---
+  duration_ms: 2.411708
+  type: 'test'
+  ...
+# Subtest: joining with last call memory: bots are told, and the notepad starts with its notes and open items
+ok 152 - joining with last call memory: bots are told, and the notepad starts with its notes and open items
+  ---
+  duration_ms: 1.295042
+  type: 'test'
+  ...
+# Subtest: Leave: one bot saves the summary silently, then the export is ready
+ok 153 - Leave: one bot saves the summary silently, then the export is ready
+  ---
+  duration_ms: 3.816833
+  type: 'test'
+  ...
+# Subtest: Leave: a summary request the voice server never starts goes to the next bot, or ends the call at once
+ok 154 - Leave: a summary request the voice server never starts goes to the next bot, or ends the call at once
+  ---
+  duration_ms: 3.632125
+  type: 'test'
+  ...
+# Subtest: Leave: the second bot asked can still save the summary
+ok 155 - Leave: the second bot asked can still save the summary
+  ---
+  duration_ms: 2.126958
+  type: 'test'
+  ...
+# Subtest: Leave: the summary bot is never heard; if it talks instead of saving, it is asked once more, then the call ends at once
+ok 156 - Leave: the summary bot is never heard; if it talks instead of saving, it is asked once more, then the call ends at once
+  ---
+  duration_ms: 8.433666
+  type: 'test'
+  ...
+# Subtest: Leave: a reply from a bot other than the one writing the summary does not count as its answer
+ok 157 - Leave: a reply from a bot other than the one writing the summary does not count as its answer
+  ---
+  duration_ms: 6.578125
+  type: 'test'
+  ...
+# Subtest: Leave: a bot mid-reply is cut, then asked once its reply has ended
+ok 158 - Leave: a bot mid-reply is cut, then asked once its reply has ended
+  ---
+  duration_ms: 2.519334
+  type: 'test'
+  ...
+# Subtest: Leave: no answer in time ends with no summary; summary text is capped and odd arguments are handled
+ok 159 - Leave: no answer in time ends with no summary; summary text is capped and odd arguments are handled
+  ---
+  duration_ms: 3.164125
+  type: 'test'
+  ...
+# Subtest: Leave with nothing said, or no bot ready: no summary is asked for
+ok 160 - Leave with nothing said, or no bot ready: no summary is asked for
+  ---
+  duration_ms: 0.433208
+  type: 'test'
+  ...
+# Subtest: Leave while the listening bot has left: another ready bot writes the summary; leaving mid-wrap-up resolves at once
+ok 161 - Leave while the listening bot has left: another ready bot writes the summary; leaving mid-wrap-up resolves at once
+  ---
+  duration_ms: 3.71575
+  type: 'test'
+  ...
+# Subtest: with no new summary, the last call’s summary is kept for next time; notepad changes are flagged
+ok 162 - with no new summary, the last call’s summary is kept for next time; notepad changes are flagged
+  ---
+  duration_ms: 1.041333
+  type: 'test'
+  ...
+# Subtest: a typed message reaches every bot as the host, and the listening bot answers
+ok 163 - a typed message reaches every bot as the host, and the listening bot answers
+  ---
+  duration_ms: 1.016
+  type: 'test'
+  ...
+# Subtest: a typed message naming a bot: that bot answers and gets the mic; a correction is pinned; it ends a wait
+ok 164 - a typed message naming a bot: that bot answers and gets the mic; a correction is pinned; it ends a wait
+  ---
+  duration_ms: 0.743833
+  type: 'test'
+  ...
+# Subtest: a typed message cuts off the bot talking; the bot answering waits for its own reply to end
+ok 165 - a typed message cuts off the bot talking; the bot answering waits for its own reply to end
+  ---
+  duration_ms: 8.182917
+  type: 'test'
+  ...
+# Subtest: a typed message is refused when empty, outside a call, with no bot ready, or capped when long
+ok 166 - a typed message is refused when empty, outside a call, with no bot ready, or capped when long
+  ---
+  duration_ms: 0.77875
+  type: 'test'
+  ...
+# Subtest: stop hotkey: every bot goes quiet, queued turns and nudges are dropped, and they wait for the host
+ok 167 - stop hotkey: every bot goes quiet, queued turns and nudges are dropped, and they wait for the host
+  ---
+  duration_ms: 12.311792
+  type: 'test'
+  ...
+# Subtest: timeline: joins, lines, cut-offs, tools, notepad, direction, leaves, errors, in order with times
+ok 168 - timeline: joins, lines, cut-offs, tools, notepad, direction, leaves, errors, in order with times
+  ---
+  duration_ms: 11.245084
+  type: 'test'
+  ...
+# Subtest: timeline: stuck mic, refused search and every-bot-passed are shown; it keeps only the newest entries
+ok 169 - timeline: stuck mic, refused search and every-bot-passed are shown; it keeps only the newest entries
+  ---
+  duration_ms: 0.86075
+  type: 'test'
+  ...
+# Subtest: isStopCommand: short "stop talking" lines only
+ok 170 - isStopCommand: short "stop talking" lines only
+  ---
+  duration_ms: 0.148583
+  type: 'test'
+  ...
+# Subtest: isRepeat: most key words of a line were already said
+ok 171 - isRepeat: most key words of a line were already said
+  ---
+  duration_ms: 0.089958
+  type: 'test'
+  ...
+# Subtest: groupInstructions tells bots not to repeat themselves and to go quiet on stop
+ok 172 - groupInstructions tells bots not to repeat themselves and to go quiet on stop
+  ---
+  duration_ms: 0.079792
+  type: 'test'
+  ...
+# Subtest: a bot's own "wait for Shashank" coming back through the speakers does not restart the talk
+ok 173 - a bot's own "wait for Shashank" coming back through the speakers does not restart the talk
+  ---
+  duration_ms: 8.373041
+  type: 'test'
+  ...
+# Subtest: saying "stop" over a bot: every bot goes quiet and waits, nobody answers it, and the next host line starts things again
+ok 174 - saying "stop" over a bot: every bot goes quiet and waits, nobody answers it, and the next host line starts things again
+  ---
+  duration_ms: 5.384625
+  type: 'test'
+  ...
+# Subtest: typing "stop" works like the stop hotkey
+ok 175 - typing "stop" works like the stop hotkey
+  ---
+  duration_ms: 4.762375
+  type: 'test'
+  ...
+# Subtest: mic gate stays open a moment after a loud frame, so his quieter sounds get through
+ok 176 - mic gate stays open a moment after a loud frame, so his quieter sounds get through
+  ---
+  duration_ms: 7.587375
+  type: 'test'
+  ...
+# Subtest: cutting in drops reply nudges and queued replies asked for before the cut
+ok 177 - cutting in drops reply nudges and queued replies asked for before the cut
+  ---
+  duration_ms: 0.791417
+  type: 'test'
+  ...
+# Subtest: echo that cut a bot off: the talk goes on with the next bot
+ok 178 - echo that cut a bot off: the talk goes on with the next bot
+  ---
+  duration_ms: 7.529625
+  type: 'test'
+  ...
+# Subtest: nothing resumes after echo when the cut bot has left, or after noise when nobody was cut
+ok 179 - nothing resumes after echo when the cut bot has left, or after noise when nobody was cut
+  ---
+  duration_ms: 4.156625
+  type: 'test'
+  ...
+# Subtest: a bot repeating what was already said stops the round and waits for the host
+ok 180 - a bot repeating what was already said stops the round and waits for the host
+  ---
+  duration_ms: 3.195209
+  type: 'test'
+  ...
+# Subtest: a bot that keeps using tools without speaking gets a few rounds, then the turn moves on
+ok 181 - a bot that keeps using tools without speaking gets a few rounds, then the turn moves on
+  ---
+  duration_ms: 0.383792
+  type: 'test'
+  ...
+# Subtest: a bot that speaks and uses a tool every round gets a few follow-ups, then the turn moves on
+ok 182 - a bot that speaks and uses a tool every round gets a few follow-ups, then the turn moves on
+  ---
+  duration_ms: 0.344417
+  type: 'test'
+  ...
+# Subtest: a bot repeating itself while using a tool stops the round instead of getting a follow-up
+ok 183 - a bot repeating itself while using a tool stops the round instead of getting a follow-up
+  ---
+  duration_ms: 0.272167
+  type: 'test'
+  ...
+# Subtest: no tool follow-up while the call waits for the host, or when the bot also passed
+ok 184 - no tool follow-up while the call waits for the host, or when the bot also passed
+  ---
+  duration_ms: 0.280625
+  type: 'test'
+  ...
+# Subtest: namedBots finds every bot named, without counting a name inside a longer one
+ok 185 - namedBots finds every bot named, without counting a name inside a longer one
+  ---
+  duration_ms: 0.081541
+  type: 'test'
+  ...
+# Subtest: isGroupAddress: talking to every bot
+ok 186 - isGroupAddress: talking to every bot
+  ---
+  duration_ms: 0.044917
+  type: 'test'
+  ...
+# Subtest: isClosing: short "we are done" lines only
+ok 187 - isClosing: short "we are done" lines only
+  ---
+  duration_ms: 0.079917
+  type: 'test'
+  ...
+# Subtest: focusText and suggestionPrompt: what each side of a one-on-one is told
+ok 188 - focusText and suggestionPrompt: what each side of a one-on-one is told
+  ---
+  duration_ms: 0.123917
+  type: 'test'
+  ...
+# Subtest: one-on-one: only the named bot talks, follow-ups stay with it, then "thanks" opens a suggestion round and the call waits
+ok 189 - one-on-one: only the named bot talks, follow-ups stay with it, then "thanks" opens a suggestion round and the call waits
+  ---
+  duration_ms: 9.725375
+  type: 'test'
+  ...
+# Subtest: one-on-one ends by itself after a quiet spell, unless he or the bot is still going
+ok 190 - one-on-one ends by itself after a quiet spell, unless he or the bot is still going
+  ---
+  duration_ms: 2.410334
+  type: 'test'
+  ...
+# Subtest: addressing everyone or several bots ends the one-on-one and the group talk comes back
+ok 191 - addressing everyone or several bots ends the one-on-one and the group talk comes back
+  ---
+  duration_ms: 4.40775
+  type: 'test'
+  ...
+# Subtest: naming another bot moves the one-on-one to it; a lone bot never gets one
+ok 192 - naming another bot moves the one-on-one to it; a lone bot never gets one
+  ---
+  duration_ms: 1.171041
+  type: 'test'
+  ...
+# Subtest: in a one-on-one the bot cannot hand the turn away, and another bot speaking does not take the mic
+ok 193 - in a one-on-one the bot cannot hand the turn away, and another bot speaking does not take the mic
+  ---
+  duration_ms: 2.346875
+  type: 'test'
+  ...
+# Subtest: spokenTo: only a name set off at the start of a sentence speaks to that bot
+ok 194 - spokenTo: only a name set off at the start of a sentence speaks to that bot
+  ---
+  duration_ms: 0.486583
+  type: 'test'
+  ...
+# Subtest: in a one-on-one, the bot speaking to another bot by name passes the one-on-one to it, and that bot answers
+ok 195 - in a one-on-one, the bot speaking to another bot by name passes the one-on-one to it, and that bot answers
+  ---
+  duration_ms: 9.477625
+  type: 'test'
+  ...
+# Subtest: in a one-on-one, a hand-off by name is dropped when the host cuts in, and a bot only mentioned keeps the one-on-one
+ok 196 - in a one-on-one, a hand-off by name is dropped when the host cuts in, and a bot only mentioned keeps the one-on-one
+  ---
+  duration_ms: 18.599083
+  type: 'test'
+  ...
+# Subtest: wantsAnswer: a question, a greeting, or calling Grok wants a reply; an acknowledgement does not
+ok 197 - wantsAnswer: a question, a greeting, or calling Grok wants a reply; an acknowledgement does not
+  ---
+  duration_ms: 0.300875
+  type: 'test'
+  ...
+# Subtest: a bot that passes without a word on a line that wants a reply is asked once to answer
+ok 198 - a bot that passes without a word on a line that wants a reply is asked once to answer
+  ---
+  duration_ms: 1.734834
+  type: 'test'
+  ...
+# Subtest: naming a bot that is still joining: nobody else answers for it, and it answers once it is in
+ok 199 - naming a bot that is still joining: nobody else answers for it, and it answers once it is in
+  ---
+  duration_ms: 6.013
+  type: 'test'
+  ...
+# Subtest: one-on-one ends quietly when its bot leaves or drops
+ok 200 - one-on-one ends quietly when its bot leaves or drops
+  ---
+  duration_ms: 1.262791
+  type: 'test'
+  ...
+# Subtest: suggestion round: wait_for_host ends it; late replies, bots that left, the host and the stop key are handled
+ok 201 - suggestion round: wait_for_host ends it; late replies, bots that left, the host and the stop key are handled
+  ---
+  duration_ms: 25.907958
+  type: 'test'
+  ...
+# Subtest: echo cutting the one-on-one bot restarts the quiet clock; echo cutting a suggester moves the round on
+ok 202 - echo cutting the one-on-one bot restarts the quiet clock; echo cutting a suggester moves the round on
+  ---
+  duration_ms: 33.386666
+  type: 'test'
+  ...
+# Subtest: typing to one bot starts a one-on-one; typing "thanks" wraps it up; the stop key keeps it but stops the clock
+ok 203 - typing to one bot starts a one-on-one; typing "thanks" wraps it up; the stop key keeps it but stops the clock
+  ---
+  duration_ms: 4.622584
+  type: 'test'
+  ...
+# Subtest: leaving mid one-on-one clears its quiet clock
+ok 204 - leaving mid one-on-one clears its quiet clock
+  ---
+  duration_ms: 5.604875
+  type: 'test'
+  ...
+# Subtest: spokenWords, isFiller and hasRealWords tell a spoken pass from real words
+ok 205 - spokenWords, isFiller and hasRealWords tell a spoken pass from real words
+  ---
+  duration_ms: 0.248459
+  type: 'test'
+  ...
+# Subtest: the rules that adapt Grok Bot's phone-call instructions to a group call
+ok 206 - the rules that adapt Grok Bot's phone-call instructions to a group call
+  ---
+  duration_ms: 0.128542
+  type: 'test'
+  ...
+# Subtest: a turn the call starts holds the bot's voice: a spoken "Pass." is never heard and never passed on
+ok 207 - a turn the call starts holds the bot's voice: a spoken "Pass." is never heard and never passed on
+  ---
+  duration_ms: 5.359958
+  type: 'test'
+  ...
+# Subtest: held voice plays as soon as real words come, or at the end if the reply is short but real
+ok 208 - held voice plays as soon as real words come, or at the end if the reply is short but real
+  ---
+  duration_ms: 13.259833
+  type: 'test'
+  ...
+# Subtest: held voice is dropped when the reply fails, says nothing, or the host cuts in
+ok 209 - held voice is dropped when the reply fails, says nothing, or the host cuts in
+  ---
+  duration_ms: 20.202
+  type: 'test'
+  ...
+# Subtest: a spoken "Pass." in an ordinary reply plays but is not passed on; with the pass tool it counts once
+ok 210 - a spoken "Pass." in an ordinary reply plays but is not passed on; with the pass tool it counts once
+  ---
+  duration_ms: 2.903792
+  type: 'test'
+  ...
+# Subtest: a reply that never starts is given up on and the talk moves on; a late start is cancelled
+ok 211 - a reply that never starts is given up on and the talk moves on; a late start is cancelled
+  ---
+  duration_ms: 3.584583
+  type: 'test'
+  ...
+# Subtest: a reply that goes silent is stopped and the talk moves on; its late end changes nothing
+ok 212 - a reply that goes silent is stopped and the talk moves on; its late end changes nothing
+  ---
+  duration_ms: 5.25425
+  type: 'test'
+  ...
+# Subtest: a lost reply does not cue anyone while the host is talking
+ok 213 - a lost reply does not cue anyone while the host is talking
+  ---
+  duration_ms: 2.783625
+  type: 'test'
+  ...
+# Subtest: an error about the reply we asked for moves on at once; other errors change nothing
+ok 214 - an error about the reply we asked for moves on at once; other errors change nothing
+  ---
+  duration_ms: 0.647541
+  type: 'test'
+  ...
+# Subtest: a voice session that never comes up fails with the reason, and its socket closing is not a drop
+ok 215 - a voice session that never comes up fails with the reason, and its socket closing is not a drop
+  ---
+  duration_ms: 0.377083
+  type: 'test'
+  ...
+# Subtest: setup refused: search goes first, then the bot's Grok Bot tools, then the bot fails with the reason
+ok 216 - setup refused: search goes first, then the bot's Grok Bot tools, then the bot fails with the reason
+  ---
+  duration_ms: 0.557625
+  type: 'test'
+  ...
+# Subtest: a bot that drops mid-reply hands on its turn and the mic; an idle drop just reconnects
+ok 217 - a bot that drops mid-reply hands on its turn and the mic; an idle drop just reconnects
+  ---
+  duration_ms: 3.307083
+  type: 'test'
+  ...
+# Subtest: a bot that fails mid-reply hands on its turn and ends a one-on-one with it
+ok 218 - a bot that fails mid-reply hands on its turn and ends a one-on-one with it
+  ---
+  duration_ms: 1.69975
+  type: 'test'
+  ...
+# Subtest: a bot picked for the next turn that dropped meanwhile is skipped
+ok 219 - a bot picked for the next turn that dropped meanwhile is skipped
+  ---
+  duration_ms: 4.010583
+  type: 'test'
+  ...
+# Subtest: send_task: the bot's words count at once, its job goes to Grok Bot, and its turn ends when the receipt comes
+ok 220 - send_task: the bot's words count at once, its job goes to Grok Bot, and its turn ends when the receipt comes
+  ---
+  duration_ms: 1.161041
+  type: 'test'
+  ...
+# Subtest: search_conversations: the bot speaks once the result is in; refusals and failures are told to the bot
+ok 221 - search_conversations: the bot speaks once the result is in; refusals and failures are told to the bot
+  ---
+  duration_ms: 0.677083
+  type: 'test'
+  ...
+# Subtest: search_conversations every round: the bot gets a few follow-ups, then the other bot speaks
+ok 222 - search_conversations every round: the bot gets a few follow-ups, then the other bot speaks
+  ---
+  duration_ms: 0.441375
+  type: 'test'
+  ...
+# Subtest: while a tool runs: the host can cut in and is answered once the result is in; nothing else is asked for
+ok 223 - while a tool runs: the host can cut in and is answered once the result is in; nothing else is asked for
+  ---
+  duration_ms: 0.368167
+  type: 'test'
+  ...
+# Subtest: a tool result for a connection that dropped is thrown away; cut-off and refused tools never reach Grok Bot
+ok 224 - a tool result for a connection that dropped is thrown away; cut-off and refused tools never reach Grok Bot
+  ---
+  duration_ms: 0.494334
+  type: 'test'
+  ...
+# Subtest: a Grok Bot tool the call has no special words for is still forwarded and logged
+ok 225 - a Grok Bot tool the call has no special words for is still forwarded and logged
+  ---
+  duration_ms: 0.549667
+  type: 'test'
+  ...
+# Subtest: naming a bot that already has a reply coming queues the request instead of asking twice
+ok 226 - naming a bot that already has a reply coming queues the request instead of asking twice
+  ---
+  duration_ms: 0.333041
+  type: 'test'
+  ...
+# Subtest: a refused reply that the host was waiting on is asked for again
+ok 227 - a refused reply that the host was waiting on is asked for again
+  ---
+  duration_ms: 0.206542
+  type: 'test'
+  ...
+# Subtest: a turn decision made in a reply whose tool result came after the host cut in is dropped
+ok 228 - a turn decision made in a reply whose tool result came after the host cut in is dropped
+  ---
+  duration_ms: 0.242875
+  type: 'test'
+  ...
+# Subtest: Leave: a summary reply that uses a Grok Bot tool gets its result but no turn afterwards
+ok 229 - Leave: a summary reply that uses a Grok Bot tool gets its result but no turn afterwards
+  ---
+  duration_ms: 2.778292
+  type: 'test'
+  ...
+# Subtest: a Grok Bot session request that hangs times out; its late answer or failure is ignored
+ok 230 - a Grok Bot session request that hangs times out; its late answer or failure is ignored
+  ---
+  duration_ms: 0.640125
+  type: 'test'
+  ...
+# Subtest: duplicate jobs in one reply are submitted only once while the first receipt is pending
+ok 231 - duplicate jobs in one reply are submitted only once while the first receipt is pending
+  ---
+  duration_ms: 0.716625
+  type: 'test'
+  ...
+# Subtest: a refused job can be corrected and submitted again
+ok 232 - a refused job can be corrected and submitted again
+  ---
+  duration_ms: 0.568292
+  type: 'test'
+  ...
+# Subtest: events from a replaced voice socket cannot speak or invoke plugins in the new session
+ok 233 - events from a replaced voice socket cannot speak or invoke plugins in the new session
+  ---
+  duration_ms: 0.826666
+  type: 'test'
+  ...
+# Subtest: plugin failure after a spoken acknowledgement gets a follow-up to report the failure
+ok 234 - plugin failure after a spoken acknowledgement gets a follow-up to report the failure
+  ---
+  duration_ms: 1.101458
+  type: 'test'
+  ...
+# Subtest: note tools are unavailable and cannot change call state; task tools remain
+ok 235 - note tools are unavailable and cannot change call state; task tools remain
+  ---
+  duration_ms: 0.953875
+  type: 'test'
+  ...
+# Subtest: bots with direct app tools are told to discover apps and return results on the call
+ok 236 - bots with direct app tools are told to discover apps and return results on the call
+  ---
+  duration_ms: 1.372125
+  type: 'test'
+  ...
+# Subtest: an app execution failure warns that the outcome may be unknown instead of claiming nothing happened
+ok 237 - an app execution failure warns that the outcome may be unknown instead of claiming nothing happened
+  ---
+  duration_ms: 1.036041
+  type: 'test'
+  ...
+# Subtest: a bot working through a connected app gets enough follow-ups to finish, then the turn moves on with a timeline note
+ok 238 - a bot working through a connected app gets enough follow-ups to finish, then the turn moves on with a timeline note
+  ---
+  duration_ms: 1.0605
+  type: 'test'
+  ...
+# Subtest: a bot mixing app work with other tools keeps the smaller follow-up limit for the other tools
+ok 239 - a bot mixing app work with other tools keeps the smaller follow-up limit for the other tools
+  ---
+  duration_ms: 0.52225
+  type: 'test'
+  ...
+# Subtest: a background job one bot sent is announced to every other bot once, so they do not send the same job again
+ok 240 - a background job one bot sent is announced to every other bot once, so they do not send the same job again
+  ---
+  duration_ms: 0.560666
+  type: 'test'
+  ...
+# Subtest: refused, failed and blocked jobs, and other Grok Bot tools, are not announced as jobs
+ok 241 - refused, failed and blocked jobs, and other Grok Bot tools, are not announced as jobs
+  ---
+  duration_ms: 0.429333
+  type: 'test'
+  ...
+# Subtest: a bot that left before the job was accepted is not told about it
+ok 242 - a bot that left before the job was accepted is not told about it
+  ---
+  duration_ms: 0.349791
+  type: 'test'
+  ...
+# Subtest: with connected apps, app work goes to the app tools and never to send_task, in the rules and in the tool itself
+ok 243 - with connected apps, app work goes to the app tools and never to send_task, in the rules and in the tool itself
+  ---
+  duration_ms: 0.418459
+  type: 'test'
+  ...
+# Subtest: a bot without app tools keeps Grok's own send_task description
+ok 244 - a bot without app tools keeps Grok's own send_task description
+  ---
+  duration_ms: 0.242541
+  type: 'test'
+  ...
+# Subtest: the apps connected when a bot joins are in its rules, so it goes straight to find_app_tools
+ok 245 - the apps connected when a bot joins are in its rules, so it goes straight to find_app_tools
+  ---
+  duration_ms: 0.22
+  type: 'test'
+  ...
+# Subtest: a bot's session instructions name the apps its voice session came with; an older session without them still works
+ok 246 - a bot's session instructions name the apps its voice session came with; an older session without them still works
+  ---
+  duration_ms: 0.447667
+  type: 'test'
+  ...
+# Subtest: a voice setup Grok Bot's server did not answer is tried again, and the bot joins with the conversation as it is by then
+ok 247 - a voice setup Grok Bot's server did not answer is tried again, and the bot joins with the conversation as it is by then
+  ---
+  duration_ms: 1.939583
+  type: 'test'
+  ...
+# Subtest: a setup that hangs is tried again; the late answer of a try that gave up is ignored
+ok 248 - a setup that hangs is tried again; the late answer of a try that gave up is ignored
+  ---
+  duration_ms: 0.214875
+  type: 'test'
+  ...
+# Subtest: a socket that opened but never got its session is closed before the next try, and its close is not a drop
+ok 249 - a socket that opened but never got its session is closed before the next try, and its close is not a drop
+  ---
+  duration_ms: 0.21475
+  type: 'test'
+  ...
+# Subtest: setup errors that trying again cannot fix fail at once, and a refused setup is not retried
+ok 250 - setup errors that trying again cannot fix fail at once, and a refused setup is not retried
+  ---
+  duration_ms: 0.440459
+  type: 'test'
+  ...
+# Subtest: a bot removed while it waits for a new try is not set up again; a bot that joined gets fresh tries if it drops later
+ok 251 - a bot removed while it waits for a new try is not set up again; a bot that joined gets fresh tries if it drops later
+  ---
+  duration_ms: 0.384917
+  type: 'test'
+  ...
+# Subtest: a timed-out setup that was refused first fails with the refusal, not a new try
+ok 252 - a timed-out setup that was refused first fails with the refusal, not a new try
+  ---
+  duration_ms: 0.184083
+  type: 'test'
+  ...
+# Subtest: a background job's reply from the agent comes back on the call, and the bot that sent it tells Shashank
+ok 253 - a background job's reply from the agent comes back on the call, and the bot that sent it tells Shashank
+  ---
+  duration_ms: 0.738416
+  type: 'test'
+  ...
+# Subtest: local history checks keep going through errors and stop when the bot leaves or the call ends
+ok 254 - local history checks keep going through errors and stop when the bot leaves or the call ends
+  ---
+  duration_ms: 2.065209
+  type: 'test'
+  ...
+# Subtest: when the call ends, agent checks stop; an update that arrives as it ends is not passed on
+ok 255 - when the call ends, agent checks stop; an update that arrives as it ends is not passed on
+  ---
+  duration_ms: 1.546917
+  type: 'test'
+  ...
+# Subtest: an update while Shashank talks, or during another bot's one-on-one, is heard by the bot but not spoken yet
+ok 256 - an update while Shashank talks, or during another bot's one-on-one, is heard by the bot but not spoken yet
+  ---
+  duration_ms: 2.599083
+  type: 'test'
+  ...
+# Subtest: no agent checks without send_task accepted, or when the page cannot read updates
+ok 257 - no agent checks without send_task accepted, or when the page cannot read updates
+  ---
+  duration_ms: 0.491166
+  type: 'test'
+  ...
+# Subtest: after a bot speaks, the turn goes round the others and stops when all of them pass; after Shashank, every bot gets its turn
+ok 258 - after a bot speaks, the turn goes round the others and stops when all of them pass; after Shashank, every bot gets its turn
+  ---
+  duration_ms: 3.920167
+  type: 'test'
+  ...
+# Subtest: Grok greeting gives the caller a grace period; speech, leaving and a dropped link cancel it
+ok 259 - Grok greeting gives the caller a grace period; speech, leaving and a dropped link cancel it
+  ---
+  duration_ms: 3.35575
+  type: 'test'
+  ...
+# Subtest: a dropped voice socket resumes its conversation, or receives context if the server starts fresh
+ok 260 - a dropped voice socket resumes its conversation, or receives context if the server starts fresh
+  ---
+  duration_ms: 1.288417
+  type: 'test'
+  ...
+# Subtest: async job and typed-chat updates are held; refused async updates use seeded tool items
+ok 261 - async job and typed-chat updates are held; refused async updates use seeded tool items
+  ---
+  duration_ms: 0.380292
+  type: 'test'
+  ...
+# Subtest: a result the voice server took in only after the bot's reply had started is told after that reply
+ok 262 - a result the voice server took in only after the bot's reply had started is told after that reply
+  ---
+  duration_ms: 4.791792
+  type: 'test'
+  ...
+# Subtest: a result taken in before the reply started, or a reply cut off, the host talking, or a reply already coming: no extra ask
+ok 263 - a result taken in before the reply started, or a reply cut off, the host talking, or a reply already coming: no extra ask
+  ---
+  duration_ms: 2.5675
+  type: 'test'
+  ...
+# Subtest: seeded updates: only the update's own item, taken in mid-reply, counts as missed
+ok 264 - seeded updates: only the update's own item, taken in mid-reply, counts as missed
+  ---
+  duration_ms: 0.628625
+  type: 'test'
+  ...
+# Subtest: a ping watchdog reconnects a silent voice socket; ordinary sessions without pings stay connected
+ok 265 - a ping watchdog reconnects a silent voice socket; ordinary sessions without pings stay connected
+  ---
+  duration_ms: 0.414083
+  type: 'test'
+  ...
+# Subtest: Grok job receipts return before the agent finishes; failures come back as news
+ok 266 - Grok job receipts return before the agent finishes; failures come back as news
+  ---
+  duration_ms: 0.768834
+  type: 'test'
+  ...
+# Subtest: agent capability instructions reflect skills, paused routines and computer availability
+ok 267 - agent capability instructions reflect skills, paused routines and computer availability
+  ---
+  duration_ms: 0.141708
+  type: 'test'
+  ...
+# Subtest: updates wait for a reconnect and are not consumed by a dead voice socket
+ok 268 - updates wait for a reconnect and are not consumed by a dead voice socket
+  ---
+  duration_ms: 0.445
+  type: 'test'
+  ...
+# Subtest: leaving notifies each joined agent before its link is removed; a failed notification cannot block Leave
+ok 269 - leaving notifies each joined agent before its link is removed; a failed notification cannot block Leave
+  ---
+  duration_ms: 0.308583
+  type: 'test'
+  ...
+# Subtest: receipt and update fallbacks retain their flags until a real spoken answer
+ok 270 - receipt and update fallbacks retain their flags until a real spoken answer
+  ---
+  duration_ms: 0.37225
+  type: 'test'
+  ...
+# Subtest: greeting guards stale timers and uses discovered agent capabilities
+ok 271 - greeting guards stale timers and uses discovered agent capabilities
+  ---
+  duration_ms: 1.149458
+  type: 'test'
+  ...
+# Subtest: native local tools override the old local-task instructions with an explicit execution target
+ok 272 - native local tools override the old local-task instructions with an explicit execution target
+  ---
+  duration_ms: 0.448875
+  type: 'test'
+  ...
+# (node:47575) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: an app action is recorded before it runs and completed with its result
+ok 273 - an app action is recorded before it runs and completed with its result
+  ---
+  duration_ms: 12.36325
+  type: 'test'
+  ...
+# Subtest: connector errors fail; a transport error after dispatch is outcome unknown; refused calls fail
+ok 274 - connector errors fail; a transport error after dispatch is outcome unknown; refused calls fail
+  ---
+  duration_ms: 7.139333
+  type: 'test'
+  ...
+# Subtest: a background job is watched; one Grok Bot did not accept fails
+ok 275 - a background job is watched; one Grok Bot did not accept fails
+  ---
+  duration_ms: 4.110791
+  type: 'test'
+  ...
+# Subtest: the same app call by the same bot in the same call runs once: at the same time, and just after
+ok 276 - the same app call by the same bot in the same call runs once: at the same time, and just after
+  ---
+  duration_ms: 6.987958
+  type: 'test'
+  ...
+# Subtest: a large result: voice gets the first VOICE_RESULT_MAX characters and a pointer, the history keeps all of it
+ok 277 - a large result: voice gets the first VOICE_RESULT_MAX characters and a pointer, the history keeps all of it
+  ---
+  duration_ms: 4.77275
+  type: 'test'
+  ...
+# Subtest: updates for a call: marks it live once, returns its events, and ends calls that stopped asking
+ok 278 - updates for a call: marks it live once, returns its events, and ends calls that stopped asking
+  ---
+  duration_ms: 1.627084
+  type: 'test'
+  ...
+# Subtest: stable JSON and connector failures
+ok 279 - stable JSON and connector failures
+  ---
+  duration_ms: 0.137459
+  type: 'test'
+  ...
+# Subtest: approval resolution is bound to a pending action and only sent once concurrently
+ok 280 - approval resolution is bound to a pending action and only sent once concurrently
+  ---
+  duration_ms: 9.426875
+  type: 'test'
+  ...
+# Subtest: denials, connector setup cards, and failed approval transports preserve truthful state
+ok 281 - denials, connector setup cards, and failed approval transports preserve truthful state
+  ---
+  duration_ms: 4.757833
+  type: 'test'
+  ...
+# Subtest: a write still running beyond the dedupe window never executes twice
+ok 282 - a write still running beyond the dedupe window never executes twice
+  ---
+  duration_ms: 3.854
+  type: 'test'
+  ...
+# (node:47576) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: checksum matches the Grok Bot app byte for byte
+ok 283 - checksum matches the Grok Bot app byte for byte
+  ---
+  duration_ms: 9.772625
+  type: 'test'
+  ...
+# Subtest: clientHeaders identify as the Grok Bot desktop client
+ok 284 - clientHeaders identify as the Grok Bot desktop client
+  ---
+  duration_ms: 2.1415
+  type: 'test'
+  ...
+# Subtest: errorDetail pulls the readable reason out of Connect errors
+ok 285 - errorDetail pulls the readable reason out of Connect errors
+  ---
+  duration_ms: 0.868333
+  type: 'test'
+  ...
+# Subtest: listBots returns only your bots, with voice and avatar
+ok 286 - listBots returns only your bots, with voice and avatar
+  ---
+  duration_ms: 32.726875
+  type: 'test'
+  ...
+# Subtest: listBots handles a response with no agents list
+ok 287 - listBots handles a response with no agents list
+  ---
+  duration_ms: 4.060334
+  type: 'test'
+  ...
+# Subtest: no sign-in: SignedOutError without calling the backend
+ok 288 - no sign-in: SignedOutError without calling the backend
+  ---
+  duration_ms: 1.145708
+  type: 'test'
+  ...
+# Subtest: expired token: refreshes, saves the new tokens, and retries
+ok 289 - expired token: refreshes, saves the new tokens, and retries
+  ---
+  duration_ms: 7.649875
+  type: 'test'
+  ...
+# Subtest: refresh without a new refresh token keeps the old one
+ok 290 - refresh without a new refresh token keeps the old one
+  ---
+  duration_ms: 7.936
+  type: 'test'
+  ...
+# Subtest: signed out for good: clears the sign-in in every failure path
+ok 291 - signed out for good: clears the sign-in in every failure path
+  ---
+  duration_ms: 21.919875
+  type: 'test'
+  ...
+# Subtest: refresh network failure counts as signed out
+ok 292 - refresh network failure counts as signed out
+  ---
+  duration_ms: 7.569209
+  type: 'test'
+  ...
+# Subtest: backend errors carry the reason
+ok 293 - backend errors carry the reason
+  ---
+  duration_ms: 3.967917
+  type: 'test'
+  ...
+# Subtest: voiceSession: bot instructions plus a realtime socket secret
+ok 294 - voiceSession: bot instructions plus a realtime socket secret
+  ---
+  duration_ms: 50.156875
+  type: 'test'
+  ...
+# Subtest: voiceSession: unknown bot is NotFoundError
+ok 295 - voiceSession: unknown bot is NotFoundError
+  ---
+  duration_ms: 1.646291
+  type: 'test'
+  ...
+# Subtest: voiceSession: tolerates missing harness text and expiry
+ok 296 - voiceSession: tolerates missing harness text and expiry
+  ---
+  duration_ms: 7.468542
+  type: 'test'
+  ...
+# Subtest: voiceSession: refuses an unusable socket secret
+ok 297 - voiceSession: refuses an unusable socket secret
+  ---
+  duration_ms: 25.779791
+  type: 'test'
+  ...
+# Subtest: defaults: real Grok Bot API and global fetch
+ok 298 - defaults: real Grok Bot API and global fetch
+  ---
+  duration_ms: 0.306
+  type: 'test'
+  ...
+# Subtest: harnessTools keeps well-formed function tools and drops hang-up
+ok 299 - harnessTools keeps well-formed function tools and drops hang-up
+  ---
+  duration_ms: 0.164125
+  type: 'test'
+  ...
+# Subtest: harnessTool forwards a call tool to Grok Bot and maps the outcome
+ok 300 - harnessTool forwards a call tool to Grok Bot and maps the outcome
+  ---
+  duration_ms: 20.761459
+  type: 'test'
+  ...
+# Subtest: harnessTool only forwards tools that bot was given, and only after its voice session
+ok 301 - harnessTool only forwards tools that bot was given, and only after its voice session
+  ---
+  duration_ms: 7.951291
+  type: 'test'
+  ...
+# Subtest: harnessTool gives up when Grok Bot is too slow
+ok 302 - harnessTool gives up when Grok Bot is too slow
+  ---
+  duration_ms: 58.780542
+  type: 'test'
+  ...
+# Subtest: server harness definitions cannot duplicate or replace the direct app tools
+ok 303 - server harness definitions cannot duplicate or replace the direct app tools
+  ---
+  duration_ms: 12.488542
+  type: 'test'
+  ...
+# Subtest: voiceSession: the connected apps come with the session; a late or failed list falls back to the last one and adds at most APPS_GRACE_MS to a join
+ok 304 - voiceSession: the connected apps come with the session; a late or failed list falls back to the last one and adds at most APPS_GRACE_MS to a join
+  ---
+  duration_ms: 1980.939583
+  type: 'test'
+  ...
+# Subtest: an unreachable Grok Bot server says so and why, instead of "fetch failed"
+ok 305 - an unreachable Grok Bot server says so and why, instead of "fetch failed"
+  ---
+  duration_ms: 4.73525
+  type: 'test'
+  ...
+# Subtest: a voice setup request that hangs fails after its limit instead of holding the join
+ok 306 - a voice setup request that hangs fails after its limit instead of holding the join
+  ---
+  duration_ms: 535.262792
+  type: 'test'
+  ...
+# Subtest: landedText turns each kind of agent message into words the bot can say
+ok 307 - landedText turns each kind of agent message into words the bot can say
+  ---
+  duration_ms: 2.298667
+  type: 'test'
+  ...
+# Subtest: transcript reads back page by page to the cursor, oldest first, once per entry
+ok 308 - transcript reads back page by page to the cursor, oldest first, once per entry
+  ---
+  duration_ms: 34.959584
+  type: 'test'
+  ...
+# Subtest: acceptance 4: more than 50 unrelated entries between a job and its approval card; the card reaches its job once, and a relaunch keeps it
+ok 309 - acceptance 4: more than 50 unrelated entries between a job and its approval card; the card reaches its job once, and a relaunch keeps it
+  ---
+  duration_ms: 14.403959
+  type: 'test'
+  ...
+# Subtest: voice setup forwards description, language and speed and discovers bot resources by UUID
+ok 310 - voice setup forwards description, language and speed and discovers bot resources by UUID
+  ---
+  duration_ms: 15.603416
+  type: 'test'
+  ...
+# Subtest: file catalogs and approvals use the UUID and exact request contracts
+ok 311 - file catalogs and approvals use the UUID and exact request contracts
+  ---
+  duration_ms: 6.73325
+  type: 'test'
+  ...
+# (node:47577) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: a job's reply is matched through its request id, recorded once, and completes the action
+ok 312 - a job's reply is matched through its request id, recorded once, and completes the action
+  ---
+  duration_ms: 14.943875
+  type: 'test'
+  ...
+# Subtest: jobs on the same channel each get their own replies; a reply with no request id goes to the newest job
+ok 313 - jobs on the same channel each get their own replies; a reply with no request id goes to the newest job
+  ---
+  duration_ms: 9.617333
+  type: 'test'
+  ...
+# Subtest: approval cards and Mac tool asks put the job on hold, with what is waiting
+ok 314 - approval cards and Mac tool asks put the job on hold, with what is waiting
+  ---
+  duration_ms: 7.05825
+  type: 'test'
+  ...
+# Subtest: approvalOf reads every kind of ask, and approvalText says what to do
+ok 315 - approvalOf reads every kind of ask, and approvalText says what to do
+  ---
+  duration_ms: 0.263541
+  type: 'test'
+  ...
+# Subtest: what Shashank types in a bot's chat during its call is passed on; other chat is not
+ok 316 - what Shashank types in a bot's chat during its call is passed on; other chat is not
+  ---
+  duration_ms: 8.62025
+  type: 'test'
+  ...
+# Subtest: a reply on this call's channel with no job still reaches the call
+ok 317 - a reply on this call's channel with no job still reaches the call
+  ---
+  duration_ms: 7.938375
+  type: 'test'
+  ...
+# Subtest: checks are frequent after a job and during a call, slower later, and stop when nothing is left
+ok 318 - checks are frequent after a job and during a call, slower later, and stop when nothing is left
+  ---
+  duration_ms: 9.169208
+  type: 'test'
+  ...
+# Subtest: a check that fails is logged and tried again; a gap is logged; one check per bot at a time
+ok 319 - a check that fails is logged and tried again; a gap is logged; one check per bot at a time
+  ---
+  duration_ms: 5.166833
+  type: 'test'
+  ...
+# Subtest: on relaunch, open jobs are watched again from where the history left off
+ok 320 - on relaunch, open jobs are watched again from where the history left off
+  ---
+  duration_ms: 12.602583
+  type: 'test'
+  ...
+# Subtest: first read with no cursor counts only entries from just before the bot was first watched; long replies are cut
+ok 321 - first read with no cursor counts only entries from just before the bot was first watched; long replies are cut
+  ---
+  duration_ms: 11.621375
+  type: 'test'
+  ...
+# Subtest: an ask that was already answered keeps the job running; a relaunch with no cursor reads from the first check on
+ok 322 - an ask that was already answered keeps the job running; a relaunch with no cursor reads from the first check on
+  ---
+  duration_ms: 8.920958
+  type: 'test'
+  ...
+# Subtest: stopping while a transcript read is in flight never touches a closed database
+ok 323 - stopping while a transcript read is in flight never touches a closed database
+  ---
+  duration_ms: 5.628083
+  type: 'test'
+  ...
+# Subtest: relaunch without a transcript cursor recovers an old job instead of filtering it by restart time
+ok 324 - relaunch without a transcript cursor recovers an old job instead of filtering it by restart time
+  ---
+  duration_ms: 16.69125
+  type: 'test'
+  ...
+# Subtest: a transcript request rejected after shutdown also leaves the closed store alone
+ok 325 - a transcript request rejected after shutdown also leaves the closed store alone
+  ---
+  duration_ms: 2.193958
+  type: 'test'
+  ...
+# Subtest: an unwatched bot check ignores old history and does not start a polling loop
+ok 326 - an unwatched bot check ignores old history and does not start a polling loop
+  ---
+  duration_ms: 1.446917
+  type: 'test'
+  ...
+# Subtest: parseMemory cleans text and drops empty entries
+ok 327 - parseMemory cleans text and drops empty entries
+  ---
+  duration_ms: 1.714917
+  type: 'test'
+  ...
+# Subtest: parseMemory refuses bad shapes with the reason
+ok 328 - parseMemory refuses bad shapes with the reason
+  ---
+  duration_ms: 0.571291
+  type: 'test'
+  ...
+# Subtest: callFileName is safe on every file system
+ok 329 - callFileName is safe on every file system
+  ---
+  duration_ms: 6.322375
+  type: 'test'
+  ...
+# Subtest: CallStore saves memory and one export per call, private to you
+ok 330 - CallStore saves memory and one export per call, private to you
+  ---
+  duration_ms: 4.628792
+  type: 'test'
+  ...
+# Subtest: bots get the task tools instead of the notepad tools, and keep search
+ok 331 - bots get the task tools instead of the notepad tools, and keep search
+  ---
+  duration_ms: 11.036625
+  type: 'test'
+  ...
+# Subtest: instructions explain tasks, list the bot's own open tasks, and never mention the notepad
+ok 332 - instructions explain tasks, list the bot's own open tasks, and never mention the notepad
+  ---
+  duration_ms: 0.754375
+  type: 'test'
+  ...
+# Subtest: without a last summary, no last-call section is added
+ok 333 - without a last summary, no last-call section is added
+  ---
+  duration_ms: 0.450875
+  type: 'test'
+  ...
+# Subtest: if core's wording changes, the task text is still added
+ok 334 - if core's wording changes, the task text is still added
+  ---
+  duration_ms: 0.834375
+  type: 'test'
+  ...
+# Subtest: tasksText is the same text the bots get
+ok 335 - tasksText is the same text the bots get
+  ---
+  duration_ms: 0.276417
+  type: 'test'
+  ...
+# Subtest: add_task: owners can be me, another bot (in the call or not), the host, or nobody
+ok 336 - add_task: owners can be me, another bot (in the call or not), the host, or nobody
+  ---
+  duration_ms: 4.742084
+  type: 'test'
+  ...
+# Subtest: task tool mistakes come back as "Not done" with the reason
+ok 337 - task tool mistakes come back as "Not done" with the reason
+  ---
+  duration_ms: 5.918959
+  type: 'test'
+  ...
+# Subtest: update_task: the owner hears about it, and tasks that were waiting are announced as ready
+ok 338 - update_task: the owner hears about it, and tasks that were waiting are announced as ready
+  ---
+  duration_ms: 2.672542
+  type: 'test'
+  ...
+# Subtest: link_tasks and list_tasks
+ok 339 - link_tasks and list_tasks
+  ---
+  duration_ms: 3.10725
+  type: 'test'
+  ...
+# Subtest: host task changes from the app: unlink and remove tell the owners
+ok 340 - host task changes from the app: unlink and remove tell the owners
+  ---
+  duration_ms: 0.938042
+  type: 'test'
+  ...
+# Subtest: old notepad tools are refused with the right tool names; other tools still work
+ok 341 - old notepad tools are refused with the right tool names; other tools still work
+  ---
+  duration_ms: 1.101958
+  type: 'test'
+  ...
+# Subtest: unexpected errors in task tools are not swallowed
+ok 342 - unexpected errors in task tools are not swallowed
+  ---
+  duration_ms: 0.86775
+  type: 'test'
+  ...
+# Subtest: ownerOf: "me" only works for a bot
+ok 343 - ownerOf: "me" only works for a bot
+  ---
+  duration_ms: 0.892
+  type: 'test'
+  ...
+# Subtest: wrap-up shows the summary bot the tasks with owners and done marks
+ok 344 - wrap-up shows the summary bot the tasks with owners and done marks
+  ---
+  duration_ms: 1.273333
+  type: 'test'
+  ...
+# Subtest: overlayExport: tasks with real status, memory carries open tasks and keeps the last summary
+ok 345 - overlayExport: tasks with real status, memory carries open tasks and keeps the last summary
+  ---
+  duration_ms: 1.714208
+  type: 'test'
+  ...
+# Subtest: linesSince gives new transcript lines with who said them
+ok 346 - linesSince gives new transcript lines with who said them
+  ---
+  duration_ms: 6.500875
+  type: 'test'
+  ...
+# Subtest: overlayView: live words of the speaking bot, gaze, focus and versions
+ok 347 - overlayView: live words of the speaking bot, gaze, focus and versions
+  ---
+  duration_ms: 5.019667
+  type: 'test'
+  ...
+# Subtest: gaze rules
+ok 348 - gaze rules
+  ---
+  duration_ms: 0.309875
+  type: 'test'
+  ...
+# Subtest: overlayMarkdown writes summary, action items, tasks under parents, the transcript, the timeline and the log file
+ok 349 - overlayMarkdown writes summary, action items, tasks under parents, the transcript, the timeline and the log file
+  ---
+  duration_ms: 1.660459
+  type: 'test'
+  ...
+# Subtest: a bot added mid-call gets the conversation so far; bad tool arguments count as none
+ok 350 - a bot added mid-call gets the conversation so far; bad tool arguments count as none
+  ---
+  duration_ms: 4.0645
+  type: 'test'
+  ...
+# Subtest: overlayView reports the one-on-one bot
+ok 351 - overlayView reports the one-on-one bot
+  ---
+  duration_ms: 1.703041
+  type: 'test'
+  ...
+# Subtest: removing a blocker refreshes the dependent bot instructions
+ok 352 - removing a blocker refreshes the dependent bot instructions
+  ---
+  duration_ms: 0.562
+  type: 'test'
+  ...
+# Subtest: removing the unfinished part refreshes the parent owner and bots waiting on the parent
+ok 353 - removing the unfinished part refreshes the parent owner and bots waiting on the parent
+  ---
+  duration_ms: 1.588958
+  type: 'test'
+  ...
+# Subtest: parent completion and newly added parts refresh every affected owner
+ok 354 - parent completion and newly added parts refresh every affected owner
+  ---
+  duration_ms: 1.141917
+  type: 'test'
+  ...
+# Subtest: choice lists match the Grok Bot app
+ok 355 - choice lists match the Grok Bot app
+  ---
+  duration_ms: 0.871125
+  type: 'test'
+  ...
+# Subtest: parseVoiceSettings keeps only the fields given
+ok 356 - parseVoiceSettings keeps only the fields given
+  ---
+  duration_ms: 0.111084
+  type: 'test'
+  ...
+# Subtest: parseVoiceSettings refuses bad values with the reason
+ok 357 - parseVoiceSettings refuses bad values with the reason
+  ---
+  duration_ms: 0.244209
+  type: 'test'
+  ...
+# Subtest: parseNewBot cleans text and checks look and voice
+ok 358 - parseNewBot cleans text and checks look and voice
+  ---
+  duration_ms: 0.255583
+  type: 'test'
+  ...
+# Subtest: setVoice sends only the changed fields, maps null to the default, and returns the fresh bot
+ok 359 - setVoice sends only the changed fields, maps null to the default, and returns the fresh bot
+  ---
+  duration_ms: 37.652292
+  type: 'test'
+  ...
+# Subtest: createBot asks for a Temporal bot like the Grok Bot app, then sets the voice
+ok 360 - createBot asks for a Temporal bot like the Grok Bot app, then sets the voice
+  ---
+  duration_ms: 7.578791
+  type: 'test'
+  ...
+# Subtest: createBot without a voice skips the voice call
+ok 361 - createBot without a voice skips the voice call
+  ---
+  duration_ms: 2.887542
+  type: 'test'
+  ...
+# Subtest: createBot reports a missing bot instead of guessing
+ok 362 - createBot reports a missing bot instead of guessing
+  ---
+  duration_ms: 13.61875
+  type: 'test'
+  ...
+# Subtest: a log is a private JSON-lines file per call; two calls in the same second get their own files
+ok 363 - a log is a private JSON-lines file per call; two calls in the same second get their own files
+  ---
+  duration_ms: 2.133834
+  type: 'test'
+  ...
+# Subtest: voice messages: audio and word-by-word text are left out; anything that is not JSON is kept, cut short
+ok 364 - voice messages: audio and word-by-word text are left out; anything that is not JSON is kept, cut short
+  ---
+  duration_ms: 0.582875
+  type: 'test'
+  ...
+# Subtest: a write that fails (disk full, folder gone) closes the log instead of breaking the call
+ok 365 - a write that fails (disk full, folder gone) closes the log instead of breaking the call
+  ---
+  duration_ms: 0.373209
+  type: 'test'
+  ...
+# Subtest: loggedSocket logs both directions, opens, closes and errors under the bot's name
+ok 366 - loggedSocket logs both directions, opens, closes and errors under the bot's name
+  ---
+  duration_ms: 1.238583
+  type: 'test'
+  ...
+# Subtest: MicStats sums up a second of mic frames, and says nothing for a second without any
+ok 367 - MicStats sums up a second of mic frames, and says nothing for a second without any
+  ---
+  duration_ms: 0.233917
+  type: 'test'
+  ...
+# (node:47582) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: upgradeAllowed: local host, no browser origin, /ws, exact token
+ok 368 - upgradeAllowed: local host, no browser origin, /ws, exact token
+  ---
+  duration_ms: 0.698583
+  type: 'test'
+  ...
+# Subtest: bot audio frames carry id, play time and PCM16
+ok 369 - bot audio frames carry id, play time and PCM16
+  ---
+  duration_ms: 0.452292
+  type: 'test'
+  ...
+# Subtest: mic frames decode, clamp the level, and refuse junk
+ok 370 - mic frames decode, clamp the level, and refuse junk
+  ---
+  duration_ms: 0.523416
+  type: 'test'
+  ...
+# Subtest: plain HTTP gets 404 and a bad upgrade gets 403
+ok 371 - plain HTTP gets 404 and a bad upgrade gets 403
+  ---
+  duration_ms: 27.509792
+  type: 'test'
+  ...
+# Subtest: hello, state, login and bots
+ok 372 - hello, state, login and bots
+  ---
+  duration_ms: 14.504833
+  type: 'test'
+  ...
+# Subtest: signed out: requests say so
+ok 373 - signed out: requests say so
+  ---
+  duration_ms: 8.408875
+  type: 'test'
+  ...
+# Subtest: bad messages get clear errors
+ok 374 - bad messages get clear errors
+  ---
+  duration_ms: 8.212042
+  type: 'test'
+  ...
+# Subtest: a call: view, transcript and tasks are pushed; bot audio comes as frames; stop and mute
+ok 375 - a call: view, transcript and tasks are pushed; bot audio comes as frames; stop and mute
+  ---
+  duration_ms: 37.659291
+  type: 'test'
+  ...
+# Subtest: a bot's own Grok Bot tools run through Grok Bot during the call
+ok 376 - a bot's own Grok Bot tools run through Grok Bot during the call
+  ---
+  duration_ms: 25.161667
+  type: 'test'
+  ...
+# Subtest: say: to everyone, or to one bot by name (a one-on-one)
+ok 377 - say: to everyone, or to one bot by name (a one-on-one)
+  ---
+  duration_ms: 13.713334
+  type: 'test'
+  ...
+# Subtest: add and remove bots during the call
+ok 378 - add and remove bots during the call
+  ---
+  duration_ms: 23.015583
+  type: 'test'
+  ...
+# Subtest: setVoice saves to Grok Bot and updates a bot in the call
+ok 379 - setVoice saves to Grok Bot and updates a bot in the call
+  ---
+  duration_ms: 24.900125
+  type: 'test'
+  ...
+# Subtest: createBot makes the bot, and can pull it straight into the call
+ok 380 - createBot makes the bot, and can pull it straight into the call
+  ---
+  duration_ms: 19.216375
+  type: 'test'
+  ...
+# Subtest: tasks outside a call are saved, and every mistake is explained
+ok 381 - tasks outside a call are saved, and every mistake is explained
+  ---
+  duration_ms: 8.3055
+  type: 'test'
+  ...
+# Subtest: tasks during a call go through the call, so bots hear about them
+ok 382 - tasks during a call go through the call, so bots hear about them
+  ---
+  duration_ms: 24.920167
+  type: 'test'
+  ...
+# Subtest: every call writes a live log: each bot's voice traffic, tools, app requests, mic, and the saved call points to it
+ok 383 - every call writes a live log: each bot's voice traffic, tools, app requests, mic, and the saved call points to it
+  ---
+  duration_ms: 1114.300458
+  type: 'test'
+  ...
+# Subtest: the mic summary still comes when no bot is hearing the host (every bot left)
+ok 384 - the mic summary still comes when no bot is hearing the host (every bot left)
+  ---
+  duration_ms: 1067.897459
+  type: 'test'
+  ...
+# Subtest: leave without anything said ends the call and saves nothing
+ok 385 - leave without anything said ends the call and saves nothing
+  ---
+  duration_ms: 29.470125
+  type: 'test'
+  ...
+# Subtest: leave waits for the summary, saves the call and the tasks, and the next call starts from them
+ok 386 - leave waits for the summary, saves the call and the tasks, and the next call starts from them
+  ---
+  duration_ms: 35.915042
+  type: 'test'
+  ...
+# Subtest: a second app connection replaces the first and ends its call; closing the app ends the call too
+ok 387 - a second app connection replaces the first and ends its call; closing the app ends the call too
+  ---
+  duration_ms: 30.156291
+  type: 'test'
+  ...
+# Subtest: closing the backend closes the app connection
+ok 388 - closing the backend closes the app connection
+  ---
+  duration_ms: 4.374625
+  type: 'test'
+  ...
+# Subtest: defaults: the real clock and Grok Bot endpoints, and real voice sockets with the secret as subprotocol
+ok 389 - defaults: the real clock and Grok Bot endpoints, and real voice sockets with the secret as subprotocol
+  ---
+  duration_ms: 3.916209
+  type: 'test'
+  ...
+# Subtest: a task owner is checked against the bot list even before the app asked for it
+ok 390 - a task owner is checked against the bot list even before the app asked for it
+  ---
+  duration_ms: 3.595125
+  type: 'test'
+  ...
+# Subtest: the view is pushed on the default cadence
+ok 391 - the view is pushed on the default cadence
+  ---
+  duration_ms: 74.381208
+  type: 'test'
+  ...
+# Subtest: logout forgets the sign-in, but not during a call
+ok 392 - logout forgets the sign-in, but not during a call
+  ---
+  duration_ms: 15.344417
+  type: 'test'
+  ...
+# Subtest: a job's answer from the agent reaches the bot on the call, and is logged
+ok 393 - a job's answer from the agent reaches the bot on the call, and is logged
+  ---
+  duration_ms: 3063.39225
+  type: 'test'
+  ...
+# Subtest: native file tools are recorded before dispatch, return to voice, and survive reopening history
+ok 394 - native file tools are recorded before dispatch, return to voice, and survive reopening history
+  ---
+  duration_ms: 75.288833
+  type: 'test'
+  ...
+# Subtest: disconnecting while a native action runs marks its outcome unknown
+ok 395 - disconnecting while a native action runs marks its outcome unknown
+  ---
+  duration_ms: 45.555041
+  type: 'test'
+  ...
+# Subtest: approval buttons and voice tools resolve only the exact pending action for that bot
+ok 396 - approval buttons and voice tools resolve only the exact pending action for that bot
+  ---
+  duration_ms: 119.481625
+  type: 'test'
+  ...
+# Subtest: a native timeout is outcome unknown, and late results cannot turn it into success
+ok 397 - a native timeout is outcome unknown, and late results cannot turn it into success
+  ---
+  duration_ms: 15129.437416
+  type: 'test'
+  ...
+# Subtest: native errors are recorded as failures; a watcher outage is logged and retried
+ok 398 - native errors are recorded as failures; a watcher outage is logged and retried
+  ---
+  duration_ms: 3136.094375
+  type: 'test'
+  ...
+# Subtest: the enabled desktop browser executes through the call and records its verified page state
+ok 399 - the enabled desktop browser executes through the call and records its verified page state
+  ---
+  duration_ms: 816.065959
+  type: 'test'
+  ...
+# Subtest: parseOverlayMemory cleans the summary and checks tasks
+ok 400 - parseOverlayMemory cleans the summary and checks tasks
+  ---
+  duration_ms: 2.494375
+  type: 'test'
+  ...
+# Subtest: summaryOf reads the Summary section
+ok 401 - summaryOf reads the Summary section
+  ---
+  duration_ms: 1.042166
+  type: 'test'
+  ...
+# Subtest: memory: missing or broken files read as null; writes are atomic and private
+ok 402 - memory: missing or broken files read as null; writes are atomic and private
+  ---
+  duration_ms: 0.771292
+  type: 'test'
+  ...
+# Subtest: saveCall writes the call and memory; same-second calls get -2, -3
+ok 403 - saveCall writes the call and memory; same-second calls get -2, -3
+  ---
+  duration_ms: 4.997833
+  type: 'test'
+  ...
+# Subtest: listCalls is empty with no calls folder and keeps only the newest 50
+ok 404 - listCalls is empty with no calls folder and keeps only the newest 50
+  ---
+  duration_ms: 13.530625
+  type: 'test'
+  ...
+# Subtest: readCall only accepts call file names
+ok 405 - readCall only accepts call file names
+  ---
+  duration_ms: 0.171333
+  type: 'test'
+  ...
+# Subtest: cleanTitle trims, joins lines and caps length
+ok 406 - cleanTitle trims, joins lines and caps length
+  ---
+  duration_ms: 1.360167
+  type: 'test'
+  ...
+# Subtest: add numbers tasks, keeps owner, parent and links, and bumps version
+ok 407 - add numbers tasks, keeps owner, parent and links, and bumps version
+  ---
+  duration_ms: 0.988
+  type: 'test'
+  ...
+# Subtest: add refuses bad input with a reason a bot can act on
+ok 408 - add refuses bad input with a reason a bot can act on
+  ---
+  duration_ms: 5.035583
+  type: 'test'
+  ...
+# Subtest: a parent follows its parts: open, then doing, then done
+ok 409 - a parent follows its parts: open, then doing, then done
+  ---
+  duration_ms: 0.220541
+  type: 'test'
+  ...
+# Subtest: a waiting task cannot start until what it waits on is done, then it is reported ready
+ok 410 - a waiting task cannot start until what it waits on is done, then it is reported ready
+  ---
+  duration_ms: 0.097958
+  type: 'test'
+  ...
+# Subtest: several blockers are listed together
+ok 411 - several blockers are listed together
+  ---
+  duration_ms: 0.15975
+  type: 'test'
+  ...
+# Subtest: finishing the last part makes tasks waiting on the parent ready
+ok 412 - finishing the last part makes tasks waiting on the parent ready
+  ---
+  duration_ms: 0.063625
+  type: 'test'
+  ...
+# Subtest: setStatus refuses unknown tasks and statuses
+ok 413 - setStatus refuses unknown tasks and statuses
+  ---
+  duration_ms: 0.052708
+  type: 'test'
+  ...
+# Subtest: link adds cross-links and refuses self, parent and loops
+ok 414 - link adds cross-links and refuses self, parent and loops
+  ---
+  duration_ms: 0.10625
+  type: 'test'
+  ...
+# Subtest: loop check walks shared paths once
+ok 415 - loop check walks shared paths once
+  ---
+  duration_ms: 0.062625
+  type: 'test'
+  ...
+# Subtest: unlink and remove drop links; removing a parent removes its parts
+ok 416 - unlink and remove drop links; removing a parent removes its parts
+  ---
+  duration_ms: 0.12275
+  type: 'test'
+  ...
+# Subtest: text shows each task the way a bot reads it
+ok 417 - text shows each task the way a bot reads it
+  ---
+  duration_ms: 0.150333
+  type: 'test'
+  ...
+# Subtest: ownText lists only open tasks of that owner
+ok 418 - ownText lists only open tasks of that owner
+  ---
+  duration_ms: 0.06225
+  type: 'test'
+  ...
+# Subtest: carryOver keeps open tasks and their parents, and drops links to done tasks
+ok 419 - carryOver keeps open tasks and their parents, and drops links to done tasks
+  ---
+  duration_ms: 0.622584
+  type: 'test'
+  ...
+# Subtest: the constructor copies tasks so outside changes do not leak in
+ok 420 - the constructor copies tasks so outside changes do not leak in
+  ---
+  duration_ms: 0.176916
+  type: 'test'
+  ...
+# Subtest: parseTasks round-trips a board and fills safe defaults
+ok 421 - parseTasks round-trips a board and fills safe defaults
+  ---
+  duration_ms: 0.476417
+  type: 'test'
+  ...
+# Subtest: parseTasks refuses broken files with the reason
+ok 422 - parseTasks refuses broken files with the reason
+  ---
+  duration_ms: 1.856917
+  type: 'test'
+  ...
+# Subtest: dependency cycles through a parent and its parts are refused in either link order
+ok 423 - dependency cycles through a parent and its parts are refused in either link order
+  ---
+  duration_ms: 0.115542
+  type: 'test'
+  ...
+# Subtest: adding a part cannot make it wait on its parent through another task
+ok 424 - adding a part cannot make it wait on its parent through another task
+  ---
+  duration_ms: 0.056958
+  type: 'test'
+  ...
+# (node:47585) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: serves the call page and its scripts with a strict CSP
+ok 425 - serves the call page and its scripts with a strict CSP
+  ---
+  duration_ms: 26.683083
+  type: 'test'
+  ...
+# Subtest: blocks other sites and DNS rebinding
+ok 426 - blocks other sites and DNS rebinding
+  ---
+  duration_ms: 7.072042
+  type: 'test'
+  ...
+# Subtest: isAllowed accepts IPv6 loopback
+ok 427 - isAllowed accepts IPv6 loopback
+  ---
+  duration_ms: 0.153041
+  type: 'test'
+  ...
+# Subtest: signed out: bots answer 401 so the page shows sign-in
+ok 428 - signed out: bots answer 401 so the page shows sign-in
+  ---
+  duration_ms: 1.976
+  type: 'test'
+  ...
+# Subtest: sign-in flow: login URL, then state flips to signed-in
+ok 429 - sign-in flow: login URL, then state flips to signed-in
+  ---
+  duration_ms: 15.736792
+  type: 'test'
+  ...
+# Subtest: lists bots and mints a voice session for one
+ok 430 - lists bots and mints a voice session for one
+  ---
+  duration_ms: 10.568416
+  type: 'test'
+  ...
+# Subtest: upstream trouble is a 502 with the reason
+ok 431 - upstream trouble is a 502 with the reason
+  ---
+  duration_ms: 1.467625
+  type: 'test'
+  ...
+# Subtest: unknown routes and methods
+ok 432 - unknown routes and methods
+  ---
+  duration_ms: 1.012708
+  type: 'test'
+  ...
+# Subtest: closing the server stops a pending sign-in
+ok 433 - closing the server stops a pending sign-in
+  ---
+  duration_ms: 57.632
+  type: 'test'
+  ...
+# Subtest: defaults to the real Grok Bot sign-in page
+ok 434 - defaults to the real Grok Bot sign-in page
+  ---
+  duration_ms: 33.892042
+  type: 'test'
+  ...
+# Subtest: memory: none at first, then the last saved call; calls are saved under dataDir
+ok 435 - memory: none at first, then the last saved call; calls are saved under dataDir
+  ---
+  duration_ms: 8.198875
+  type: 'test'
+  ...
+# Subtest: saving a call refuses bad input with the reason
+ok 436 - saving a call refuses bad input with the reason
+  ---
+  duration_ms: 31.867292
+  type: 'test'
+  ...
+# Subtest: readJson stops reading a body over the limit
+ok 437 - readJson stops reading a body over the limit
+  ---
+  duration_ms: 0.792625
+  type: 'test'
+  ...
+# Subtest: call tools: a bot's search goes to Grok Bot; hang-up and malformed calls are refused with the reason
+ok 438 - call tools: a bot's search goes to Grok Bot; hang-up and malformed calls are refused with the reason
+  ---
+  duration_ms: 16.700291
+  type: 'test'
+  ...
+# Subtest: parseToolCall checks every field
+ok 439 - parseToolCall checks every field
+  ---
+  duration_ms: 0.342333
+  type: 'test'
+  ...
+# Subtest: agent updates: the page reads what a bot's agent sent back to this call
+ok 440 - agent updates: the page reads what a bot's agent sent back to this call
+  ---
+  duration_ms: 39.811208
+  type: 'test'
+  ...
+# Subtest: parseLanded checks every field
+ok 441 - parseLanded checks every field
+  ---
+  duration_ms: 0.602292
+  type: 'test'
+  ...
+# Subtest: recorded action lists are available without sending full tool results again
+ok 442 - recorded action lists are available without sending full tool results again
+  ---
+  duration_ms: 1.601042
+  type: 'test'
+  ...
+# Subtest: validate provider drafts without coercion, defaults, remote refs, or skipped formats
+ok 443 - validate provider drafts without coercion, defaults, remote refs, or skipped formats
+  ---
+  duration_ms: 49.083042
+  type: 'test'
+  ...
+1..443
+# tests 443
+# suites 0
+# pass 443
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 60891.377458
+# start of coverage report
+# -----------------------------------------------------------------
+# file             | line % | branch % | funcs % | uncovered lines
+# -----------------------------------------------------------------
+# public           |        |          |         | 
+#  core.js         | 100.00 |   100.00 |  100.00 | 
+# src              |        |          |         | 
+#  actions.ts      | 100.00 |   100.00 |  100.00 | 
+#  apps.ts         | 100.00 |   100.00 |  100.00 | 
+#  auth.ts         | 100.00 |   100.00 |  100.00 | 
+#  browser.ts      | 100.00 |   100.00 |  100.00 | 
+#  config.ts       | 100.00 |   100.00 |  100.00 | 
+#  dispatch.ts     | 100.00 |   100.00 |  100.00 | 
+#  grokbot.ts      | 100.00 |   100.00 |  100.00 | 
+#  jobs.ts         | 100.00 |   100.00 |  100.00 | 
+#  local-tools.ts  | 100.00 |   100.00 |  100.00 | 
+#  memory.ts       | 100.00 |   100.00 |  100.00 | 
+#  overlay         |        |          |         | 
+#   call.ts        | 100.00 |   100.00 |  100.00 | 
+#   grok.ts        | 100.00 |   100.00 |  100.00 | 
+#   log.ts         | 100.00 |   100.00 |  100.00 | 
+#   server.ts      | 100.00 |   100.00 |  100.00 | 
+#   store.ts       | 100.00 |   100.00 |  100.00 | 
+#   tasks.ts       | 100.00 |   100.00 |  100.00 | 
+#  server.ts       | 100.00 |   100.00 |  100.00 | 
+#  validation.ts   | 100.00 |   100.00 |  100.00 | 
+# -----------------------------------------------------------------
+# all files        | 100.00 |   100.00 |  100.00 | 
+# -----------------------------------------------------------------
+# end of coverage report

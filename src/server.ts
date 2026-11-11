@@ -3,6 +3,9 @@ import http from 'node:http';
 import { AuthStore, Login } from './auth.ts';
 import { API_URL, GrokBotClient, NotFoundError, SignedOutError, SITE_URL, ToolRefusedError, type ToolCall } from './grokbot.ts';
 import { BadInput, CallStore, LIMITS, parseMemory } from './memory.ts';
+import { ActionStore } from './actions.ts';
+import { CallActions } from './dispatch.ts';
+import { JobWatcher } from './jobs.ts';
 
 class HttpError extends Error {
   status: number;
@@ -88,6 +91,16 @@ export function parseToolCall(raw: unknown): ToolCall {
   return { callId, name, input, line: Object.fromEntries(LINE_KEYS.map((k) => [k, line[k]])) as ToolCall['line'] };
 }
 
+/** Checks a request for a bot's agent updates on this call. Throws a 400 with the reason. */
+export function parseLanded(raw: unknown): { callId: string; after: number } {
+  const b = raw as Record<string, any> | null;
+  const bad = (why: string) => new HttpError(400, why);
+  if (!b || typeof b !== 'object' || Array.isArray(b)) throw bad('body must be an object');
+  if (typeof b.callId !== 'string' || !/^[A-Za-z0-9_.:-]{1,128}$/.test(b.callId)) throw bad('callId must be 1-128 letters, digits or _.:-');
+  if (!Number.isSafeInteger(b.after) || b.after < 0) throw bad('after must be a nonnegative whole number');
+  return { callId: b.callId, after: b.after };
+}
+
 function json(res: http.ServerResponse, status: number, body: unknown) {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
   res.end(JSON.stringify(body));
@@ -106,12 +119,18 @@ export function createApp(opts: AppOptions) {
   });
   const grok = new GrokBotClient({ store, apiUrl, fetch: opts.fetch });
   const calls = new CallStore(opts.dataDir);
+  const actionStore = new ActionStore(opts.dataDir);
+  actionStore.recoverInterrupted();
+  const watcher = new JobWatcher({ grok, store: actionStore, setTimer: (fn, ms) => setTimeout(fn, ms).unref(), clearTimer: (t) => clearTimeout(t), now: Date.now });
+  watcher.resume();
+  const actions = new CallActions(grok, actionStore, watcher);
   const files = Object.fromEntries(
     Object.entries(STATIC).map(([path, f]) => [path, readFileSync(new URL(`../public/${f.file}`, import.meta.url))]),
   );
 
   type Handler = (res: http.ServerResponse, match: RegExpExecArray, req: http.IncomingMessage) => Promise<void> | void;
   const routes: { pattern: RegExp; method: string; handler: Handler }[] = [
+    { pattern: /^\/api\/actions$/, method: 'GET', handler: (res) => json(res, 200, { actions: actionStore.list().map(({ result, input, ...a }) => a) }) },
     { pattern: /^\/api\/state$/, method: 'GET', handler: (res) => json(res, 200, login.state()) },
     { pattern: /^\/api\/login$/, method: 'POST', handler: (res) => json(res, 200, { loginUrl: login.start() }) },
     { pattern: /^\/api\/bots$/, method: 'GET', handler: async (res) => json(res, 200, { bots: await grok.listBots() }) },
@@ -127,11 +146,21 @@ export function createApp(opts: AppOptions) {
       handler: async (res, m, req) => {
         const call = parseToolCall(await readJson(req, TOOL_BODY_LIMIT));
         try {
-          json(res, 200, await grok.harnessTool(m[1], call));
+          json(res, 200, await actions.tool(m[1], grok.bot(m[1])?.name ?? m[1], call));
         } catch (err) {
           if (err instanceof ToolRefusedError) throw new HttpError(400, err.message);
           throw err;
         }
+      },
+    },
+    {
+      // What a bot's agent sent back to this call about its jobs since `after`.
+      pattern: /^\/api\/bots\/([A-Za-z0-9_-]{1,64})\/landed$/,
+      method: 'POST',
+      handler: async (res, m, req) => {
+        const { callId, after } = parseLanded(await readJson(req, 1_000));
+        if (!grok.bot(m[1])) throw new HttpError(400, 'Start a voice session with this bot first.');
+        json(res, 200, { work: actions.updates(m[1], callId, after) });
       },
     },
     { pattern: /^\/api\/memory$/, method: 'GET', handler: (res) => json(res, 200, { memory: calls.readMemory() }) },
@@ -188,5 +217,10 @@ export function createApp(opts: AppOptions) {
     }
   });
   server.on('close', () => login.cancel());
+  // Jobs keep being watched while the server runs; closing it stops that and closes the history.
+  server.on('close', () => {
+    watcher.stop();
+    actionStore.close();
+  });
   return server;
 }

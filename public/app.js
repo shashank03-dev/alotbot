@@ -12,10 +12,10 @@ const state = {
   level: 0,
   tiles: new Map(),
   frame: 0,
-  panel: null, // 'people' | 'notes' | 'timeline' | null
+  panel: null, // 'people' | 'tasks' | 'timeline' | null
   timelineSeq: 0, // last timeline entry drawn
   toastTimer: 0,
-  notesSeen: -1, // notepad state last drawn: `${notepadVersion}|${direction.length}`
+  tasksSeen: -1, // task state last drawn: `${notepadVersion}|${direction.length}`
 };
 
 // ---------- helpers ----------
@@ -81,7 +81,7 @@ const ICONS = {
   people: '<path d="M16 19v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1"/><circle cx="9.5" cy="7.5" r="3.5"/><path d="M21 19v-1a4 4 0 0 0-3-3.9M15.5 4.1a3.5 3.5 0 0 1 0 6.8"/>',
   timeline: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   send: '<path d="M5 12h14M13 6l6 6-6 6"/>',
-  notes: '<path d="M8 3h8l4 4v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h2"/><path d="M8 3v3h8V3M8 12h8M8 16h5"/>',
+  tasks: '<path d="M8 3h8l4 4v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h2"/><path d="M8 3v3h8V3M8 12h8M8 16h5"/>',
   leave: '<path d="M4.5 14.2c-1-.9-1-2.4 0-3.3 4.2-3.9 10.8-3.9 15 0 1 .9 1 2.4 0 3.3l-1.6 1.4a1.5 1.5 0 0 1-2 0l-1.4-1.3a1.5 1.5 0 0 1-.4-1.5l.3-1a9 9 0 0 0-4.8 0l.3 1a1.5 1.5 0 0 1-.4 1.5l-1.4 1.3a1.5 1.5 0 0 1-2 0Z"/>',
 };
 
@@ -364,6 +364,7 @@ async function join() {
   state.call = new Call({
     mintVoice: (id) => api(`/api/bots/${encodeURIComponent(id)}/voice`, 'POST', undefined, CONNECT_TIMEOUT_MS),
     callTool: (id, req) => api(`/api/bots/${encodeURIComponent(id)}/tool`, 'POST', req, TOOL_TIMEOUT_MS),
+    landedWork: async (id, callId, after) => (await api(`/api/bots/${encodeURIComponent(id)}/landed`, 'POST', { callId, after }, TOOL_TIMEOUT_MS)).work,
     openSocket: (url, protocols) => new WebSocket(url, protocols),
     audio: {
       now: () => ctx.currentTime,
@@ -404,7 +405,7 @@ async function join() {
   setSayEnabled(true);
   state.tiles.clear();
   $('#grid').innerHTML = '';
-  state.notesSeen = -1;
+  state.tasksSeen = -1;
   setPanel(null);
   show('call');
   renderMute();
@@ -426,7 +427,7 @@ async function leave() {
   setPanel(null);
   show('lobby');
   renderPicker();
-  // A call where nothing was said and the notepad wasn't touched is not saved, so it can't wipe the last call's memory.
+  // A call where nothing was said and no tasks changed is not saved, so it can't wipe the last call's memory.
   if (data.lines.length || data.notepadChanged) await saveCall(data);
 }
 
@@ -449,7 +450,7 @@ async function saveCall(data) {
   where.textContent = 'Saving…';
   try {
     const { file } = await api('/api/calls', 'POST', { memory: data.memory, markdown });
-    where.textContent = `Saved to .data/${file}. The bots get this summary and the notes in your next call.`;
+    where.textContent = `Saved to .data/${file}. The bots get this summary and open action items in your next call.`;
   } catch (err) {
     where.className = 'error';
     where.textContent = `Couldn't save the call: ${err.message.replace(/\.?$/, '.')} Download it instead.`;
@@ -548,21 +549,20 @@ function renderCall() {
   $('#empty-hint').hidden = view.bots.length > 0;
   if (state.panel === 'people') renderPeople(view);
   if (state.panel === 'timeline') renderTimeline(view);
-  const notesKey = `${view.notepadVersion}|${view.direction.length}`;
-  if (notesKey !== state.notesSeen) {
-    if (state.panel === 'notes') renderNotes(view);
-    else $('#notes-btn').dataset.unseen = String(state.notesSeen !== -1 && hasNotepad(view));
-    if (state.panel === 'notes' || state.notesSeen === -1) state.notesSeen = notesKey;
+  const tasksKey = `${view.notepadVersion}|${view.direction.length}`;
+  if (tasksKey !== state.tasksSeen) {
+    if (state.panel === 'tasks') renderTasks(view);
+    if (state.panel === 'tasks' || state.tasksSeen === -1) state.tasksSeen = tasksKey;
   }
   state.frame = requestAnimationFrame(renderCall);
 }
 
 // ---------- per-bot selection during the call ----------
 
-/** Opens one side panel ('people', 'notes' or 'timeline'), or closes them with null. */
+/** Opens one side panel ('people', 'tasks' or 'timeline'), or closes them with null. */
 function setPanel(name) {
   state.panel = name;
-  for (const p of ['people', 'notes', 'timeline']) {
+  for (const p of ['people', 'tasks', 'timeline']) {
     $(`#${p}`).hidden = p !== name;
     $(`#${p}-btn`).setAttribute('aria-expanded', String(p === name));
   }
@@ -570,11 +570,10 @@ function setPanel(name) {
     $('#people-list').innerHTML = '';
     renderPeople(state.call.view());
   }
-  if (name === 'notes') {
+  if (name === 'tasks') {
     const view = state.call.view();
-    renderNotes(view);
-    state.notesSeen = `${view.notepadVersion}|${view.direction.length}`;
-    $('#notes-btn').dataset.unseen = 'false';
+    renderTasks(view);
+    state.tasksSeen = `${view.notepadVersion}|${view.direction.length}`;
   }
   if (name === 'timeline') {
     $('#timeline-list').replaceChildren();
@@ -629,10 +628,10 @@ function renderPeople(view) {
   }
 }
 
-// ---------- shared notepad ----------
+// ---------- shared tasks ----------
 
-function hasNotepad(view) {
-  return view.direction.length + view.notes.length + view.tasks.length > 0;
+function hasTasks(view) {
+  return view.direction.length + view.tasks.length > 0;
 }
 
 function listItem(text, meta, cls = '') {
@@ -649,7 +648,7 @@ function listItem(text, meta, cls = '') {
   return li;
 }
 
-function renderNotes(view) {
+function renderTasks(view) {
   const section = (id, items) => {
     $(`#${id}`).hidden = !items.length;
     const list = $(`#${id} ul`);
@@ -657,13 +656,12 @@ function renderNotes(view) {
   };
   section('direction', view.direction.map((d, i, all) => listItem(d, i === all.length - 1 ? 'Latest' : '')));
   section(
-    'tasks',
+    'task-list',
     view.tasks.map((t) =>
       listItem(`${t.id}. ${t.text}`, t.done ? `Done by ${t.doneBy}` : `Added by ${t.by}`, t.done ? 'task done' : 'task'),
     ),
   );
-  section('notes-list', view.notes.map((n) => listItem(n.text, n.by)));
-  $('#notes-empty').hidden = hasNotepad(view);
+  $('#tasks-empty').hidden = hasTasks(view);
 }
 
 // ---------- message box, stop hotkey, timeline ----------
@@ -729,9 +727,9 @@ $('#leave').innerHTML = icon('leave');
 $('#people-btn').innerHTML = icon('people');
 $('#people-btn').onclick = () => togglePanel('people');
 $('#people-close').onclick = closePanel;
-$('#notes-btn').innerHTML = icon('notes');
-$('#notes-btn').onclick = () => togglePanel('notes');
-$('#notes-close').onclick = closePanel;
+$('#tasks-btn').innerHTML = icon('tasks');
+$('#tasks-btn').onclick = () => togglePanel('tasks');
+$('#tasks-close').onclick = closePanel;
 $('#timeline-btn').innerHTML = icon('timeline');
 $('#timeline-btn').onclick = () => togglePanel('timeline');
 $('#timeline-close').onclick = closePanel;

@@ -191,6 +191,7 @@ struct TrayView: View {
         case .newBot: NewBotTray(model: model)
         case .chat: ChatTray(model: model, prefs: prefs)
         case .voice: VoiceTray(model: model)
+        case .actions: ActionsView(model: model)
         }
     }
 }
@@ -466,5 +467,38 @@ struct VoiceTray: View {
             control()
         }
         .padding(.vertical, 12)
+    }
+}
+
+
+struct ActionsView: View {
+    @ObservedObject var model: AppModel
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Actions").font(.headline)
+            if model.actions.isEmpty { Text("Actions taken during calls appear here and stay after you leave.").foregroundStyle(Theme.secondary) }
+            ForEach(model.actions) { action in
+                VStack(alignment: .leading, spacing: 5) {
+                    Button { Task { await model.inspectAction(action.id) } } label: {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("\(action.botName) · \(action.target) · \(action.tool)").font(.system(size: 12, weight: .medium))
+                            Text(action.statusLabel).font(.caption).foregroundStyle(action.status == "failed" || action.status == "unknown" ? Theme.text : Theme.secondary)
+                            Text(action.error ?? action.approval?.summary ?? action.summary ?? "Running…").lineLimit(3).font(.caption)
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                    }.buttonStyle(.plain)
+                    if action.canResolve {
+                        HStack {
+                            Button("Approve once") { Task { await model.resolveAction(action, decision: "approve") } }
+                            Button("Deny") { Task { await model.resolveAction(action, decision: "deny") } }
+                        }.disabled(model.resolvingActions.contains(action.id))
+                    }
+                    if let detail = model.actionDetail, detail.id == action.id {
+                        Text("Result · \(detail.id)").font(.caption).foregroundStyle(Theme.secondary)
+                        ScrollView { Text(detail.result ?? detail.error ?? detail.approval?.summary ?? "No result yet.").font(.system(size: 11, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }.frame(maxHeight: 220)
+                    }
+                }.padding(.vertical, 5)
+                Divider()
+            }
+        }
     }
 }

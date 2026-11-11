@@ -63,12 +63,18 @@ final class Backend: NSObject, URLSessionWebSocketDelegate {
     private var nextReq = 0
     private let lock = NSLock()
     private var stopping = false
+    private let resolvePaths: () throws -> BackendPaths
+
+    init(resolvePaths: @escaping () throws -> BackendPaths = BackendPaths.resolve) {
+        self.resolvePaths = resolvePaths
+        super.init()
+    }
 
     /// Starts the backend and connects. Calls `onConnected` once it answered hello.
     func start() {
         stopping = false
         do {
-            let p = try BackendPaths.resolve()
+            let p = try resolvePaths()
             paths = p
             try launch(p)
         } catch {
@@ -99,22 +105,22 @@ final class Backend: NSObject, URLSessionWebSocketDelegate {
             }
         }
         var started = false
-        output.fileHandleForReading.readabilityHandler = { [weak self] h in
-            guard let self, let s = String(data: h.availableData, encoding: .utf8) else { return }
+        output.fileHandleForReading.readabilityHandler = { [weak self, weak proc] h in
+            guard let self, let proc, self.process === proc, let s = String(data: h.availableData, encoding: .utf8) else { return }
             if !started, let r = s.range(of: #"READY (\d+)"#, options: .regularExpression), let port = Int(s[r].dropFirst(6)) {
                 started = true
-                DispatchQueue.main.async { self.connect(port: port, token: token) }
+                DispatchQueue.main.async { guard self.process === proc else { return }; self.connect(port: port, token: token) }
             }
         }
         proc.terminationHandler = { [weak self] pr in
             DispatchQueue.main.async {
-                guard let self, !self.stopping else { return }
+                guard let self, !self.stopping, self.process === pr else { return }
                 let last = errText.split(separator: "\n").last.map(String.init) ?? ""
                 self.fail("The backend stopped (exit \(pr.terminationStatus))\(last.isEmpty ? "." : ": \(last)")")
             }
         }
-        try proc.run()
         process = proc
+        try proc.run()
         stdin = input
     }
 
@@ -135,24 +141,24 @@ final class Backend: NSObject, URLSessionWebSocketDelegate {
                 // The backend read its clock somewhere between send and reply: take the middle.
                 let clock = ClockMap(localAtHello: (sent + Clock.now()) / 2, serverAtHello: hello.serverNow)
                 guard hello.version == protocolVersion else {
-                    DispatchQueue.main.async { self.fail("The backend speaks protocol \(hello.version); this app needs \(protocolVersion). Rebuild the app.") }
+                    DispatchQueue.main.async { guard self.socket === ws else { return }; self.fail("The backend speaks protocol \(hello.version); this app needs \(protocolVersion). Rebuild the app.") }
                     return
                 }
-                DispatchQueue.main.async { self.onConnected?(hello, clock) }
+                DispatchQueue.main.async { guard self.socket === ws else { return }; self.onConnected?(hello, clock) }
             } catch {
-                DispatchQueue.main.async { self.fail("Couldn't talk to the backend: \(error.localizedDescription)") }
+                DispatchQueue.main.async { guard self.socket === ws else { return }; self.fail("Couldn't talk to the backend: \(error.localizedDescription)") }
             }
         }
     }
 
     private func receive(_ ws: URLSessionWebSocketTask) {
         ws.receive { [weak self] result in
-            guard let self else { return }
+            guard let self, self.socket === ws else { return }
             switch result {
             case .failure(let err):
-                if !self.stopping { DispatchQueue.main.async { self.fail("Lost the backend connection: \(err.localizedDescription)") } }
+                DispatchQueue.main.async { if !self.stopping && self.socket === ws { self.fail("Lost the backend connection: \(err.localizedDescription)") } }
             case .success(.string(let text)):
-                self.handle(text)
+                self.handle(text, from: ws)
                 self.receive(ws)
             case .success(.data(let data)):
                 if let chunk = AudioFrames.decodeBot(data) { self.onAudio?(chunk) }
@@ -163,7 +169,7 @@ final class Backend: NSObject, URLSessionWebSocketDelegate {
         }
     }
 
-    private func handle(_ text: String) {
+    private func handle(_ text: String, from ws: URLSessionWebSocketTask) {
         guard let msg = try? ServerMessage.decode(text) else { return }
         if case let .reply(req?, ok, result, error, signedOut) = msg {
             lock.lock()
@@ -172,7 +178,7 @@ final class Backend: NSObject, URLSessionWebSocketDelegate {
             if ok { cont?.resume(returning: result) } else { cont?.resume(throwing: BackendError.refused(error ?? "Request failed.", signedOut: signedOut)) }
             return
         }
-        DispatchQueue.main.async { self.onMessage?(msg) }
+        DispatchQueue.main.async { guard self.socket === ws else { return }; self.onMessage?(msg) }
     }
 
     /// Sends a command and waits for its reply.
@@ -225,6 +231,8 @@ final class Backend: NSObject, URLSessionWebSocketDelegate {
         for c in waiting.values { c.resume(throwing: BackendError.stopped(why)) }
         socket?.cancel(with: .goingAway, reason: nil)
         socket = nil
+        session?.invalidateAndCancel()
+        session = nil
         if process?.isRunning == true { stopping = true; process?.terminate() }
         process = nil
         onStopped?(why)
@@ -233,8 +241,15 @@ final class Backend: NSObject, URLSessionWebSocketDelegate {
     /// Stops the backend (it also stops by itself if this app dies, because its stdin closes).
     func stop() {
         stopping = true
+        lock.lock()
+        let waiting = pending
+        pending.removeAll()
+        lock.unlock()
+        for c in waiting.values { c.resume(throwing: BackendError.stopped("The backend stopped.")) }
         socket?.cancel(with: .goingAway, reason: nil)
         socket = nil
+        session?.invalidateAndCancel()
+        session = nil
         try? stdin?.fileHandleForWriting.close()
         process?.terminate()
         process = nil
