@@ -2,7 +2,14 @@
 
 A group voice call with your own Grok Bots, as a native Mac app.
 
-Grok Call is an independent project. It is not made by, affiliated with, or endorsed by xAI. "Grok" and "Grok Bot" are xAI's names.
+## Not affiliated with xAI
+
+- This is an independent personal project. It is not made, endorsed or supported by xAI.
+- Grok, Grok Bot and xAI are trademarks of xAI and are used here only to describe what this works with.
+- The Mac app's avatar shapes, eye shapes and animation timing (`mac/Sources/GrokCallCore/Resources/morph-data.json`) come from the Grok Bot app, so the bots look the same as they do there. That design belongs to xAI. It's included only for that compatibility, and `mac/tools` has the scripts that read it from your own installed copy of Grok Bot.
+- Grok Bot has no public API. The app talks to Grok Bot's private endpoints with your own signed-in account, the same way the Grok Bot desktop app (v0.79.4) does. They may change or break, and sign-in or voice may then stop working until this app is updated. xAI's Acceptable Use Policy bars access "through unauthorized bots or scripts", so using them may go against xAI's terms. You use it at your own risk and are responsible for your own account.
+- If you are from xAI and want anything changed or removed, open an issue or email via [shashankdev03.me](https://shashankdev03.me) and it will be done promptly.
+- No warranty.
 
 ## What it does
 
@@ -111,8 +118,7 @@ Set `PORT=9000` (or `HOST=localhost`) in the environment or a `.env` file to cha
 
 ## Limits, stated plainly
 
-- **Unofficial.** Grok Bot has no public API. This app signs in and calls Grok Bot the same way the Grok Bot desktop app (v0.79.4) does. xAI's Acceptable Use Policy bars access "through unauthorized bots or scripts", so using this carries a risk to your account. You chose this route knowing that.
-- **May break when Grok Bot changes.** If xAI changes those endpoints, sign-in or voice may stop working until this app is updated.
+- **Unofficial and may break.** See [Not affiliated with xAI](#not-affiliated-with-xai).
 - **Usage counts against your plan.** Each bot in the call is a live voice session on your account. If your plan's included usage runs out, that bot shows the reason in its tile.
 - **Bots hear each other as text, not audio.** Another bot's speech reaches a bot as its exact words. Your speech reaches the listening bot as audio and the rest as text.
 - **Bots with no voice set** in the Grok Bot app use Grok's default voice, so two such bots sound the same. Set a voice for each bot in the Grok Bot app to tell them apart.
