@@ -1,24 +1,56 @@
 # Grok Call
 
-A group voice call with your own Grok Bots.
+A group voice call with your own Grok Bots, as a native Mac app.
 
-- **Join and leave** the call.
-- **Pick which bots are in it**: any subset, before the call and during it (People panel).
+Grok Call is an independent project. It is not made by, affiliated with, or endorsed by xAI. "Grok" and "Grok Bot" are xAI's names.
+
+## What it does
+
+- **Join and leave** a voice call, from the menu bar or a small floating call window.
+- **Pick which bots are in it**: any of your Grok Bots, before the call and during it.
 - **Hear them**: each bot speaks in its own Grok voice (the voice set in the Grok Bot app).
 - **Talk with them**: your mic goes to the bot you're talking to. Name a bot and it's a one-on-one: only that bot answers until you're done, then the others may add a suggestion.
-- **They talk to each other**: each bot hears what the others say and they keep the conversation going, taking turns on their own.
+- **They talk to each other**: each bot hears what the others say and they take turns on their own.
 - **Correct them**: what you say or type comes first, and corrections are pinned for every bot.
 - **Shared tasks, timeline, web and X search**, and a saved summary that the next call starts from.
-- **Bots can pull other bots in**: a bot in the call can bring any of your other Grok Bots into the call, when you ask ("My Bot, pull Shashank's X bot in") or on its own when it thinks that bot would help.
+- **Bots can pull other bots in** when you ask, or on their own when another bot would help.
+- **Bots keep their Grok Bot tools**: background jobs, connected apps (Gmail, GitHub and the rest of what your Grok account has connected), approvals, and the results coming back into the call.
+- **Bot workspaces** in the Mac app: each bot's activity, skills, routines, files, MCP apps, drafts (preview, edit, send or discard), questions and approvals.
+- **The cloud computer**: watch a bot's Linux screen, take control, and hand it back.
+- **Connections**: see, add, check and remove your connected apps.
+- **Look at your Mac**: with your permission, bots can read an app window you name (even in the background or on another Space), files or one folder you allow, or a dedicated browser profile.
 
 It uses your Grok Bot sign-in and plan. No API key, no extra account.
 
-## Run it
+## Requirements
 
-Needs Node.js 22.18 or newer (tested on 26.11.1) and a browser with a microphone. Headphones are best; see [Echo](#echo).
+- macOS 14 or newer (the window-reading tools need macOS 15.2 or newer).
+- Xcode command line tools with Swift 6 (`xcode-select --install`).
+- Node.js 22.18 or newer (tested on 26.11.1). Node runs the TypeScript files directly, so there is no build step for the backend.
+- A Grok account with Grok Bots. You make and set up the bots (name, voice, look) in the Grok Bot app. Some setup steps, such as Messages, 1Password and notification permission, still hand off to the Grok Bot app.
+- A microphone. Headphones are best; see [Echo](#echo).
+
+## Setup and run
 
 ```bash
-npm install   # dev tools only: typescript + node types
+git clone https://github.com/shashank03-dev/grok-call.git
+cd grok-call
+npm install
+bash mac/build-app.sh
+open "mac/build/Grok Call.app"
+```
+
+`mac/build-app.sh` checks Node, runs `swift build -c release`, and puts `Grok Call.app` in `mac/build/`. The app runs this folder's backend (`src/overlay/main.ts`) with the Node it found at build time, so keep the folder where it is, or rebuild after moving it. Set `GROK_CALL_NODE=/path/to/node` to pick a different Node.
+
+The first build creates a self-signed certificate named "Grok Call Local Signing" in your login keychain and signs the app with it, so macOS keeps the app's Microphone, Screen Recording and Accessibility permissions across rebuilds. The `grokcall` password in the script only protects the temporary file used to import that certificate; it is not a secret. The app is signed for your Mac only. To run it on another Mac, sign it with your own Developer ID.
+
+Grok Call lives in the menu bar. Sign in with your Grok account the first time (a browser tab opens the Grok sign-in page). The first Join asks for Microphone, Screen Recording and Accessibility.
+
+### Browser version
+
+There is also a browser version of the call, without the Mac app features:
+
+```bash
 npm start
 ```
 
@@ -122,22 +154,35 @@ Tests use a fake Grok Bot backend and fake voice sockets, so they never touch yo
 
 Not covered by unit tests: `src/main.ts` (startup) and `public/app.js` (page and Web Audio glue). Both were checked with a real call in headless Chromium against the real Grok Bot service. That run used a fake mic playing a spoken line and confirmed: bots opened the call and talked among themselves, the spoken line was transcribed, the named bot answered, interrupting cut the speaking bot, adding and removing bots worked, a bot pulled another bot into the call when asked, and Leave closed every connection. Headless Chromium has no speakers, so actually *hearing* the audio was not checked there. Try it yourself.
 
-## Files
+## Project layout
 
 ```
-src/main.ts        start-up
-src/config.ts      HOST / PORT (local only)
-src/auth.ts        sign-in (browser login + polling) and the saved sign-in
-src/grokbot.ts     Grok Bot calls: list bots, voice session per bot, shared token refresh
-src/apps.ts        connected-app inventory, tool discovery and execution, Grok permission checks
-src/server.ts      local HTTP server: page, /api/state, /api/login, /api/bots, /api/bots/:id/voice, /api/memory, /api/calls
-src/memory.ts      saved calls: memory.json for the next call, calls/*.md exports
-public/index.html  the call page (styles + layout)
-public/app.js      page logic: sign-in, bot picker, mic and speakers, call grid, People, Tasks and Timeline panels, message box, Esc, saving a call
-public/core.js     call engine: voice sessions, turn-taking and turn tools, bot-to-bot, interrupting, tasks, direction, summary, timeline, playback queue
-test/              node:test suites with fake backends
+src/                  backend (TypeScript, run directly by Node)
+  overlay/            the Mac app's backend: local socket, call, tasks, saved calls, logs
+  main.ts, server.ts  the browser version: start-up and local HTTP server
+  auth.ts             sign-in (browser login + polling) and the saved sign-in
+  grokbot.ts          Grok Bot calls: bots, voice sessions, transcripts, token refresh
+  apps.ts             connected apps: inventory, tool discovery and execution, permission checks
+  connection*.ts      Connections: catalog, sign-in, status
+  jobs.ts, actions.ts background jobs, approvals and the action record (SQLite)
+  bot-runtime.ts, bot-files.ts, work-card*.ts, work-payments.ts
+                      bot workspaces: skills, routines, files, activity cards, drafts, approvals
+  computer-viewer.ts  local viewer for a bot's cloud computer
+  local-tools.ts      the call's own tools: approvals, and files, browser and windows on this Mac
+  memory.ts           saved calls and the memory the next call starts from
+public/
+  core.js             call engine: voice sessions, turn-taking, interrupting, tasks, summary, timeline
+  app.js, index.html  the browser version's page
+mac/
+  Sources/GrokCall/     the Mac app (SwiftUI): menu bar, call window, workspaces, cloud computer, Connections, settings
+  Sources/GrokCallCore/ code tested without a screen: avatar, backend protocol, layout, permissions
+  Tests/                Swift tests
+  build-app.sh, test.sh build and test the app
+  tools/                scripts that made the avatar data file
+test/                 Node tests with fake backends
+scripts/              live checks against a real account (see below)
+docs/                 design notes, research and test results
 ```
-
 
 ## Verification of the voice front end
 
