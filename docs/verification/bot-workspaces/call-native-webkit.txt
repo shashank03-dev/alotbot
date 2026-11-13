@@ -1,0 +1,120 @@
+Building for debugging...
+[2 / 19]
+[3 / 20] GrokCallCore
+[14 / 31] GrokCallCore
+[19 / 38] GrokCallCore
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCallCore: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[32 / 60] GrokCall
+[32 / 60] GrokCallCore
+/Users/shashank/bot CLI proxy/mac/Sources/GrokCall/MacTools.swift:32:53: warning: converting function value of type '@MainActor () -> Bool' to '() -> Bool' loses global actor 'MainActor'; this is an error in the Swift 6 language mode
+ 30 |          accessibilityAllowed: @escaping () -> Bool = { AXIsProcessTrusted() },
+ 31 |          requestAccessibility: @escaping () -> Void = { _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary) },
+ 32 |          requestFileConsent: @escaping () -> Bool = MacTools.showFileConsent) {
+    |                                                     `- warning: converting function value of type '@MainActor () -> Bool' to '() -> Bool' loses global actor 'MainActor'; this is an error in the Swift 6 language mode
+ 33 |         preferences = defaults
+ 34 |         permissionSetup = CallPermissionSetup(defaults: defaults)
+[34 / 60] GrokCall
+/Users/shashank/bot CLI proxy/mac/Sources/GrokCall/MacTools.swift:32:53: warning: converting function value of type '@MainActor () -> Bool' to '() -> Bool' loses global actor 'MainActor'; this is an error in the Swift 6 language mode
+ 30 |          accessibilityAllowed: @escaping () -> Bool = { AXIsProcessTrusted() },
+ 31 |          requestAccessibility: @escaping () -> Void = { _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary) },
+ 32 |          requestFileConsent: @escaping () -> Bool = MacTools.showFileConsent) {
+    |                                                     `- warning: converting function value of type '@MainActor () -> Bool' to '() -> Bool' loses global actor 'MainActor'; this is an error in the Swift 6 language mode
+ 33 |         preferences = defaults
+ 34 |         permissionSetup = CallPermissionSetup(defaults: defaults)
+
+/Users/shashank/bot CLI proxy/mac/Sources/GrokCall/WorkspaceFiles.swift:100:32: warning: '@preconcurrency' on conformance to 'QLPreviewPanelDelegate' has no effect
+ 98 |     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
+ 99 | }
+100 | @MainActor private final class WorkspacePreview: NSObject, @preconcurrency QLPreviewPanelDataSource, @preconcurrency QLPreviewPanelDelegate {
+    |                                `- warning: '@preconcurrency' on conformance to 'QLPreviewPanelDelegate' has no effect
+101 |     static let shared = WorkspacePreview()
+102 |     private var file: URL?
+/Users/shashank/bot CLI proxy/mac/Sources/GrokCall/WorkspaceFiles.swift:100:32: warning: '@preconcurrency' on conformance to 'QLPreviewPanelDelegate' has no effect
+ 98 |     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
+ 99 | }
+100 | @MainActor private final class WorkspacePreview: NSObject, @preconcurrency QLPreviewPanelDataSource, @preconcurrency QLPreviewPanelDelegate {
+    |                                `- warning: '@preconcurrency' on conformance to 'QLPreviewPanelDelegate' has no effect
+101 |     static let shared = WorkspacePreview()
+102 |     private var file: URL?
+[36 / 60] GrokCall-product
+[38 / 61] GrokCall
+/Users/shashank/bot CLI proxy/mac/Sources/GrokCall/MacTools.swift:32:53: warning: converting function value of type '@MainActor () -> Bool' to '() -> Bool' loses global actor 'MainActor'; this is an error in the Swift 6 language mode
+ 30 |          accessibilityAllowed: @escaping () -> Bool = { AXIsProcessTrusted() },
+ 31 |          requestAccessibility: @escaping () -> Void = { _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary) },
+ 32 |          requestFileConsent: @escaping () -> Bool = MacTools.showFileConsent) {
+    |                                                     `- warning: converting function value of type '@MainActor () -> Bool' to '() -> Bool' loses global actor 'MainActor'; this is an error in the Swift 6 language mode
+ 33 |         preferences = defaults
+ 34 |         permissionSetup = CallPermissionSetup(defaults: defaults)
+/Users/shashank/bot CLI proxy/mac/Sources/GrokCall/MacTools.swift:32:53: warning: converting function value of type '@MainActor () -> Bool' to '() -> Bool' loses global actor 'MainActor'; this is an error in the Swift 6 language mode
+ 30 |          accessibilityAllowed: @escaping () -> Bool = { AXIsProcessTrusted() },
+ 31 |          requestAccessibility: @escaping () -> Void = { _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary) },
+ 32 |          requestFileConsent: @escaping () -> Bool = MacTools.showFileConsent) {
+    |                                                     `- warning: converting function value of type '@MainActor () -> Bool' to '() -> Bool' loses global actor 'MainActor'; this is an error in the Swift 6 language mode
+ 33 |         preferences = defaults
+ 34 |         permissionSetup = CallPermissionSetup(defaults: defaults)
+
+/Users/shashank/bot CLI proxy/mac/Sources/GrokCall/WorkspaceFiles.swift:100:32: warning: '@preconcurrency' on conformance to 'QLPreviewPanelDelegate' has no effect
+ 98 |     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
+ 99 | }
+100 | @MainActor private final class WorkspacePreview: NSObject, @preconcurrency QLPreviewPanelDataSource, @preconcurrency QLPreviewPanelDelegate {
+    |                                `- warning: '@preconcurrency' on conformance to 'QLPreviewPanelDelegate' has no effect
+101 |     static let shared = WorkspacePreview()
+102 |     private var file: URL?
+[40 / 61] GrokCall
+[44 / 62] GrokCall
+[46 / 65] GrokCall
+/Users/shashank/bot CLI proxy/mac/Sources/GrokCall/MacTools.swift:32:53: warning: converting function value of type '@MainActor () -> Bool' to '() -> Bool' loses global actor 'MainActor'; this is an error in the Swift 6 language mode
+ 30 |          accessibilityAllowed: @escaping () -> Bool = { AXIsProcessTrusted() },
+ 31 |          requestAccessibility: @escaping () -> Void = { _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary) },
+ 32 |          requestFileConsent: @escaping () -> Bool = MacTools.showFileConsent) {
+    |                                                     `- warning: converting function value of type '@MainActor () -> Bool' to '() -> Bool' loses global actor 'MainActor'; this is an error in the Swift 6 language mode
+ 33 |         preferences = defaults
+ 34 |         permissionSetup = CallPermissionSetup(defaults: defaults)
+[47 / 65] GrokCall
+[47 / 65]
+[49 / 64] GrokCall
+/Users/shashank/bot CLI proxy/mac/Sources/GrokCall/MacTools.swift:32:53: warning: converting function value of type '@MainActor () -> Bool' to '() -> Bool' loses global actor 'MainActor'; this is an error in the Swift 6 language mode
+ 30 |          accessibilityAllowed: @escaping () -> Bool = { AXIsProcessTrusted() },
+ 31 |          requestAccessibility: @escaping () -> Void = { _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary) },
+ 32 |          requestFileConsent: @escaping () -> Bool = MacTools.showFileConsent) {
+    |                                                     `- warning: converting function value of type '@MainActor () -> Bool' to '() -> Bool' loses global actor 'MainActor'; this is an error in the Swift 6 language mode
+ 33 |         preferences = defaults
+ 34 |         permissionSetup = CallPermissionSetup(defaults: defaults)
+[53 / 74] GrokCallCoreTests-product
+/Users/shashank/bot CLI proxy/mac/Sources/GrokCall/WorkspaceFiles.swift:100:32: warning: '@preconcurrency' on conformance to 'QLPreviewPanelDelegate' has no effect
+ 98 |     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
+ 99 | }
+100 | @MainActor private final class WorkspacePreview: NSObject, @preconcurrency QLPreviewPanelDataSource, @preconcurrency QLPreviewPanelDelegate {
+    |                                `- warning: '@preconcurrency' on conformance to 'QLPreviewPanelDelegate' has no effect
+101 |     static let shared = WorkspacePreview()
+102 |     private var file: URL?
+[54 / 74] GrokCallCoreTests-product
+[56 / 74] GrokCallCoreTests-product
+[58 / 74] GrokCallCoreTests-product
+[59 / 74] GrokCallCoreTests-product
+[59 / 74] GrokCall
+[59 / 74] GrokCallCoreTests-product
+[59 / 74] GrokCall-product
+[61 / 76] GrokCallCoreTests-product
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCall-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/usr/lib' not found
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCall-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCallCoreTests-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/usr/lib' not found
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCallCoreTests-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[65 / 76] GrokCallCoreTests-product
+[70 / 80] GrokCall
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCall: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[74 / 79] GrokCallNativeTests-product
+[84 / 89] GrokCallNativeTests-product
+[87 / 90] GrokCallNativeTests-product
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCallNativeTests-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/usr/lib' not found
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCallNativeTests-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[89 / 93] GrokCallNativeTests-product
+Build complete! (9.56 secs)
+◇ Test run started.
+↳ Testing Library Version: 2084
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite LiveWorkspaceDesktopTests started.
+◇ Test providerDesktopLoadsInTheNativeWebKitViewWhenRequested() started.
+✔ Test providerDesktopLoadsInTheNativeWebKitViewWhenRequested() passed after 19.188 seconds.
+✔ Suite LiveWorkspaceDesktopTests passed after 19.188 seconds.
+✔ Test run with 1 test in 1 suite passed after 19.188 seconds.

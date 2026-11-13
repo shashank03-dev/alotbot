@@ -1,0 +1,14 @@
+✔ available skills, memory promotion and library pins use fresh accessible records (1.425959ms)
+✔ teaching cannot stop another bot’s recording and reads do not wake a computer (15.7185ms)
+✔ account routine changes use the bot’s durable routine tool and retain the canonical specification (8.598167ms)
+✔ partial resource outages preserve the last successful sections for that bot only (0.475459ms)
+✔ available skills with name-only identity cannot be activated twice (0.102625ms)
+✔ computer-only routines use their own route for run, enable and delete (0.549417ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 174.878167

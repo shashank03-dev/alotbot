@@ -9,7 +9,7 @@ The updated app is installed at `/Users/shashank/Applications/Grok Call.app`. It
 | Node 26.11.1 suite | 443 passed, 0 failed; 100% lines, branches, functions | [node-tests.txt](node-tests.txt) |
 | Minimum Node 22.18.0 suite | Same 443 passed, 0 failed; 100% lines, branches, functions | [node22-tests.txt](node22-tests.txt) |
 | TypeScript | Pass | [typecheck.txt](typecheck.txt) |
-| Swift | 85 core tests + 5 native tests passed | [swift-tests.txt](swift-tests.txt) |
+| Swift | 91 core tests (including the motion rules) + 5 native tests passed | [swift-tests.txt](swift-tests.txt) |
 | Native shared-window test | A separate AppKit process was inspected, its button pressed once, its changed label verified, stale control rejected, PNG captured, and closed window rejected | [swift-tests.txt](swift-tests.txt), `mac/Tests/GrokCallNativeTests/MacToolsTests.swift` |
 | Native action UI | All five statuses and approval controls rendered and visually inspected; result details are inline with their action | `rendersActionStatesForVisualInspection`, `/tmp/grok-actions-ui.png` |
 | Browser | Real Chromium navigation, snapshot, fill, click, resulting state, missing selector, bad input, disabled access, and closed tab; desktop browser also ran through the call backend | [node-tests.txt](node-tests.txt) |

@@ -1,0 +1,43 @@
+✖ a packet started before release cannot become input after control is reacquired (1.244791ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 145.527125
+
+✖ failing tests:
+
+test at test/computer-viewer.test.ts:330:1
+✖ a packet started before release cannot become input after control is reacquired (1.244791ms)
+  AssertionError [ERR_ASSERTION]: The old partial press must stay revoked
+  + actual - expected
+  
+  + [
+  +   Buffer(8) [Uint8Array] [
+  +     4,
+  +     1,
+  +     0,
+  +     0,
+  +     0,
+  +     0,
+  +     0,
+  +     65
+  +   ]
+  + ]
+  - []
+  
+      at TestContext.<anonymous> (file:///Users/shashank/bot%20CLI%20proxy/test/computer-viewer.test.ts:333:9)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.start (node:internal/test_runner/test:1262:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: [ <Buffer 04 01 00 00 00 00 00 41> ],
+    expected: [],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }

@@ -1,0 +1,57 @@
+Building for debugging...
+[Computing dependencies]
+[3 / 21] GrokCallCore
+[14 / 32] GrokCallCore
+[19 / 38] GrokCallCore
+[19 / 38] GrokCall
+[28 / 49] GrokCall
+[29 / 60] GrokCall-product
+[29 / 60] GrokCall
+[30 / 60] GrokCallCore
+[31 / 60] GrokCall
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCallCore: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[35 / 60] GrokCall-product
+[36 / 60] GrokCall
+[39 / 62] GrokCall
+[42 / 62] GrokCall
+[43 / 62] GrokCall-product
+[44 / 62] GrokCall-product
+[45 / 62] GrokCall-product
+[47 / 65] GrokCall
+[47 / 65]
+[49 / 64] GrokCallCoreTests-product
+[50 / 73] GrokCall-product
+[52 / 73] GrokCallCoreTests-product
+[53 / 73] GrokCallCoreTests-product
+[54 / 73] GrokCallCoreTests-product
+[55 / 73] GrokCallCoreTests-product
+[56 / 73] GrokCallCoreTests-product
+[58 / 73] GrokCallCoreTests-product
+[58 / 73] GrokCall-product
+[58 / 73] GrokCallCoreTests-product
+[58 / 73] GrokCall
+[58 / 73] GrokCallCoreTests-product
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCallCoreTests-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/usr/lib' not found
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCallCoreTests-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[60 / 73] GrokCallCoreTests-product
+[65 / 77] GrokCallCoreTests-product
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCall: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[67 / 77] GrokCall-product
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCall-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/usr/lib' not found
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCall-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[69 / 79] GrokCall-product
+[73 / 78] GrokCallNativeTests-product
+[78 / 83] GrokCallNativeTests-product
+[82 / 85] GrokCallNativeTests-product
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCallNativeTests-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/usr/lib' not found
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCallNativeTests-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[84 / 88] GrokCallNativeTests-product
+Build complete! (37.37 secs)
+◇ Test run started.
+↳ Testing Library Version: 2084
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite ExistingBrowserTests started.
+◇ Test capturesExistingBrowserWindowsWithoutLaunchingOrChangingFocus() started.
+✔ Test capturesExistingBrowserWindowsWithoutLaunchingOrChangingFocus() passed after 9.058 seconds.
+✔ Suite ExistingBrowserTests passed after 9.058 seconds.
+✔ Test run with 1 test in 1 suite passed after 9.058 seconds.

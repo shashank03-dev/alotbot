@@ -1,0 +1,12 @@
+{"method":"GetGrokBotRuntimeCapabilities","fields":["capabilities"],"capabilityFields":["durableIdentityEnabled","durableIdentityWritesEnabled","temporalCreationEnabled","agentMessagingEnabled","serverRoomsEnabled","helperAndDevCreationEnabled","roomMemberRegistrationEnabled"],"booleanCapabilities":{"durableIdentityEnabled":true,"durableIdentityWritesEnabled":true,"temporalCreationEnabled":true,"agentMessagingEnabled":true,"serverRoomsEnabled":true,"helperAndDevCreationEnabled":true,"roomMemberRegistrationEnabled":true}}
+{"method":"GetSandBoxRunState","fields":["state","imageUpdateAvailable","egressTunnelOwnership","image"],"state":"SAND_BOX_RUN_STATE_HIBERNATED"}
+{"bots":3}
+{"botIndex":0,"method":"ListGrokBotAgentRoutines","count":0,"hasPolicy":false}
+{"botIndex":0,"method":"ListGrokBotAgentAutomations","count":0,"hasPolicy":false}
+{"botIndex":0,"method":"ListGrokBotAgentSkills","count":4,"hasPolicy":false}
+{"botIndex":1,"method":"ListGrokBotAgentRoutines","count":0,"hasPolicy":false}
+{"botIndex":1,"method":"ListGrokBotAgentAutomations","count":0,"hasPolicy":false}
+{"botIndex":1,"method":"ListGrokBotAgentSkills","count":0,"hasPolicy":false}
+{"botIndex":2,"method":"ListGrokBotAgentRoutines","count":2,"hasPolicy":false}
+{"botIndex":2,"method":"ListGrokBotAgentAutomations","count":2,"hasPolicy":false}
+{"botIndex":2,"method":"ListGrokBotAgentSkills","count":0,"hasPolicy":false}

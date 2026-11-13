@@ -1,0 +1,10 @@
+file:///Users/shashank/bot%20CLI%20proxy/src/grokbot.ts:481
+      if ((err         )?.name === 'TimeoutError') throw new Error(`Grok Bot ${method} did not answer within ${timeoutMs  / 1000} s`);
+                                                         ^
+
+Error: Grok Bot ListGrokBotAgents did not answer within 10 s
+    at GrokBotClient.rpc (file:///Users/shashank/bot%20CLI%20proxy/src/grokbot.ts:481:58)
+    at async GrokBotClient.listBots (file:///Users/shashank/bot%20CLI%20proxy/src/grokbot.ts:284:15)
+    at async file:///Users/shashank/bot%20CLI%20proxy/scripts/verify-workspace-computer.ts:22:13
+
+Node.js v26.11.1

@@ -1,0 +1,20 @@
+✔ an action is recorded before dispatch, then updated, and survives reopening the file (7.109208ms)
+✔ bad updates are refused; unknown ids are null; lists are newest first and per call (3.390333ms)
+✔ a huge result is kept up to RESULT_MAX with a note (10.32425ms)
+✔ jobs to watch: open ones for a day, answered ones for a quiet window; only agent jobs (2.366ms)
+✔ request ids find their job; dedupe finds a recent action that did not fail (1.958708ms)
+✔ chat entries are recorded once per bot and seq, and read back per call (1.941083ms)
+✔ cursors start unknown and move (1.502334ms)
+✔ a transaction is all or nothing (1.541916ms)
+✔ a damaged history file is set aside, not fatal (2.331541ms)
+✔ a row edited by hand with broken JSON still lists (1.6685ms)
+✔ startup reconciles interrupted direct actions as unknown without replaying them (1.843458ms)
+✔ a filesystem open failure is surfaced without renaming or replacing user files (0.198541ms)
+ℹ tests 12
+ℹ suites 0
+ℹ pass 12
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 154.156666

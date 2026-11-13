@@ -1,0 +1,33 @@
+✔ file boundary validation rejects malformed paths, lengths, offsets and expired capabilities (2.733625ms)
+✔ upload validates names, exact size and hash, HTTPS destinations and authorization headers (0.496542ms)
+✔ resources keep real routine and skill identities and do not wake a cloud computer (0.870708ms)
+✔ unknown identities/actions never reach a provider and sleeping computers remain asleep (0.229834ms)
+✔ file reads require a scoped download and upload tokens cannot cross bot boundaries (1.203959ms)
+✔ approval commands recheck the exact pending card on the selected bot (0.361167ms)
+✔ mutations lock the bot before asynchronous ownership checks and release after failure (1.376792ms)
+✔ downloads discover later pages and refuse cursor loops and changed files (0.398333ms)
+✔ gateway operations force durable bot identity and keep credentials out of computer DTOs (9.784834ms)
+✔ routine controls preserve event specs, use exact ids and report uncertain writes without retry (9.761833ms)
+✔ skills check current scope and plugin selections preserve other installed ids (0.226917ms)
+✔ forms and widgets submit only current fields and secure values never enter activity DTOs (0.525625ms)
+✔ draft editing keeps recipients and account routing fixed and refuses settled drafts (0.152541ms)
+✔ authentication loss during a partial resource refresh cannot become an empty successful workspace (0.067458ms)
+✔ internal bot screens resolve only through the provider routes and retain display tokens server-side (0.576708ms)
+✔ RFB input is blocked in view-only mode and fragmented held keys are released when control ends (0.426292ms)
+✔ viewer capabilities do not expose upstream credentials and expire on close (0.93575ms)
+✔ viewer state and disconnect reject other bots, and takeover waits for RFB initialization (0.211291ms)
+✔ closing or disabling during access validation cannot grant stale control (0.147667ms)
+✔ RFB handshake parses fragmented frames and rejects unsupported protocols and input (0.172458ms)
+✔ desktop HTTP serves only authenticated same-viewer assets and rejects absolute URL escapes (25.859083ms)
+✔ real WebSocket relay gates input and releases held keys on hand-back and disconnect (89.58275ms)
+✔ activity retains exact request identity, sorts cards and fails closed for unknown kinds (2.6735ms)
+✔ resolved, anonymous and secret cards never expose actions or credential bodies (0.54875ms)
+✔ malformed entries and unsupported payment forms never enable submissions (0.206209ms)
+ℹ tests 25
+ℹ suites 0
+ℹ pass 25
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 288.473458

@@ -1,0 +1,20 @@
+{
+  "passed": true,
+  "scope": "Real voice endpoint with synthetic page results; not a native screen-capture or UI test",
+  "bot": "Shashank's Bot",
+  "reads": [
+    {
+      "operation": "read",
+      "app": "Zen",
+      "title": "YouTube"
+    },
+    {
+      "app": "Zen",
+      "operation": "read",
+      "title": "YouTube"
+    }
+  ],
+  "fallback": "Shashank's Bot: I couldn't read the YouTube page in Zen. Could you select that tab in Zen and tell me when it's ready?",
+  "answer": "Shashank's Bot: The verification phrase on the page is cobalt orchard nine.",
+  "forbidden": []
+}

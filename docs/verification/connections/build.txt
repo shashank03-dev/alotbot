@@ -1,0 +1,13 @@
+Building for production...
+[2 / 9]
+[3 / 10] GrokCallCore
+[5 / 11] GrokCallCore
+[8 / 9] GrokCall-product
+[9 / 10] GrokCall-product
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCall-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/usr/lib' not found
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCall-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[12 / 14] GrokCall-product
+[13 / 14] GrokCall-product
+Build complete! (11.28 secs)
+/Users/shashank/bot CLI proxy/mac/build/Grok Call.app: replacing existing signature
+Built: /Users/shashank/bot CLI proxy/mac/build/Grok Call.app

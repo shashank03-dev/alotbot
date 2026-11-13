@@ -1,0 +1,14 @@
+{
+  "app.zen-browser.zen": {
+    "windowsCaptured": 8,
+    "windowsWithOCR": 4,
+    "focusPreserved": true,
+    "titlePreserved": true
+  },
+  "com.apple.Safari": {
+    "windowsCaptured": 6,
+    "windowsWithOCR": 1,
+    "focusPreserved": true,
+    "titlePreserved": true
+  }
+}

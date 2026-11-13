@@ -1,0 +1,8 @@
+{"stage":"created","disabled":true,"hasDurableId":true}
+{"stage":"edited"}
+{"stage":"runAccepted"}
+{"stage":"fileVerification","markerMatches":false}
+{"stage":"failed","message":"The test file was not verified within the acceptance window."}
+{"stage":"cleanup","routineRemoved":true}
+{"stage":"gatewayFileVerification","markerMatches":false,"keys":["bytesBase64","totalSize","mime","resolvedName"]}
+{"stage":"gatewayFileVerification","markerMatches":true,"bytes":26}

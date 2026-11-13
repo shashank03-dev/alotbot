@@ -1,0 +1,9 @@
+{
+  "installedPath": "/Users/shashank/Applications/Grok Call.app",
+  "signatureVerified": true,
+  "executableMatchesBuiltApp": true,
+  "executableSha256": "251caebb149b638ba1c4ba88f21c9a200ddacc7f6d0cf6e5d7763272c4591fb9",
+  "backendSource": "/Users/shashank/bot CLI proxy",
+  "verifiedAt": "2026-11-13T11:28:11.429849+00:00",
+  "relaunchRequiredForAlreadyRunningInstances": true
+}

@@ -1,0 +1,10 @@
+{"entries":504,"bytes":308385,"warnings":[]}
+{"app":"Cloudflare","status":"connected","tools":4}
+{"app":"GitHub","status":"connected","tools":75}
+{"app":"Gmail","status":"connected","tools":25}
+{"app":"Origin","status":"connected","tools":34}
+{"app":"Render","status":"needsAuth","tools":0}
+{"app":"Supabase","status":"connected","tools":37}
+{"app":"T3 Code","status":"connected","tools":68}
+{"app":"Vercel","status":"connected","tools":250}
+{"app":"X","status":"connected","tools":101}

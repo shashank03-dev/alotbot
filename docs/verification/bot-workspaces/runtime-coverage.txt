@@ -1,0 +1,68 @@
+✔ file boundary validation rejects malformed paths, lengths, offsets and expired capabilities (5.923208ms)
+✔ upload validates names, exact size and hash, HTTPS destinations and authorization headers (0.537417ms)
+✔ empty files and malformed chunk bodies stay within their exact transfer size (0.4495ms)
+✔ resources keep real routine and skill identities and do not wake a cloud computer (1.365125ms)
+✔ unknown identities/actions never reach a provider and sleeping computers remain asleep (0.277542ms)
+✔ file reads require a scoped download and upload tokens cannot cross bot boundaries (0.947833ms)
+✔ approval commands recheck the exact pending card on the selected bot (0.437167ms)
+✔ mutations lock the bot before asynchronous ownership checks and release after failure (1.387916ms)
+✔ downloads discover later pages and refuse cursor loops and changed files (0.156917ms)
+✔ gateway operations force durable bot identity and keep credentials out of computer DTOs (9.425416ms)
+✔ routine controls preserve event specs, use exact ids and report uncertain writes without retry (11.083542ms)
+✔ skills check current scope and plugin selections preserve other installed ids (0.212792ms)
+✔ forms and widgets submit only current fields and secure values never enter activity DTOs (0.563208ms)
+✔ draft editing keeps recipients and account routing fixed and refuses settled drafts (0.182417ms)
+✔ authentication loss during a partial resource refresh cannot become an empty successful workspace (0.08225ms)
+✔ resources reconcile canonical and computer routines, app choices and files without leaking inline configuration (0.305583ms)
+✔ plugin changes preserve inline definitions and refuse marketplace or incomplete selections (0.137084ms)
+✔ computer connections single-flight, reject unsafe destinations and retain honest unavailable states (1.029417ms)
+✔ malformed resource lists and routine records fail visibly before any mutation (0.285709ms)
+✔ sparse computer status remains honest and routine permissions and cron input are checked (0.332208ms)
+✔ provider refusals are scrubbed and legacy routine results keep their IDs without speculative retries (0.263375ms)
+✔ multi-select answers follow provider newline format and validate every current option (1.397167ms)
+✔ connector and credential decisions retain their exact scope and site consent (0.195458ms)
+✔ phone controls bind call IDs to the visible bot card and refuse terminal controls (0.506708ms)
+✔ MCP documents have bounded reads and no tool execution without native user confirmation (0.173084ms)
+✔ MCP reads preserve exact original inputs and reject oversized, refused and malformed tool results (0.660166ms)
+✔ payment commands use the current bot card and preserve provider authentication decisions (0.815583ms)
+✔ forms require valid typed values and exact options, while dismissal and unknown dispatch remain distinct (0.696542ms)
+✔ an ambiguous approval value cannot authorize any request (0.056375ms)
+✔ activity retains exact request identity, sorts cards and fails closed for unknown kinds (0.9945ms)
+✔ resolved, anonymous and secret cards never expose actions or credential bodies (0.204875ms)
+✔ malformed entries and unsupported payment forms never enable submissions (5.772958ms)
+✔ native setup, connections, resources and result cards retain useful recovery controls (0.307292ms)
+✔ form options, draft variants and resolved widgets are projected without executable payloads (0.244458ms)
+✔ oversized entries, invalid sequence numbers and unlabeled widget options are not actionable (0.060541ms)
+✔ instructions and attachment names are retained as readable fallback text (0.076458ms)
+✔ payment verification binds the passkey challenge to the exact bot, request and method (5.733584ms)
+✔ payment flow rejects unavailable methods, stale requests, unsafe verification pages and unsuccessful verification (0.744333ms)
+✔ missing payment metadata stays unavailable and malformed ceremony identities cannot resolve approval (0.130834ms)
+✔ activity invalidation uses one authenticated account stream and never wakes an asleep computer (13.552667ms)
+✔ offline activity restores only saved read-only metadata and never hides signed-out status (0.531375ms)
+✔ oversized event streams back off without blocking reads or exposing their payloads (1.878292ms)
+✔ available skills, memory promotion and library pins use fresh accessible records (1.569542ms)
+✔ teaching cannot stop another bot’s recording and reads do not wake a computer (9.127166ms)
+✔ account routine changes use the bot’s durable routine tool and retain the canonical specification (9.982875ms)
+✔ partial resource outages preserve the last successful sections for that bot only (0.48475ms)
+✔ available skills with name-only identity cannot be activated twice (0.096375ms)
+ℹ tests 47
+ℹ suites 0
+ℹ pass 47
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 219.322
+ℹ start of coverage report
+ℹ ------------------------------------------------------------------
+ℹ file              | line % | branch % | funcs % | uncovered lines
+ℹ ------------------------------------------------------------------
+ℹ src               |        |          |         | 
+ℹ  bot-files.ts     | 100.00 |   100.00 |  100.00 | 
+ℹ  bot-runtime.ts   | 100.00 |   100.00 |  100.00 | 
+ℹ  work-cards.ts    | 100.00 |   100.00 |  100.00 | 
+ℹ  work-payments.ts | 100.00 |   100.00 |  100.00 | 
+ℹ ------------------------------------------------------------------
+ℹ all files         | 100.00 |   100.00 |  100.00 | 
+ℹ ------------------------------------------------------------------
+ℹ end of coverage report

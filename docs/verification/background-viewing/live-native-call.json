@@ -1,0 +1,87 @@
+{
+  "passed": true,
+  "scope": "Real backend WebSocket, voice endpoint, Grok agent launch/navigation, production MacTools/AppObservation through opt-in native harness, and generated voice audio. Native menu UI and speaker playback are not automated.",
+  "fixtureApp": "/Users/shashank/Library/Application Support/GrokCall/live-tests/18d9b2c5a35947a0aa7d03a52ad7e634/Grok Call Verification.app",
+  "expected": "meadow cedar orchard",
+  "native": [
+    {
+      "input": {
+        "operation": "read_all",
+        "app": "Grok Call Verification"
+      },
+      "result": {
+        "capturedCount": 2,
+        "note": "These are real capture attempts, including background windows. Report only successful captures as read. Explain failures, and clarify remaining windows before reading more. onScreen is discovery metadata, not a permission or capture limit.",
+        "remaining": [],
+        "remainingCount": 0,
+        "status": "read_all",
+        "windows": [
+          {
+            "capturedAt": "2026-11-12T10:15:50Z",
+            "note": "Text is OCR of one window at capture time, not visual understanding or video/audio. For shapes, images or video-frame interpretation, send_task asking your agent to view this exact local screenshot on Shashank's Mac without activating apps or switching desktops. If the Mac agent is offline, report that. Never infer unseen content. Browser capture includes rendered content only, not inactive tabs. Do not ask the user to install or connect a separate tool.",
+            "screenshot": "/Users/shashank/Library/Application Support/GrokCall/artifacts/observation-E6312B69-DDC1-4D18-B257-AB98FB1E7E1A.png",
+            "status": "captured",
+            "text": "• • Grok Call Verification - Details |\nBackground proof: meadow cedar orchard\nNavigation proof: meadow cedar orchard\nDetails opened",
+            "textTruncated": false,
+            "window": {
+              "app": "Grok Call Verification",
+              "bundle": "me.shashankdev.grokcall.verification",
+              "id": 205909,
+              "onScreen": true,
+              "title": "Grok Call Verification — Details"
+            }
+          },
+          {
+            "capturedAt": "2026-11-12T10:15:51Z",
+            "note": "Text is OCR of one window at capture time, not visual understanding or video/audio. For shapes, images or video-frame interpretation, send_task asking your agent to view this exact local screenshot on Shashank's Mac without activating apps or switching desktops. If the Mac agent is offline, report that. Never infer unseen content. Browser capture includes rendered content only, not inactive tabs. Do not ask the user to install or connect a separate tool.",
+            "screenshot": "/Users/shashank/Library/Application Support/GrokCall/artifacts/observation-982940D6-F448-43A8-88C1-A28897FCD7EF.png",
+            "status": "captured",
+            "text": "• • • Grok Call Verification - Reference\nReference proof: orchard cedar meadow",
+            "textTruncated": false,
+            "window": {
+              "app": "Grok Call Verification",
+              "bundle": "me.shashankdev.grokcall.verification",
+              "id": 205910,
+              "onScreen": true,
+              "title": "Grok Call Verification — Reference"
+            }
+          }
+        ]
+      },
+      "context": {
+        "foregroundBefore": "app.zen-browser.zen",
+        "foregroundAfter": "app.zen-browser.zen"
+      }
+    }
+  ],
+  "actions": [
+    {
+      "tool": "mac_observe",
+      "status": "completed",
+      "summary": "{\"text\":\"{\\\"capturedCount\\\":2,\\\"note\\\":\\\"These are real capture attempts, including background windows. Report only successful captures as read. Explain failures, and clarify remaining windows before reading more. onScreen is discovery metadata, not a permission or capture limit.\\\",\\\"remaining\\\":[],\\\"remainingCount\\\":0,\\\"status\\\":\\\"read_all\\\",\\\"windows\\\":[{\\\"capturedAt\\\":\\\"2026-11-12T10:15:50Z\\\",\\"
+    },
+    {
+      "tool": "send_task",
+      "status": "completed",
+      "summary": "Opening the app in the background on your Mac now. After that I'll press Show details without bringing it forward."
+    }
+  ],
+  "log": [
+    {
+      "line": "On my Mac, open the verification app in the background without bringing it forward, at this exact path: /Users/shashank/Library/Application Support/GrokCall/live-tests/18d9b2c5a35947a0aa7d03a52ad7e634/Grok Call Verification.app. Then navigate it by pressing its Show details button without bringing it forward and verify the resulting window. This is an authorized disposable UI test. Use the local Mac, not the cloud computer. Do not open any browser, change profiles, touch other apps/documents, edit any files, or claim completion from a job receipt."
+    },
+    {
+      "line": "Opening that verification app in the background on your Mac."
+    },
+    {
+      "line": "That's the start of it."
+    },
+    {
+      "line": "Can you read all windows of Grok Call Verification now, including their background, navigation and reference proof phrases? It is already open. Do not activate it or launch anything. Use actual window reading rather than window titles."
+    },
+    {
+      "line": "Both windows read successfully. The Details window shows background proof meadow cedar orchard, navigation proof meadow cedar orchard, and the button reads Details opened. The Reference window shows reference proof orchard cedar meadow."
+    }
+  ],
+  "audioFrames": 24
+}

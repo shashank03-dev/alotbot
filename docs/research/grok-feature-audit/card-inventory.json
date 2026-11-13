@@ -1,0 +1,452 @@
+[
+  {
+    "kind": "event/automation-changed",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "read_only_result_or_metadata",
+    "gap": "Uses safe metadata/text/result links. Unknown or unavailable controls are not interpreted as approvals.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "event/bot-added",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "read_only_result_or_metadata",
+    "gap": "Uses safe metadata/text/result links. Unknown or unavailable controls are not interpreted as approvals.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "event/bot-removed",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "read_only_result_or_metadata",
+    "gap": "Uses safe metadata/text/result links. Unknown or unavailable controls are not interpreted as approvals.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "event/desktop-goal",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "workspace_navigation",
+    "gap": "Opens Computer for this bot, without automatically taking control.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "event/dev-event",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "read_only_result_or_metadata",
+    "gap": "Uses safe metadata/text/result links. Unknown or unavailable controls are not interpreted as approvals.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "event/name-changed",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "read_only_result_or_metadata",
+    "gap": "Uses safe metadata/text/result links. Unknown or unavailable controls are not interpreted as approvals.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "event/person-added",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "read_only_result_or_metadata",
+    "gap": "Uses safe metadata/text/result links. Unknown or unavailable controls are not interpreted as approvals.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "event/person-left",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "read_only_result_or_metadata",
+    "gap": "Uses safe metadata/text/result links. Unknown or unavailable controls are not interpreted as approvals.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "event/person-removed",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "read_only_result_or_metadata",
+    "gap": "Uses safe metadata/text/result links. Unknown or unavailable controls are not interpreted as approvals.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "event/team-bot-publish",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "read_only_result_or_metadata",
+    "gap": "Uses safe metadata/text/result links. Unknown or unavailable controls are not interpreted as approvals.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "event/team-shared",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "read_only_result_or_metadata",
+    "gap": "Uses safe metadata/text/result links. Unknown or unavailable controls are not interpreted as approvals.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "mcp-app/mcp-app",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "interactive_with_scope_checks",
+    "gap": "Live sensitive writes were not exercised. Controlled service tests verify request ownership and refusals.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "message/message",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "read_only_result_or_metadata",
+    "gap": "Uses safe metadata/text/result links. Unknown or unavailable controls are not interpreted as approvals.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "notice/notice",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "read_only_result_or_metadata",
+    "gap": "Uses safe metadata/text/result links. Unknown or unavailable controls are not interpreted as approvals.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "send-message/app-secrets-request",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "connections_management",
+    "gap": "Opens the shared Connections manager; provider authorization and account restrictions remain authoritative.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "send-message/appearance-picker",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "interactive_with_scope_checks",
+    "gap": "Specialized native editor with fresh bot/session/card revision checks. Publishing and team mutations verified with controlled service tests; no live publication or sharing performed.",
+    "evidence": "src/work-card-controls.ts; test/workspace-setup.test.ts; mac/Sources/GrokCall/WorkspaceSetupCards.swift"
+  },
+  {
+    "kind": "send-message/attachment",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "read_only_result_or_metadata",
+    "gap": "Uses safe metadata/text/result links. Unknown or unavailable controls are not interpreted as approvals.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "send-message/auto-review-approval",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "interactive_with_scope_checks",
+    "gap": "Live sensitive writes were not exercised. Controlled service tests verify request ownership and refusals.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "send-message/bot-resources",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "workspace_navigation",
+    "gap": "Opens Knowledge for this bot.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "send-message/bot-template-share",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "read_only_result_or_metadata",
+    "gap": "Uses safe metadata/text/result links. Unknown or unavailable controls are not interpreted as approvals.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "send-message/calendar-event",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "read_only_result_or_metadata",
+    "gap": "Uses safe metadata/text/result links. Unknown or unavailable controls are not interpreted as approvals.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "send-message/connector",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "connections_management",
+    "gap": "Opens the shared Connections manager; provider authorization and account restrictions remain authoritative.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "send-message/connector-grant",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "interactive_with_scope_checks",
+    "gap": "Live sensitive writes were not exercised. Controlled service tests verify request ownership and refusals.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "send-message/connectors",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "connections_management",
+    "gap": "Opens the shared Connections manager; provider authorization and account restrictions remain authoritative.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "send-message/cookie-origin-approval",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "trusted_native_setup",
+    "gap": "Requires Grok Bot native authorization; refresh current state after setup.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "send-message/credential-request",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "interactive_with_scope_checks",
+    "gap": "Live sensitive writes were not exercised. Controlled service tests verify request ownership and refusals.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "send-message/cursor-agent",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "read_only_result_or_metadata",
+    "gap": "Uses safe metadata/text/result links. Unknown or unavailable controls are not interpreted as approvals.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "send-message/email-draft",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "interactive_with_scope_checks",
+    "gap": "Reviewed editing and exact-route sends supported. Server-held attachments are retained and checked; the native send protocol has no attachment add/remove field. Live email verification is recorded separately.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "send-message/email-offer",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "interactive_with_scope_checks",
+    "gap": "Specialized native editor with fresh bot/session/card revision checks. Publishing and team mutations verified with controlled service tests; no live publication or sharing performed.",
+    "evidence": "src/work-card-controls.ts; test/workspace-setup.test.ts; mac/Sources/GrokCall/WorkspaceSetupCards.swift"
+  },
+  {
+    "kind": "send-message/imessage-draft",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "native_authorization_required",
+    "gap": "Discard supported. Sending requires a fresh local approval on the sending Mac in Grok Bot; stale transcript approval IDs cannot be reused.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "send-message/listener-connect",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "connections_management",
+    "gap": "Opens the shared Connections manager; provider authorization and account restrictions remain authoritative.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "send-message/local-tool-permission",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "interactive_with_scope_checks",
+    "gap": "Live sensitive writes were not exercised. Controlled service tests verify request ownership and refusals.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "send-message/meeting-chat-draft",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "interactive_with_scope_checks",
+    "gap": "Reviewed editing and exact-route sends supported. Server-held attachments are retained and checked; the native send protocol has no attachment add/remove field. Live email verification is recorded separately.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "send-message/meeting-join-consent",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "interactive_with_scope_checks",
+    "gap": "Live sensitive writes were not exercised. Controlled service tests verify request ownership and refusals.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "send-message/mobile-tool-permission",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "trusted_native_setup",
+    "gap": "Requires Grok Bot native authorization; refresh current state after setup.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "send-message/notifications-enable",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "native_authorization_required",
+    "gap": "Scoped reminder dismissal is supported here. macOS notification permission belongs to Grok Bot\u2019s bundle and must be granted in its native setup.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "send-message/onepassword-connect",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "trusted_native_setup",
+    "gap": "Requires Grok Bot native authorization; refresh current state after setup.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "send-message/phone-call",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "interactive_with_scope_checks",
+    "gap": "Live sensitive writes were not exercised. Controlled service tests verify request ownership and refusals.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "send-message/publish-approval",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "interactive_with_scope_checks",
+    "gap": "Specialized native editor with fresh bot/session/card revision checks. Publishing and team mutations verified with controlled service tests; no live publication or sharing performed.",
+    "evidence": "src/work-card-controls.ts; test/workspace-setup.test.ts; mac/Sources/GrokCall/WorkspaceSetupCards.swift"
+  },
+  {
+    "kind": "send-message/scm-connect",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "connections_management",
+    "gap": "Opens the shared Connections manager; provider authorization and account restrictions remain authoritative.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "send-message/secret-request",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "interactive_with_scope_checks",
+    "gap": "Live sensitive writes were not exercised. Controlled service tests verify request ownership and refusals.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "send-message/slack-connect",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "connections_management",
+    "gap": "Opens the shared Connections manager; provider authorization and account restrictions remain authoritative.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "send-message/slack-draft",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "interactive_with_scope_checks",
+    "gap": "Reviewed editing and exact-route sends supported. Server-held attachments are retained and checked; the native send protocol has no attachment add/remove field. Live email verification is recorded separately.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "send-message/team-access",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "interactive_with_scope_checks",
+    "gap": "Specialized native editor with fresh bot/session/card revision checks. Publishing and team mutations verified with controlled service tests; no live publication or sharing performed.",
+    "evidence": "src/work-card-controls.ts; test/workspace-setup.test.ts; mac/Sources/GrokCall/WorkspaceSetupCards.swift"
+  },
+  {
+    "kind": "send-message/text",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "read_only_result_or_metadata",
+    "gap": "Uses safe metadata/text/result links. Unknown or unavailable controls are not interpreted as approvals.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "send-message/user-form",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "interactive_with_scope_checks",
+    "gap": "Live sensitive writes were not exercised. Controlled service tests verify request ownership and refusals.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "send-message/virtual-card-approval",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "interactive_with_scope_checks",
+    "gap": "Live sensitive writes were not exercised. Controlled service tests verify request ownership and refusals.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "send-message/visualization",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "read_only_result_or_metadata",
+    "gap": "Uses safe metadata/text/result links. Unknown or unavailable controls are not interpreted as approvals.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "send-message/widget",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "interactive_with_scope_checks",
+    "gap": "Live sensitive writes were not exercised. Controlled service tests verify request ownership and refusals.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  },
+  {
+    "kind": "user-attachment/user-attachment",
+    "bundles": [
+      "index.eager-app-C1EubAxZ.js"
+    ],
+    "grokCallStatus": "read_only_result_or_metadata",
+    "gap": "Uses safe metadata/text/result links. Unknown or unavailable controls are not interpreted as approvals.",
+    "evidence": "src/work-cards.ts; src/bot-runtime.ts; mac/Sources/GrokCall/WorkspaceActivityView.swift; docs/verification/bot-workspaces/README.md"
+  }
+]

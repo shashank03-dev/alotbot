@@ -1,0 +1,42 @@
+✔ internal bot screens resolve only through the provider routes and retain display tokens server-side (0.583791ms)
+✔ RFB input is blocked in view-only mode and fragmented held keys are released when control ends (0.377417ms)
+✔ viewer capabilities do not expose upstream credentials and expire on close (1.211792ms)
+✔ viewer state and disconnect reject other bots, and takeover waits for RFB initialization (0.195375ms)
+✔ closing or disabling during access validation cannot grant stale control (0.122833ms)
+✔ RFB handshake parses fragmented frames and rejects unsupported protocols and input (0.161333ms)
+✔ desktop HTTP serves only authenticated same-viewer assets and rejects absolute URL escapes (24.490708ms)
+✔ real WebSocket relay gates input and releases held keys on hand-back and disconnect (89.798292ms)
+✔ desktop routes reject credentials, insecure providers, absent fork tokens and unowned monitors (0.592875ms)
+✔ RFB negotiation and every supported packet obey input boundaries and release state (0.578666ms)
+✔ viewer expiry invalidates its capability even without a state poll (0.430125ms)
+✔ RFB release keeps the parser aligned mid-packet and tracks QEMU keys by keycode (0.129708ms)
+✔ RFB server parsing waits for a fragmented desktop name and ignores frames after initialization (0.090584ms)
+✔ missing fork routes fail visibly instead of constructing a broken nested viewer URL (0.037083ms)
+✔ viewer lifecycle: window index lookup, missing window lists, hand-back on disconnect, wrong-bot control and closeAll (0.281917ms)
+✔ desktop HTTP fails closed on non-viewer paths, missing methods, empty or unsafe assets (0.219333ms)
+✔ desktop HTTP defaults content type, uses global fetch by default and keeps upstream credentials server-side (0.459375ms)
+✔ desktop HTTP backpressure waits for drain without leaking listeners and stops when the client goes away (0.884ms)
+✔ desktop HTTP destroys a response whose upstream body fails after headers were sent (0.240917ms)
+✔ desktop sockets reject non-socket paths, missing URLs, other origins and wrong capabilities (3.673583ms)
+✔ desktop sockets stop and report provider protocol errors and invalid client handshakes (2.968208ms)
+✔ desktop sockets use a TLS upstream by default, drop input before it opens and report its failure (71.404625ms)
+✔ taking control on one viewer releases held keys and control on every other viewer (96.042333ms)
+✔ a packet started before release cannot become input after control is reacquired (0.268625ms)
+✔ closing a viewer hands back a request that started after the viewer opened (0.528ms)
+✔ an open desktop socket that never initializes fails within the connection deadline (3.661292ms)
+✔ setup cards keep actual offered values, proposal identity and explicit settled states (1.553542ms)
+✔ appearance reads the real roster and changes only that bot’s look before answering the exact card (0.486417ms)
+✔ email choices and setup dismissal are scoped widget responses and cannot be replayed against changed cards (0.313ms)
+✔ setup widget receipts must explicitly confirm acceptance, including protobuf omitted false (0.157417ms)
+✔ sharing requires explicit confirmation, never carries personal secrets and distinguishes started from finished (0.195834ms)
+✔ publishing reviews the current exact proposal and audience and never treats a provider refusal as approval (0.266375ms)
+✔ runtime setup commands re-read the exact bot card and expose only safe appearance/sharing metadata (0.63925ms)
+✔ runtime publishing uses the authenticated gateway and exact reviewed proposal (7.585917ms)
+ℹ tests 34
+ℹ suites 0
+ℹ pass 34
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 435.820167

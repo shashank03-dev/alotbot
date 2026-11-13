@@ -1,0 +1,81 @@
+✔ every bot is offered direct app tools even without background harness tools (26.388583ms)
+✔ discovery lists real names and connection states without credentials or schemas (10.536125ms)
+✔ find returns the qualified name and actual schema for matching tools, with paging (6.470667ms)
+✔ find ranks tools by how many query words they match, so a long spoken query still finds them (4.969125ms)
+✔ each bot executes the discovered qualified name and gets its actual result (16.174834ms)
+✔ unknown apps, disconnected apps, stale or invented tools and invalid args never execute (8.543167ms)
+✔ fresh discovery prevents execution after an app is disabled (4.846458ms)
+✔ saved disabled tools and blocked or approval-required permission overrides are respected (7.955666ms)
+✔ permissions follow Grok Bot: tool rule, then the reads or writes rule, and the default (auto review) runs without asking (34.290416ms)
+✔ backend result refusals are returned intact and unusable results are errors (20.802125ms)
+✔ tool HTTP failures and timeouts are surfaced without automatically retrying (56.205ms)
+✔ malformed tool schemas never reach execution (9.822292ms)
+✔ empty, malformed and incomplete discovery responses are distinguished (4.900084ms)
+✔ multiple accounts require an exact id and execute only the selected account (7.109833ms)
+✔ pagination rejects invalid offsets and can browse past the end without repeating tools (7.5395ms)
+✔ object schemas, missing descriptions and unknown annotations remain usable, and unreadable annotations count as writes (6.088917ms)
+✔ missing tools and annotations do not invent capabilities (3.710916ms)
+✔ a call bot receives the HTTP app result before speaking and shares its reply with the other bot (29.326083ms)
+✔ parallel app discovery refreshes an expired sign-in once and retries the same Dashboard endpoints (25.717459ms)
+✔ a late 401 reuses the refreshed token instead of rotating credentials again (83.405083ms)
+✔ signing out during discovery cannot be undone by a token refresh (5.112167ms)
+✔ unknown saved permission values require review instead of silently granting access (7.843542ms)
+✔ listing apps does not wait for connector tool catalogs, and finding tools only loads the selected app (3.958167ms)
+✔ public and static-credential connectors do not require OAuth, but missing tool discovery is reported (3.2705ms)
+✔ an app action loads the app list, its tool list and the permission rules at the same time, and still checks all of them (12.525417ms)
+✔ the first action, before any app list, still loads the permission rules alongside discovery (7.406792ms)
+✔ a wrong guess about the app is caught by the fresh app list, and its failed early load is ignored (30.785125ms)
+✔ a failed tool list for the right app is an error, and failed permission reads are ignored only when the tool was refused first (38.87625ms)
+✔ a tool search reuses a connected app's tool list for a minute; an action always loads it fresh (24.486875ms)
+✔ two apps with the same name are never guessed by name (6.301084ms)
+✔ invalid connector arguments execute zero times, valid nested arguments execute once (16.07325ms)
+✔ one malformed connector or tool leaves the others usable (5.597041ms)
+✖ a public connector without an OAuth token can still discover and execute its tools (3.076208ms)
+✔ catalog includes installed, skills-only, custom and native entries without exposing configured secrets (35.951ms)
+✔ setup fields are validated before installation and only submitted values are sent (15.714291ms)
+✔ team-required plugins cannot be disabled or removed and unknown ids never mutate (3.680708ms)
+✔ OAuth binds its callback before authorization, exchanges only a matching state, verifies completion and rejects replay (10.022959ms)
+✔ canceling or expiring authentication never deletes existing credentials (3.966625ms)
+✔ account and tool management use the selected server and preserve other saved settings (4.594333ms)
+✔ configuration merges changed secrets; enabling and uninstalling use existing installations (5.533667ms)
+✔ native status, custom accounts, policy defaults and legacy disabled rules stay distinct (4.184833ms)
+✔ OAuth handles provider denial, completion failure, continuation, and existing sessions (6.381375ms)
+✔ malformed callbacks never exchange a code (4.134ms)
+✔ private catalogs paginate, merge installed-only entries, and surface partial failures (3.404917ms)
+✔ invalid catalog pagination and malformed lists fail visibly (2.298917ms)
+✔ configuration errors redact credentials and concurrent mutations are refused (13.742125ms)
+✔ permission edits preserve read/write policies and clear only the chosen legacy block (2.517834ms)
+✔ unsafe and incomplete authorization responses never open a usable flow (5.025791ms)
+✔ catalog tolerates missing optional metadata and retains one native account summary (1.925917ms)
+✔ missing optional lists are empty, and tool permissions accept either tool name format (6.801709ms)
+✔ unnamed accounts and settings without disabled tools remain usable (2.283291ms)
+✔ built-in account services use their own setup instead of HTTP MCP OAuth (1.620833ms)
+✖ service outages are checked read-only and never mislabeled as sign-in failures (0.225792ms)
+ℹ tests 53
+ℹ suites 0
+ℹ pass 51
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 735.0145
+
+✖ failing tests:
+
+test at test/apps.test.ts:550:1
+✖ a public connector without an OAuth token can still discover and execute its tools (3.076208ms)
+  TypeError [Error]: Cannot read properties of undefined (reading '0')
+      at TestContext.<anonymous> (file:///Users/shashank/bot%20CLI%20proxy/test/apps.test.ts:554:26)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7)
+
+test at test/connections.test.ts:316:1
+✖ service outages are checked read-only and never mislabeled as sign-in failures (0.225792ms)
+  Error: Unknown connection action.
+      at ConnectionsManager.command (file:///Users/shashank/bot%20CLI%20proxy/src/connections.ts:215:124)
+      at run (file:///Users/shashank/bot%20CLI%20proxy/test/connections.test.ts:47:101)
+      at TestContext.<anonymous> (file:///Users/shashank/bot%20CLI%20proxy/test/connections.test.ts:319:22)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7)

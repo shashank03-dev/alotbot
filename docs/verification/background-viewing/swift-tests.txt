@@ -1,0 +1,312 @@
+Building for debugging...
+[2 / 22]
+[3 / 23] GrokCallCore
+[5 / 24] GrokCallCore
+[8 / 13] GrokCallNativeTests-product
+[10 / 15] GrokCallNativeTests-product
+[13 / 16] GrokCallNativeTests-product
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCallNativeTests-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/usr/lib' not found
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCallNativeTests-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[15 / 19] GrokCallNativeTests-product
+Build complete! (2.12 secs)
+◇ Test run started.
+↳ Testing Library Version: 2084
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite BackendFlowTests started.
+◇ Suite ActionHistoryViewTests started.
+◇ Suite ExistingBrowserTests started.
+◇ Suite VoiceCaptureBridgeTests started.
+◇ Suite MacToolsTests started.
+◇ Suite SharedWindowTests started.
+◇ Suite BackgroundObservationTests started.
+◇ Test rendersActionStatesForVisualInspection() started.
+◇ Test stoppingTheBackendReleasesARequestAlreadySent() started.
+◇ Test nativeDispatchReadsOnlySelectedFolder() started.
+◇ Test nativeHistoryApprovalsAndReconnectUseTheRealBackendConnection() started.
+◇ Test capturesExistingBrowserWindowsWithoutLaunchingOrChangingFocus() started.
+◇ Test realSharedWindowInspectPressCaptureAndClosedWindow() started.
+◇ Test capturesBackgroundWindowWithoutChangingFocus() started.
+◇ Test refusesObservationUntilEnabled() started.
+➜ Test executesNativeCaptureForLiveCall() skipped: "Live native-call adapter only"
+✔ Suite VoiceCaptureBridgeTests passed after 0.001 seconds.
+✔ Test rendersActionStatesForVisualInspection() passed after 1.521 seconds.
+✔ Suite ActionHistoryViewTests passed after 1.521 seconds.
+✔ Test refusesObservationUntilEnabled() passed after 1.524 seconds.
+✔ Test nativeDispatchReadsOnlySelectedFolder() passed after 1.537 seconds.
+✔ Suite MacToolsTests passed after 1.537 seconds.
+✔ Test stoppingTheBackendReleasesARequestAlreadySent() passed after 2.080 seconds.
+✔ Test realSharedWindowInspectPressCaptureAndClosedWindow() passed after 2.113 seconds.
+✔ Suite SharedWindowTests passed after 2.113 seconds.
+✔ Test nativeHistoryApprovalsAndReconnectUseTheRealBackendConnection() passed after 2.443 seconds.
+✔ Suite BackendFlowTests passed after 2.443 seconds.
+✔ Test capturesExistingBrowserWindowsWithoutLaunchingOrChangingFocus() passed after 2.712 seconds.
+✔ Suite ExistingBrowserTests passed after 2.712 seconds.
+✔ Test capturesBackgroundWindowWithoutChangingFocus() passed after 3.019 seconds.
+✔ Suite BackgroundObservationTests passed after 3.019 seconds.
+✔ Test run with 9 tests in 7 suites passed after 3.019 seconds.
+◇ Test run started.
+↳ Testing Library Version: 2084
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite StageLayoutTests started.
+◇ Suite CallStateTests started.
+◇ Suite MorphEngineTests started.
+◇ Suite DrawingTests started.
+◇ Suite ActionTests started.
+◇ Suite PillLayoutTests started.
+◇ Suite GeometryTests started.
+◇ Suite ObservationTests started.
+◇ Suite AudioFrameTests started.
+◇ Suite SpecialFileTests started.
+◇ Suite InitialsTests started.
+◇ Suite ServerMessageTests started.
+◇ Suite TaskSortTests started.
+◇ Suite ColorTests started.
+◇ Suite FolderBoundaryTests started.
+◇ Suite MorphDataTests started.
+◇ Suite MotionTests started.
+◇ Test speaker() started.
+◇ Test tilesStayInsideTheArea() started.
+◇ Test emptyAreaGivesZeroTiles() started.
+◇ Test gridFitsTheCount(bots:cols:rows:) started.
+◇ Test gazeLooksAheadWhenItCant() started.
+◇ Test tilesDontOverlap() started.
+◇ Test avatarStates(status:expected:) started.
+◇ Test shapeChangesMorph() started.
+◇ Test hostComesFirstAndShortRowIsCentered() started.
+◇ Suite SVGPathTests started.
+◇ Test ring() started.
+◇ Test eyesStayFiniteOnOddData() started.
+◇ Test everyShapeAndMoodDrawsTwoEyesInsideTheHead() started.
+◇ Test gazePointsAtTheTarget() started.
+◇ Test expressionsChangeOverTime() started.
+◇ Test moodsMoveTheHead() started.
+◇ Test blinksCloseAndReopen() started.
+◇ Test theHeadTurnsTowardWhoItLooksAt() started.
+◇ Test wanderingEyesWhenNoOneToLookAt() started.
+◇ Test reduceMotionSkipsTheMorph() started.
+◇ Test contactSheetWritesAPNG() started.
+◇ Test winksUseEitherEye() started.
+◇ Test clock() started.
+◇ Test tallAreaStacks() started.
+◇ Test drawsTheBodyColor() started.
+◇ Test positions() started.
+◇ Test springRecoversFromBadNumbers() started.
+◇ Test faceLerp() started.
+◇ Test spanOfRing() started.
+◇ Test showingAllKeepsBubbleToFoldBack() started.
+◇ Test settingTheSameStateIsANoOp() started.
+◇ Test longStallsAreCapped() started.
+◇ Test failsCleanlyOnABadPath() started.
+◇ Test threeBots() started.
+◇ Test spanOfShapeMatchesRing() started.
+◇ Test easingAndClamp() started.
+◇ Test foldedBotsLookingAtEachOtherLookAhead() started.
+◇ Test noBots() started.
+◇ Test exactTitleWinsBeforeSubstring() started.
+◇ Test sameSeedSameMotion() started.
+◇ Test fiveFitWithoutBubble() started.
+◇ Test matchesAppWithoutSpaceOrCase() started.
+◇ Test extraBotsFoldIntoBubble() started.
+◇ Test tasks() started.
+◇ Test lerpAndCentroid() started.
+◇ Test lines() started.
+◇ Test request() started.
+◇ Test lookingAtSomeoneMovesTheEyesToThatSide() started.
+◇ Test resolvesCommonBrowserNamesWithoutRestrictingOtherApps() started.
+◇ Test malformed() started.
+◇ Test namedPipesAreRejectedWithoutBlockingTheCall() started.
+◇ Test replyWithBareValue() started.
+◇ Test initials(name:expected:) started.
+◇ Test outlineAndPolygon() started.
+◇ Test gaze() started.
+◇ Test modelDecoding() started.
+◇ Test replyMissingFields() started.
+◇ Test smallMessages() started.
+◇ Test excludesToolbarSurfacesWithoutExcludingBackgroundContentWindows() started.
+◇ Test neverGuessesAppFromTitleOrEmptyRequest() started.
+◇ Test hexForms() started.
+◇ Test replyWithResult() started.
+◇ Test rootFolderAndExactSizeAndListCaps() started.
+◇ Test bodyColors() started.
+◇ Test mix() started.
+◇ Test ringStopsCloseTheLoop() started.
+◇ Test allTasksGroupedHostFirstUnownedLast() started.
+◇ Test view() started.
+◇ Test replyErrorAndSignedOut() started.
+◇ Test eyeColors() started.
+◇ Test botCardOrder() started.
+◇ Test case passing 3 arguments bots → 0, cols → 1, rows → 1 to gridFitsTheCount(bots:cols:rows:) started.
+◇ Test emptyList() started.
+◇ Test case passing 3 arguments bots → 1, cols → 2, rows → 1 to gridFitsTheCount(bots:cols:rows:) started.
+◇ Test badHex() started.
+◇ Test case passing 3 arguments bots → 2, cols → 3, rows → 1 to gridFitsTheCount(bots:cols:rows:) started.
+◇ Test case passing 2 arguments status → "speaking", expected → .speaking to avatarStates(status:expected:) started.
+◇ Test openOnlyHidesDone() started.
+◇ Test testHistoryAndApprovalDecode() started.
+◇ Test case passing 3 arguments bots → 3, cols → 2, rows → 2 to gridFitsTheCount(bots:cols:rows:) started.
+◇ Test case passing 2 arguments status → "thinking", expected → .thinking to avatarStates(status:expected:) started.
+◇ Test case passing 2 arguments status → "listening", expected → .listening to avatarStates(status:expected:) started.
+◇ Test case passing 2 arguments status → "idle", expected → .idle to avatarStates(status:expected:) started.
+◇ Test case passing 3 arguments bots → 4, cols → 3, rows → 2 to gridFitsTheCount(bots:cols:rows:) started.
+◇ Test case passing 2 arguments status → "connecting", expected → .idle to avatarStates(status:expected:) started.
+◇ Test case passing 3 arguments bots → 5, cols → 3, rows → 2 to gridFitsTheCount(bots:cols:rows:) started.
+◇ Test case passing 2 arguments status → "error", expected → .idle to avatarStates(status:expected:) started.
+◇ Test case passing 3 arguments bots → 6, cols → 4, rows → 2 to gridFitsTheCount(bots:cols:rows:) started.
+◇ Test testFolderBoundaryAndRealRead() started.
+◇ Test case passing 3 arguments bots → 7, cols → 4, rows → 2 to gridFitsTheCount(bots:cols:rows:) started.
+◇ Test case passing 3 arguments bots → 8, cols → 3, rows → 3 to gridFitsTheCount(bots:cols:rows:) started.
+◇ Test unknownShapesUseBlob() started.
+◇ Test case passing 3 arguments bots → 11, cols → 4, rows → 3 to gridFitsTheCount(bots:cols:rows:) started.
+◇ Test case passing 3 arguments bots → 12, cols → 5, rows → 3 to gridFitsTheCount(bots:cols:rows:) started.
+◇ Test rejectsBrokenFiles() started.
+◇ Test everyShapeLoads() started.
+◇ Test loadsFromFileContents() started.
+◇ Test blinkRangeIsOptional() started.
+◇ Test facesKeepALittleLifeOnly() started.
+◇ Test case passing 2 arguments name → "Shashank's X bot", expected → "SX" to initials(name:expected:) started.
+◇ Test case passing 2 arguments name → "My Bot", expected → "MB" to initials(name:expected:) started.
+◇ Test surfacesSettleWithoutVisibleOvershoot() started.
+◇ Test case passing 2 arguments name → "Eve", expected → "EV" to initials(name:expected:) started.
+◇ Test noFlickerOrFastFlashing() started.
+◇ Test case passing 2 arguments name → "Research Team Bots", expected → "RT" to initials(name:expected:) started.
+◇ Test exitsAreQuickerThanEntrances() started.
+◇ Test case passing 2 arguments name → "Ann Lee Smith", expected → "AS" to initials(name:expected:) started.
+◇ Test case passing 2 arguments name → "x", expected → "X" to initials(name:expected:) started.
+◇ Test theOpeningWaveIsShort() started.
+◇ Test case passing 2 arguments name → "Bob’s Helper", expected → "BH" to initials(name:expected:) started.
+◇ Test badBotFrames() started.
+◇ Test swappedPanelsDontOverlap() started.
+◇ Test micLayout() started.
+◇ Test rms() started.
+◇ Test botRoundTrip() started.
+◇ Test pcm16() started.
+✔ Test gridFitsTheCount(bots:cols:rows:) with 11 test cases passed after 0.022 seconds.
+✔ Test emptyAreaGivesZeroTiles() passed after 0.022 seconds.
+✔ Test gazeLooksAheadWhenItCant() passed after 0.022 seconds.
+◇ Test curves() started.
+◇ Test basicSquare() started.
+◇ Test compactNumbers() started.
+✔ Test hostComesFirstAndShortRowIsCentered() passed after 0.022 seconds.
+◇ Test implicitLinesAfterMove() started.
+◇ Test rejects(_:) started.
+✔ Test tilesDontOverlap() passed after 0.022 seconds.
+✔ Test speaker() passed after 0.022 seconds.
+✔ Test avatarStates(status:expected:) with 6 test cases passed after 0.022 seconds.
+✔ Test ring() passed after 0.022 seconds.
+✔ Test gazePointsAtTheTarget() passed after 0.022 seconds.
+✔ Test tilesStayInsideTheArea() passed after 0.022 seconds.
+✔ Test reduceMotionSkipsTheMorph() passed after 0.022 seconds.
+✔ Test blinksCloseAndReopen() passed after 0.022 seconds.
+✔ Test clock() passed after 0.022 seconds.
+✔ Test tallAreaStacks() passed after 0.022 seconds.
+✔ Test theHeadTurnsTowardWhoItLooksAt() passed after 0.022 seconds.
+✔ Test positions() passed after 0.022 seconds.
+✔ Test springRecoversFromBadNumbers() passed after 0.022 seconds.
+✔ Test drawsTheBodyColor() passed after 0.022 seconds.
+✔ Test faceLerp() passed after 0.022 seconds.
+✔ Test spanOfRing() passed after 0.022 seconds.
+✔ Test showingAllKeepsBubbleToFoldBack() passed after 0.022 seconds.
+✔ Test longStallsAreCapped() passed after 0.022 seconds.
+✔ Test threeBots() passed after 0.022 seconds.
+✔ Test settingTheSameStateIsANoOp() passed after 0.022 seconds.
+✔ Test spanOfShapeMatchesRing() passed after 0.025 seconds.
+✔ Test moodsMoveTheHead() passed after 0.026 seconds.
+✔ Test foldedBotsLookingAtEachOtherLookAhead() passed after 0.025 seconds.
+✔ Test noBots() passed after 0.025 seconds.
+✔ Test exactTitleWinsBeforeSubstring() passed after 0.025 seconds.
+✔ Test matchesAppWithoutSpaceOrCase() passed after 0.025 seconds.
+✔ Test easingAndClamp() passed after 0.025 seconds.
+✔ Test fiveFitWithoutBubble() passed after 0.026 seconds.
+✔ Test extraBotsFoldIntoBubble() passed after 0.025 seconds.
+✔ Test expressionsChangeOverTime() passed after 0.026 seconds.
+✔ Test lerpAndCentroid() passed after 0.026 seconds.
+✔ Test lines() passed after 0.026 seconds.
+✔ Test tasks() passed after 0.026 seconds.
+✔ Test shapeChangesMorph() passed after 0.027 seconds.
+✔ Test request() passed after 0.026 seconds.
+✔ Test sameSeedSameMotion() passed after 0.026 seconds.
+✔ Test wanderingEyesWhenNoOneToLookAt() passed after 0.027 seconds.
+✔ Test resolvesCommonBrowserNamesWithoutRestrictingOtherApps() passed after 0.026 seconds.
+✔ Test replyWithBareValue() passed after 0.026 seconds.
+✔ Test outlineAndPolygon() passed after 0.026 seconds.
+✔ Test contactSheetWritesAPNG() passed after 0.027 seconds.
+✔ Test gaze() passed after 0.026 seconds.
+✔ Test modelDecoding() passed after 0.026 seconds.
+✔ Test smallMessages() passed after 0.026 seconds.
+✔ Test malformed() passed after 0.027 seconds.
+✔ Test excludesToolbarSurfacesWithoutExcludingBackgroundContentWindows() passed after 0.027 seconds.
+✔ Test replyMissingFields() passed after 0.027 seconds.
+✔ Test initials(name:expected:) with 7 test cases passed after 0.027 seconds.
+✔ Test neverGuessesAppFromTitleOrEmptyRequest() passed after 0.027 seconds.
+✔ Test hexForms() passed after 0.027 seconds.
+✔ Test replyWithResult() passed after 0.027 seconds.
+✔ Test bodyColors() passed after 0.027 seconds.
+✔ Test failsCleanlyOnABadPath() passed after 0.027 seconds.
+✔ Test mix() passed after 0.027 seconds.
+✔ Test ringStopsCloseTheLoop() passed after 0.028 seconds.
+✔ Test eyeColors() passed after 0.028 seconds.
+✔ Test replyErrorAndSignedOut() passed after 0.028 seconds.
+✔ Test view() passed after 0.028 seconds.
+✔ Test emptyList() passed after 0.028 seconds.
+✔ Test botCardOrder() passed after 0.028 seconds.
+✔ Test badHex() passed after 0.028 seconds.
+✔ Test allTasksGroupedHostFirstUnownedLast() passed after 0.028 seconds.
+✔ Test openOnlyHidesDone() passed after 0.028 seconds.
+◇ Test case passing 1 argument d → "" to rejects(_:) started.
+◇ Test case passing 1 argument d → "M0" to rejects(_:) started.
+◇ Test case passing 1 argument d → "   " to rejects(_:) started.
+◇ Test case passing 1 argument d → "M0 0 L5" to rejects(_:) started.
+◇ Test case passing 1 argument d → "M0 0 C1 1 2 2" to rejects(_:) started.
+◇ Test case passing 1 argument d → "X1 2" to rejects(_:) started.
+◇ Test case passing 1 argument d → "M0 0 Q1 1" to rejects(_:) started.
+◇ Test case passing 1 argument d → "M0 0 A1 1 0 0 1 2 2" to rejects(_:) started.
+✔ Test testHistoryAndApprovalDecode() passed after 0.028 seconds.
+◇ Test case passing 1 argument d → "M0 0 Lx 1" to rejects(_:) started.
+◇ Test case passing 1 argument d → "1 2" to rejects(_:) started.
+✔ Test unknownShapesUseBlob() passed after 0.028 seconds.
+✔ Test everyShapeLoads() passed after 0.012 seconds.
+✔ Test testFolderBoundaryAndRealRead() passed after 0.028 seconds.
+✔ Test facesKeepALittleLifeOnly() passed after 0.009 seconds.
+✔ Test noFlickerOrFastFlashing() passed after 0.008 seconds.
+✔ Test surfacesSettleWithoutVisibleOvershoot() passed after 0.008 seconds.
+✔ Test exitsAreQuickerThanEntrances() passed after 0.007 seconds.
+✔ Test theOpeningWaveIsShort() passed after 0.007 seconds.
+✔ Test badBotFrames() passed after 0.007 seconds.
+✔ Test swappedPanelsDontOverlap() passed after 0.007 seconds.
+✔ Test rms() passed after 0.007 seconds.
+✔ Test micLayout() passed after 0.007 seconds.
+✔ Test botRoundTrip() passed after 0.007 seconds.
+✔ Test pcm16() passed after 0.007 seconds.
+✔ Test lookingAtSomeoneMovesTheEyesToThatSide() passed after 0.029 seconds.
+✔ Test curves() passed after 0.007 seconds.
+✔ Suite StageLayoutTests passed after 0.029 seconds.
+✔ Test compactNumbers() passed after 0.007 seconds.
+✔ Test basicSquare() passed after 0.007 seconds.
+✔ Test implicitLinesAfterMove() passed after 0.007 seconds.
+✔ Suite CallStateTests passed after 0.029 seconds.
+✔ Test rejects(_:) with 10 test cases passed after 0.007 seconds.
+✔ Suite DrawingTests passed after 0.029 seconds.
+✔ Suite PillLayoutTests passed after 0.029 seconds.
+✔ Suite GeometryTests passed after 0.029 seconds.
+✔ Suite ObservationTests passed after 0.029 seconds.
+✔ Suite InitialsTests passed after 0.029 seconds.
+✔ Suite ServerMessageTests passed after 0.029 seconds.
+✔ Suite ColorTests passed after 0.029 seconds.
+✔ Suite TaskSortTests passed after 0.029 seconds.
+✔ Suite ActionTests passed after 0.029 seconds.
+✔ Suite MotionTests passed after 0.029 seconds.
+✔ Suite SVGPathTests passed after 0.029 seconds.
+✔ Suite AudioFrameTests passed after 0.029 seconds.
+✔ Test namedPipesAreRejectedWithoutBlockingTheCall() passed after 0.029 seconds.
+✔ Suite SpecialFileTests passed after 0.030 seconds.
+✔ Test winksUseEitherEye() passed after 0.033 seconds.
+✔ Test everyShapeAndMoodDrawsTwoEyesInsideTheHead() passed after 0.041 seconds.
+✔ Test eyesStayFiniteOnOddData() passed after 0.052 seconds.
+✔ Suite MorphEngineTests passed after 0.053 seconds.
+✔ Test loadsFromFileContents() passed after 0.040 seconds.
+✔ Test blinkRangeIsOptional() passed after 0.042 seconds.
+✔ Test rootFolderAndExactSizeAndListCaps() passed after 0.109 seconds.
+✔ Suite FolderBoundaryTests passed after 0.110 seconds.
+✔ Test rejectsBrokenFiles() passed after 0.206 seconds.
+✔ Suite MorphDataTests passed after 0.222 seconds.
+✔ Test run with 96 tests in 18 suites passed after 0.223 seconds.

@@ -1,0 +1,11 @@
+{"app":"21st.dev","setupFields":[{"key":"API_KEY_21ST","secret":true,"required":true}]}
+{"app":"21st.dev","status":"unavailable","message":"The app’s service is temporarily unavailable. Try again later; your connection was kept."}
+{"app":"Cloudflare","status":"connected","message":"Ready for your bots."}
+{"app":"GitHub","status":"connected","message":"Ready for your bots."}
+{"app":"Gmail","status":"connected","message":"Ready for your bots."}
+{"app":"Origin","status":"connected","message":"Ready for your bots."}
+{"app":"Render","status":"needsAuth","message":"Sign in to let your bots use this app."}
+{"app":"Supabase","status":"connected","message":"Ready for your bots."}
+{"app":"T3 Code","status":"unavailable","message":"The app did not respond in time. Check again; your connection was kept."}
+{"app":"Vercel","status":"connected","message":"Ready for your bots."}
+{"app":"X","status":"connected","message":"Ready for your bots."}

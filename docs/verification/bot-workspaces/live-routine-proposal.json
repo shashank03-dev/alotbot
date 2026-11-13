@@ -1,0 +1,6 @@
+{
+  "name": "Grok Call disposable verification",
+  "prompt": "Verification only: create a new text file in your computer's temporary directory containing exactly GROK_CALL_ROUTINE_VERIFIED, then report the file path. Do not contact anyone, send any message outside this bot conversation, use connected apps, browse external sites, access private documents, or buy anything. This routine is a disposable Grok Call integration test.",
+  "trigger": {"type": "cron", "schedule": "0 0 1 1 *"},
+  "isEnabled": false
+}

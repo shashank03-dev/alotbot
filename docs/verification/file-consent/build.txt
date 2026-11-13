@@ -1,0 +1,22 @@
+Building for production...
+[Planning deferred tasks]
+[3 / 10]
+[4 / 11] GrokCallCore
+[6 / 12] GrokCallCore
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCallCore: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[11 / 12] GrokCall-product
+/Users/shashank/bot CLI proxy/mac/Sources/GrokCall/MacTools.swift:32:53: warning: converting function value of type '@MainActor () -> Bool' to '() -> Bool' loses global actor 'MainActor'; this is an error in the Swift 6 language mode
+ 30 |          accessibilityAllowed: @escaping () -> Bool = { AXIsProcessTrusted() },
+ 31 |          requestAccessibility: @escaping () -> Void = { _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary) },
+ 32 |          requestFileConsent: @escaping () -> Bool = MacTools.showFileConsent) {
+    |                                                     `- warning: converting function value of type '@MainActor () -> Bool' to '() -> Bool' loses global actor 'MainActor'; this is an error in the Swift 6 language mode
+ 33 |         preferences = defaults
+ 34 |         permissionSetup = CallPermissionSetup(defaults: defaults)
+[12 / 13] GrokCall-product
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCall-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/usr/lib' not found
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCall-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[15 / 17] GrokCall-product
+[16 / 17] GrokCall-product
+Build complete! (13.73 secs)
+/Users/shashank/bot CLI proxy/mac/build/Grok Call.app: replacing existing signature
+Built: /Users/shashank/bot CLI proxy/mac/build/Grok Call.app

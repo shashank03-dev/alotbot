@@ -1,0 +1,534 @@
+Building for debugging...
+[Computing dependencies]
+[Planning deferred tasks]
+[2 / 19]
+[3 / 20] GrokCallCore
+[14 / 31] GrokCallCore
+[19 / 38] GrokCallCore
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCallCore: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[32 / 84]
+[41 / 84]
+[47 / 94]
+[51 / 94]
+[52 / 94] GrokCallCoreTests-product
+[53 / 94]
+[56 / 94] GrokCallCoreTests-product
+[56 / 94]
+[57 / 94]
+[57 / 94] GrokCallCoreTests-product
+[59 / 94] GrokCallCoreTests-product/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCallCoreTests-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/usr/lib' not found
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCallCoreTests-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+
+[64 / 98]
+[65 / 98]
+/Users/shashank/bot CLI proxy/mac/Sources/GrokCall/MacTools.swift:32:53: [1;33mwarning: [1;39mconverting function value of type '@MainActor () -> Bool' to '() -> Bool' loses global actor 'MainActor'; this is an error in the Swift 6 language mode[0;0m
+ [0;36m30 |[0;0m          accessibilityAllowed: @escaping () -> Bool = { AXIsProcessTrusted() },
+ [0;36m31 |[0;0m          requestAccessibility: @escaping () -> Void = { _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary) },
+ [0;36m32 |[0;0m          requestFileConsent: @escaping () -> Bool = MacTools.showFileConsent) {
+    [0;36m|[0;0m                                                     `- [1;33mwarning: [1;39mconverting function value of type '@MainActor () -> Bool' to '() -> Bool' loses global actor 'MainActor'; this is an error in the Swift 6 language mode[0;0m
+ [0;36m33 |[0;0m         preferences = defaults
+ [0;36m34 |[0;0m         permissionSetup = CallPermissionSetup(defaults: defaults)
+[75 / 98] GrokCall
+[78 / 98] GrokCall-product
+/Users/shashank/bot CLI proxy/mac/Sources/GrokCall/MacTools.swift:32:53: [1;33mwarning: [1;39mconverting function value of type '@MainActor () -> Bool' to '() -> Bool' loses global actor 'MainActor'; this is an error in the Swift 6 language mode[0;0m
+ [0;36m30 |[0;0m          accessibilityAllowed: @escaping () -> Bool = { AXIsProcessTrusted() },
+ [0;36m31 |[0;0m          requestAccessibility: @escaping () -> Void = { _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary) },
+ [0;36m32 |[0;0m          requestFileConsent: @escaping () -> Bool = MacTools.showFileConsent) {
+    [0;36m|[0;0m                                                     `- [1;33mwarning: [1;39mconverting function value of type '@MainActor () -> Bool' to '() -> Bool' loses global actor 'MainActor'; this is an error in the Swift 6 language mode[0;0m
+ [0;36m33 |[0;0m         preferences = defaults
+ [0;36m34 |[0;0m         permissionSetup = CallPermissionSetup(defaults: defaults)
+
+/Users/shashank/bot CLI proxy/mac/Sources/GrokCall/WorkspaceFiles.swift:100:32: [1;33mwarning: [1;39m'@preconcurrency' on conformance to 'QLPreviewPanelDelegate' has no effect[0;0m
+ [0;36m98 |[0;0m     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
+ [0;36m99 |[0;0m }
+[0;36m100 |[0;0m @MainActor private final class WorkspacePreview: NSObject, @preconcurrency QLPreviewPanelDataSource, @preconcurrency QLPreviewPanelDelegate {
+    [0;36m|[0;0m                                `- [1;33mwarning: [1;39m'@preconcurrency' on conformance to 'QLPreviewPanelDelegate' has no effect[0;0m
+[0;36m101 |[0;0m     static let shared = WorkspacePreview()
+[0;36m102 |[0;0m     private var file: URL?
+[79 / 98] GrokCall-product
+/Users/shashank/bot CLI proxy/mac/Sources/GrokCall/MacTools.swift:32:53: [1;33mwarning: [1;39mconverting function value of type '@MainActor () -> Bool' to '() -> Bool' loses global actor 'MainActor'; this is an error in the Swift 6 language mode[0;0m
+ [0;36m30 |[0;0m          accessibilityAllowed: @escaping () -> Bool = { AXIsProcessTrusted() },
+ [0;36m31 |[0;0m          requestAccessibility: @escaping () -> Void = { _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary) },
+ [0;36m32 |[0;0m          requestFileConsent: @escaping () -> Bool = MacTools.showFileConsent) {
+    [0;36m|[0;0m                                                     `- [1;33mwarning: [1;39mconverting function value of type '@MainActor () -> Bool' to '() -> Bool' loses global actor 'MainActor'; this is an error in the Swift 6 language mode[0;0m
+ [0;36m33 |[0;0m         preferences = defaults
+ [0;36m34 |[0;0m         permissionSetup = CallPermissionSetup(defaults: defaults)
+
+/Users/shashank/bot CLI proxy/mac/Sources/GrokCall/WorkspaceFiles.swift:100:32: [1;33mwarning: [1;39m'@preconcurrency' on conformance to 'QLPreviewPanelDelegate' has no effect[0;0m
+ [0;36m98 |[0;0m     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
+ [0;36m99 |[0;0m }
+[0;36m100 |[0;0m @MainActor private final class WorkspacePreview: NSObject, @preconcurrency QLPreviewPanelDataSource, @preconcurrency QLPreviewPanelDelegate {
+    [0;36m|[0;0m                                `- [1;33mwarning: [1;39m'@preconcurrency' on conformance to 'QLPreviewPanelDelegate' has no effect[0;0m
+[0;36m101 |[0;0m     static let shared = WorkspacePreview()
+[0;36m102 |[0;0m     private var file: URL?
+[82 / 98] GrokCall-product
+[86 / 100] GrokCall-product
+/Users/shashank/bot CLI proxy/mac/Sources/GrokCall/MacTools.swift:32:53: [1;33mwarning: [1;39mconverting function value of type '@MainActor () -> Bool' to '() -> Bool' loses global actor 'MainActor'; this is an error in the Swift 6 language mode[0;0m
+ [0;36m30 |[0;0m          accessibilityAllowed: @escaping () -> Bool = { AXIsProcessTrusted() },
+ [0;36m31 |[0;0m          requestAccessibility: @escaping () -> Void = { _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary) },
+ [0;36m32 |[0;0m          requestFileConsent: @escaping () -> Bool = MacTools.showFileConsent) {
+    [0;36m|[0;0m                                                     `- [1;33mwarning: [1;39mconverting function value of type '@MainActor () -> Bool' to '() -> Bool' loses global actor 'MainActor'; this is an error in the Swift 6 language mode[0;0m
+ [0;36m33 |[0;0m         preferences = defaults
+ [0;36m34 |[0;0m         permissionSetup = CallPermissionSetup(defaults: defaults)
+[90 / 100] GrokCall
+/Users/shashank/bot CLI proxy/mac/Sources/GrokCall/WorkspaceFiles.swift:100:32: [1;33mwarning: [1;39m'@preconcurrency' on conformance to 'QLPreviewPanelDelegate' has no effect[0;0m
+ [0;36m98 |[0;0m     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
+ [0;36m99 |[0;0m }
+[0;36m100 |[0;0m @MainActor private final class WorkspacePreview: NSObject, @preconcurrency QLPreviewPanelDataSource, @preconcurrency QLPreviewPanelDelegate {
+    [0;36m|[0;0m                                `- [1;33mwarning: [1;39m'@preconcurrency' on conformance to 'QLPreviewPanelDelegate' has no effect[0;0m
+[0;36m101 |[0;0m     static let shared = WorkspacePreview()
+[0;36m102 |[0;0m     private var file: URL?
+/Users/shashank/bot CLI proxy/mac/Sources/GrokCall/MacTools.swift:32:53: [1;33mwarning: [1;39mconverting function value of type '@MainActor () -> Bool' to '() -> Bool' loses global actor 'MainActor'; this is an error in the Swift 6 language mode[0;0m
+ [0;36m30 |[0;0m          accessibilityAllowed: @escaping () -> Bool = { AXIsProcessTrusted() },
+ [0;36m31 |[0;0m          requestAccessibility: @escaping () -> Void = { _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary) },
+ [0;36m32 |[0;0m          requestFileConsent: @escaping () -> Bool = MacTools.showFileConsent) {
+    [0;36m|[0;0m                                                     `- [1;33mwarning: [1;39mconverting function value of type '@MainActor () -> Bool' to '() -> Bool' loses global actor 'MainActor'; this is an error in the Swift 6 language mode[0;0m
+ [0;36m33 |[0;0m         preferences = defaults
+ [0;36m34 |[0;0m         permissionSetup = CallPermissionSetup(defaults: defaults)
+[91 / 103]
+[91 / 103] GrokCall-product
+/Users/shashank/bot CLI proxy/mac/Sources/GrokCall/MacTools.swift:32:53: [1;33mwarning: [1;39mconverting function value of type '@MainActor () -> Bool' to '() -> Bool' loses global actor 'MainActor'; this is an error in the Swift 6 language mode[0;0m
+ [0;36m30 |[0;0m          accessibilityAllowed: @escaping () -> Bool = { AXIsProcessTrusted() },
+ [0;36m31 |[0;0m          requestAccessibility: @escaping () -> Void = { _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary) },
+ [0;36m32 |[0;0m          requestFileConsent: @escaping () -> Bool = MacTools.showFileConsent) {
+    [0;36m|[0;0m                                                     `- [1;33mwarning: [1;39mconverting function value of type '@MainActor () -> Bool' to '() -> Bool' loses global actor 'MainActor'; this is an error in the Swift 6 language mode[0;0m
+ [0;36m33 |[0;0m         preferences = defaults
+ [0;36m34 |[0;0m         permissionSetup = CallPermissionSetup(defaults: defaults)
+[91 / 103] GrokCall
+[91 / 103] GrokCall-product
+/Users/shashank/bot CLI proxy/mac/Sources/GrokCall/WorkspaceFiles.swift:100:32: [1;33mwarning: [1;39m'@preconcurrency' on conformance to 'QLPreviewPanelDelegate' has no effect[0;0m
+ [0;36m98 |[0;0m     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
+ [0;36m99 |[0;0m }
+[0;36m100 |[0;0m @MainActor private final class WorkspacePreview: NSObject, @preconcurrency QLPreviewPanelDataSource, @preconcurrency QLPreviewPanelDelegate {
+    [0;36m|[0;0m                                `- [1;33mwarning: [1;39m'@preconcurrency' on conformance to 'QLPreviewPanelDelegate' has no effect[0;0m
+[0;36m101 |[0;0m     static let shared = WorkspacePreview()
+[0;36m102 |[0;0m     private var file: URL?
+[91 / 103] GrokCall
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCall: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[93 / 103] GrokCall-product
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCall-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/usr/lib' not found
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCall-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[95 / 105] GrokCall-product
+[99 / 104] GrokCallNativeTests-product
+[109 / 114] GrokCallNativeTests-product
+[112 / 115] GrokCallNativeTests-product
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCallNativeTests-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/usr/lib' not found
+/Users/shashank/bot CLI proxy/mac/Package.swift: GrokCallNativeTests-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[114 / 118] GrokCallNativeTests-product
+Build complete! (14.48 secs)
+◇ Test run started.
+↳ Testing Library Version: 2084
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite WorkspaceLessonConfirmationTests started.
+◇ Suite LiveWorkspaceDesktopTests started.
+◇ Suite WorkspaceRenderingTests started.
+◇ Suite MacToolsTests started.
+◇ Suite ConnectionsTests started.
+◇ Suite SharedWindowTests started.
+◇ Suite ActionHistoryViewTests started.
+◇ Suite WorkspaceLessonExitTests started.
+◇ Suite WorkspaceAuthenticationTests started.
+◇ Suite WorkspaceMcpSafetyTests started.
+◇ Suite BackgroundObservationTests started.
+◇ Suite CallSetupTests started.
+◇ Suite WorkspaceControlTests started.
+◇ Suite WorkspaceFileSizeTests started.
+◇ Suite WorkspaceRoutineTimeTests started.
+◇ Suite WorkspaceMcpWebKitTests started.
+◇ Suite VoiceCaptureBridgeTests started.
+◇ Suite BackendFlowTests started.
+◇ Suite BotWorkspaceTests started.
+◇ Suite FileConsentTests started.
+◇ Suite ExistingBrowserTests started.
+◇ Test anAcceptedStopCannotCloseAWindowWhileTheProviderStillRecords() started.
+◇ Test setupCardsRenderWithTheirScopedControls() started.
+◇ Test startingCannotClaimARecordingThatHasNotStarted() started.
+◇ Test failedChecksClearReadyStatusAndDoNotLeaveAStuckSpinner() started.
+◇ Test nativeDispatchReadsOnlySelectedFolder() started.
+◇ Test workspaceRendersRoutineAndEmptyComputerStates() started.
+◇ Test renderWhenRequested() started.
+◇ Test errorsAndMissingNativeAppsAreVisible() started.
+◇ Test typedDefaultsAndOmittedSecrets() started.
+◇ Test missingSetupFieldsLoadBeforeConnecting() started.
+◇ Test searchAndRefreshPreserveSelection() started.
+◇ Test permissionUpdatesAndEmptyTools() started.
+◇ Test providerErrorsStayWithTheirAppAndChecksDoNotOpenConsent() started.
+◇ Test providerDesktopLoadsInTheNativeWebKitViewWhenRequested() started.
+◇ Test publicConnectionChecksCanBecomeReadyWithoutOAuthAndCategoriesAreReadable() started.
+◇ Test decodeLiveCatalogWhenProvided() started.
+◇ Test connectInstallsThenUsesTheRequiredAuthorizationMethod() started.
+◇ Test failedStopKeepsTheLessonAndPreventsNormalExit() started.
+◇ Test rendersActionStatesForVisualInspection() started.
+◇ Test builtInAccountSetupOpensItsIntegrationPage() started.
+◇ Test routinePermissionsAndActivityKeepProviderIdentity() started.
+◇ Test joinRunsPermissionSetupBeforeMicrophoneAndDoesNotRepeatAfterRelaunch() started.
+◇ Test completedSignInStillChecksWhetherTheServiceIsReady() started.
+◇ Test explicitSettingsChoicesPersistAndDoNotTriggerAutomaticRequests() started.
+◇ Test realSharedWindowInspectPressCaptureAndClosedWindow() started.
+◇ Test providerInstantsDisplayInTheAccountZoneAcrossDaylightSaving() started.
+◇ Test refusesObservationUntilEnabled() started.
+◇ Test capturesBackgroundWindowWithoutChangingFocus() started.
+◇ Test closingViewerReleasesNativeStateBeforeBackendAcknowledges() started.
+◇ Test malformedAndExtremeSizesDoNotCrashFileRows() started.
+◇ Test stoppingTheBackendReleasesARequestAlreadySent() started.
+◇ Test nativeHistoryApprovalsAndReconnectUseTheRealBackendConnection() started.
+◇ Test closeFailureIsVisibleAndNeverRetainsInputControl() started.
+◇ Test appResourcesUsePublicHttpsOriginsOnly() started.
+◇ Test nativeSetupAndBrowserConsentStayExplicit() started.
+◇ Test workspaceKeepsBotIdentityAndDoesNotWakeAComputerForResources() started.
+◇ Test leavingStopsTheOwnedLessonBeforeItCanClose() started.
+◇ Test authenticationLossClosesWorkAccessAndClearsTheRoster() started.
+◇ Test failureRetainsDataAndEveryCommandUsesItsOwnBot() started.
+◇ Test appDocumentIsOpaqueAndCannotInjectIntoItsNativeHost() started.
+◇ Test olderActivityActionsCarryTheirDisplayedPositionForFreshLookup() started.
+◇ Test approvalPersistsBroadReadAccessAndRevocationDoesNotReprompt() started.
+➜ Test executesNativeCaptureForLiveCall() skipped: "Live native-call adapter only"
+◇ Test firstLaunchAsksOnceAndRemembersDecline() started.
+➜ Test capturesExistingBrowserWindowsWithoutLaunchingOrChangingFocus() skipped: "Opt-in: reads the user's currently open browser windows"
+◇ Test existingFolderChoiceIsNotBroadened() started.
+◇ Test sandboxHandshakeDeliversExactToolContextWithoutExposingNativeExecution() started.
+✔ Suite ExistingBrowserTests passed after 0.001 seconds.
+✔ Suite VoiceCaptureBridgeTests passed after 0.001 seconds.
+✔ Test setupCardsRenderWithTheirScopedControls() passed after 0.001 seconds.
+✔ Test malformedAndExtremeSizesDoNotCrashFileRows() passed after 0.001 seconds.
+✔ Suite WorkspaceFileSizeTests passed after 0.002 seconds.
+✔ Test failedChecksClearReadyStatusAndDoNotLeaveAStuckSpinner() passed after 0.002 seconds.
+✔ Test anAcceptedStopCannotCloseAWindowWhileTheProviderStillRecords() passed after 0.002 seconds.
+✔ Test startingCannotClaimARecordingThatHasNotStarted() passed after 0.002 seconds.
+✔ Suite WorkspaceLessonConfirmationTests passed after 0.002 seconds.
+✔ Test renderWhenRequested() passed after 0.002 seconds.
+✔ Test providerInstantsDisplayInTheAccountZoneAcrossDaylightSaving() passed after 0.002 seconds.
+✔ Suite WorkspaceRoutineTimeTests passed after 0.002 seconds.
+✔ Test errorsAndMissingNativeAppsAreVisible() passed after 0.004 seconds.
+✔ Test workspaceRendersRoutineAndEmptyComputerStates() passed after 0.004 seconds.
+✔ Suite WorkspaceRenderingTests passed after 0.004 seconds.
+✔ Test searchAndRefreshPreserveSelection() passed after 0.004 seconds.
+✔ Test permissionUpdatesAndEmptyTools() passed after 0.004 seconds.
+✔ Test providerErrorsStayWithTheirAppAndChecksDoNotOpenConsent() passed after 0.004 seconds.
+✔ Test connectInstallsThenUsesTheRequiredAuthorizationMethod() passed after 0.004 seconds.
+✔ Test rendersActionStatesForVisualInspection() passed after 0.106 seconds.
+✔ Suite ActionHistoryViewTests passed after 0.106 seconds.
+✔ Test joinRunsPermissionSetupBeforeMicrophoneAndDoesNotRepeatAfterRelaunch() passed after 0.109 seconds.
+✔ Test completedSignInStillChecksWhetherTheServiceIsReady() passed after 0.110 seconds.
+✔ Test explicitSettingsChoicesPersistAndDoNotTriggerAutomaticRequests() passed after 0.111 seconds.
+✔ Suite CallSetupTests passed after 0.111 seconds.
+✔ Test publicConnectionChecksCanBecomeReadyWithoutOAuthAndCategoriesAreReadable() passed after 0.112 seconds.
+✔ Test failedStopKeepsTheLessonAndPreventsNormalExit() passed after 0.112 seconds.
+✔ Test missingSetupFieldsLoadBeforeConnecting() passed after 0.112 seconds.
+✔ Test refusesObservationUntilEnabled() passed after 0.112 seconds.
+✔ Test closeFailureIsVisibleAndNeverRetainsInputControl() passed after 0.112 seconds.
+✔ Test closingViewerReleasesNativeStateBeforeBackendAcknowledges() passed after 0.116 seconds.
+✔ Test workspaceKeepsBotIdentityAndDoesNotWakeAComputerForResources() passed after 0.116 seconds.
+✔ Test builtInAccountSetupOpensItsIntegrationPage() passed after 0.116 seconds.
+✔ Test failureRetainsDataAndEveryCommandUsesItsOwnBot() passed after 0.116 seconds.
+✔ Test leavingStopsTheOwnedLessonBeforeItCanClose() passed after 0.117 seconds.
+✔ Suite WorkspaceLessonExitTests passed after 0.118 seconds.
+✔ Test providerDesktopLoadsInTheNativeWebKitViewWhenRequested() passed after 0.117 seconds.
+✔ Suite LiveWorkspaceDesktopTests passed after 0.118 seconds.
+✔ Test olderActivityActionsCarryTheirDisplayedPositionForFreshLookup() passed after 0.117 seconds.
+✔ Suite BotWorkspaceTests passed after 0.118 seconds.
+✔ Test nativeSetupAndBrowserConsentStayExplicit() passed after 0.118 seconds.
+✔ Test nativeDispatchReadsOnlySelectedFolder() passed after 0.238 seconds.
+✔ Suite MacToolsTests passed after 0.238 seconds.
+✔ Test decodeLiveCatalogWhenProvided() passed after 0.254 seconds.
+✔ Test routinePermissionsAndActivityKeepProviderIdentity() passed after 0.254 seconds.
+✔ Test typedDefaultsAndOmittedSecrets() passed after 0.255 seconds.
+✔ Test appResourcesUsePublicHttpsOriginsOnly() passed after 0.254 seconds.
+✔ Test appDocumentIsOpaqueAndCannotInjectIntoItsNativeHost() passed after 0.254 seconds.
+✔ Test approvalPersistsBroadReadAccessAndRevocationDoesNotReprompt() passed after 0.254 seconds.
+✔ Test firstLaunchAsksOnceAndRemembersDecline() passed after 0.254 seconds.
+✔ Test existingFolderChoiceIsNotBroadened() passed after 0.254 seconds.
+✔ Suite ConnectionsTests passed after 0.255 seconds.
+✔ Suite WorkspaceControlTests passed after 0.255 seconds.
+✔ Suite WorkspaceMcpSafetyTests passed after 0.255 seconds.
+✔ Test authenticationLossClosesWorkAccessAndClearsTheRoster() passed after 0.255 seconds.
+✔ Suite FileConsentTests passed after 0.255 seconds.
+✔ Suite WorkspaceAuthenticationTests passed after 0.255 seconds.
+✔ Test sandboxHandshakeDeliversExactToolContextWithoutExposingNativeExecution() passed after 0.580 seconds.
+✔ Suite WorkspaceMcpWebKitTests passed after 0.581 seconds.
+✔ Test stoppingTheBackendReleasesARequestAlreadySent() passed after 0.612 seconds.
+✔ Test nativeHistoryApprovalsAndReconnectUseTheRealBackendConnection() passed after 0.965 seconds.
+✔ Suite BackendFlowTests passed after 0.965 seconds.
+✔ Test realSharedWindowInspectPressCaptureAndClosedWindow() passed after 1.006 seconds.
+✔ Suite SharedWindowTests passed after 1.006 seconds.
+✔ Test capturesBackgroundWindowWithoutChangingFocus() passed after 1.780 seconds.
+✔ Suite BackgroundObservationTests passed after 1.780 seconds.
+✔ Test run with 47 tests in 21 suites passed after 1.780 seconds.
+◇ Test run started.
+↳ Testing Library Version: 2084
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite ObservationTests started.
+◇ Suite MotionTests started.
+◇ Suite CallStateTests started.
+◇ Suite FolderBoundaryTests started.
+◇ Suite AudioFrameTests started.
+◇ Suite StageLayoutTests started.
+◇ Suite ActionTests started.
+◇ Suite ServerMessageTests started.
+◇ Suite TaskSortTests started.
+◇ Suite SpecialFileTests started.
+◇ Suite MorphEngineTests started.
+◇ Suite SVGPathTests started.
+◇ Suite BroadFileReadTests started.
+◇ Suite InitialsTests started.
+◇ Suite GeometryTests started.
+◇ Suite CallPermissionTests started.
+◇ Suite PillLayoutTests started.
+◇ Suite DrawingTests started.
+◇ Suite MorphDataTests started.
+◇ Test exactTitleWinsBeforeSubstring() started.
+◇ Test excludesToolbarSurfacesWithoutExcludingBackgroundContentWindows() started.
+◇ Test neverGuessesAppFromTitleOrEmptyRequest() started.
+◇ Test resolvesCommonBrowserNamesWithoutRestrictingOtherApps() started.
+◇ Test theOpeningWaveIsShort() started.
+◇ Test facesKeepALittleLifeOnly() started.
+◇ Test matchesAppWithoutSpaceOrCase() started.
+◇ Suite ColorTests started.
+◇ Test pcm16() started.
+◇ Test exitsAreQuickerThanEntrances() started.
+◇ Test swappedPanelsDontOverlap() started.
+◇ Test clock() started.
+◇ Test micLayout() started.
+◇ Test noFlickerOrFastFlashing() started.
+◇ Test rms() started.
+◇ Test badBotFrames() started.
+◇ Test rootFolderAndExactSizeAndListCaps() started.
+◇ Test tallAreaStacks() started.
+◇ Test testFolderBoundaryAndRealRead() started.
+◇ Test gridFitsTheCount(bots:cols:rows:) started.
+◇ Test surfacesSettleWithoutVisibleOvershoot() started.
+◇ Test avatarStates(status:expected:) started.
+◇ Test tilesDontOverlap() started.
+◇ Test gazePointsAtTheTarget() started.
+◇ Test request() started.
+◇ Test emptyAreaGivesZeroTiles() started.
+◇ Test testHistoryAndApprovalDecode() started.
+◇ Test ring() started.
+◇ Test botRoundTrip() started.
+◇ Test speaker() started.
+◇ Test replyErrorAndSignedOut() started.
+◇ Test malformed() started.
+◇ Test gazeLooksAheadWhenItCant() started.
+◇ Test replyWithBareValue() started.
+◇ Test lines() started.
+◇ Test tilesStayInsideTheArea() started.
+◇ Test smallMessages() started.
+◇ Test emptyList() started.
+◇ Test modelDecoding() started.
+◇ Test hostComesFirstAndShortRowIsCentered() started.
+◇ Test view() started.
+◇ Test openOnlyHidesDone() started.
+◇ Test replyMissingFields() started.
+◇ Test basicSquare() started.
+◇ Test implicitLinesAfterMove() started.
+◇ Test namedPipesAreRejectedWithoutBlockingTheCall() started.
+◇ Test compactNumbers() started.
+◇ Test everyShapeAndMoodDrawsTwoEyesInsideTheHead() started.
+◇ Test springRecoversFromBadNumbers() started.
+◇ Test rejects(_:) started.
+◇ Test absolutePathsRequireAnExplicitBroadGrant() started.
+◇ Test initials(name:expected:) started.
+◇ Test curves() started.
+◇ Test expressionsChangeOverTime() started.
+◇ Test tasks() started.
+◇ Test allTasksGroupedHostFirstUnownedLast() started.
+◇ Test botCardOrder() started.
+◇ Test replyWithResult() started.
+◇ Test settingTheSameStateIsANoOp() started.
+◇ Test wanderingEyesWhenNoOneToLookAt() started.
+◇ Test moodsMoveTheHead() started.
+◇ Test reduceMotionSkipsTheMorph() started.
+◇ Test winksUseEitherEye() started.
+◇ Test theHeadTurnsTowardWhoItLooksAt() started.
+◇ Test eyesStayFiniteOnOddData() started.
+◇ Test easingAndClamp() started.
+◇ Test denialDoesNotLoopAndLaterSettingsGrantIsRecognized() started.
+◇ Test outlineAndPolygon() started.
+◇ Test faceLerp() started.
+◇ Test firstCallRequestsOnceAndKeepsViewingEnabledAcrossRelaunch() started.
+◇ Test spanOfRing() started.
+◇ Test longStallsAreCapped() started.
+◇ Test sameSeedSameMotion() started.
+◇ Test spanOfShapeMatchesRing() started.
+◇ Test shapeChangesMorph() started.
+◇ Test lerpAndCentroid() started.
+◇ Test lookingAtSomeoneMovesTheEyesToThatSide() started.
+◇ Test blinksCloseAndReopen() started.
+◇ Test existingGrantNeedsNoPromptAndExplicitViewingOffIsPreserved() started.
+◇ Test failsCleanlyOnABadPath() started.
+◇ Test foldedBotsLookingAtEachOtherLookAhead() started.
+◇ Test showingAllKeepsBubbleToFoldBack() started.
+◇ Test contactSheetWritesAPNG() started.
+◇ Test extraBotsFoldIntoBubble() started.
+◇ Test threeBots() started.
+◇ Test drawsTheBodyColor() started.
+◇ Test positions() started.
+◇ Test gaze() started.
+◇ Test noBots() started.
+◇ Test fiveFitWithoutBubble() started.
+◇ Test case passing 3 arguments bots → 0, cols → 1, rows → 1 to gridFitsTheCount(bots:cols:rows:) started.
+◇ Test case passing 3 arguments bots → 1, cols → 2, rows → 1 to gridFitsTheCount(bots:cols:rows:) started.
+◇ Test case passing 2 arguments status → "speaking", expected → .speaking to avatarStates(status:expected:) started.
+◇ Test case passing 3 arguments bots → 2, cols → 3, rows → 1 to gridFitsTheCount(bots:cols:rows:) started.
+◇ Test case passing 2 arguments status → "thinking", expected → .thinking to avatarStates(status:expected:) started.
+◇ Test case passing 3 arguments bots → 3, cols → 2, rows → 2 to gridFitsTheCount(bots:cols:rows:) started.
+◇ Test case passing 2 arguments status → "listening", expected → .listening to avatarStates(status:expected:) started.
+◇ Test unknownShapesUseBlob() started.
+◇ Test case passing 3 arguments bots → 4, cols → 3, rows → 2 to gridFitsTheCount(bots:cols:rows:) started.
+◇ Test case passing 2 arguments status → "idle", expected → .idle to avatarStates(status:expected:) started.
+◇ Test case passing 2 arguments status → "connecting", expected → .idle to avatarStates(status:expected:) started.
+◇ Test case passing 3 arguments bots → 5, cols → 3, rows → 2 to gridFitsTheCount(bots:cols:rows:) started.
+◇ Test case passing 2 arguments status → "error", expected → .idle to avatarStates(status:expected:) started.
+◇ Test loadsFromFileContents() started.
+◇ Test case passing 3 arguments bots → 6, cols → 4, rows → 2 to gridFitsTheCount(bots:cols:rows:) started.
+◇ Test case passing 3 arguments bots → 7, cols → 4, rows → 2 to gridFitsTheCount(bots:cols:rows:) started.
+◇ Test everyShapeLoads() started.
+◇ Test rejectsBrokenFiles() started.
+◇ Test case passing 3 arguments bots → 11, cols → 4, rows → 3 to gridFitsTheCount(bots:cols:rows:) started.
+◇ Test case passing 3 arguments bots → 8, cols → 3, rows → 3 to gridFitsTheCount(bots:cols:rows:) started.
+◇ Test case passing 3 arguments bots → 12, cols → 5, rows → 3 to gridFitsTheCount(bots:cols:rows:) started.
+◇ Test blinkRangeIsOptional() started.
+◇ Test case passing 1 argument d → "" to rejects(_:) started.
+◇ Test case passing 1 argument d → "   " to rejects(_:) started.
+◇ Test case passing 2 arguments name → "Shashank's X bot", expected → "SX" to initials(name:expected:) started.
+◇ Test case passing 1 argument d → "M0" to rejects(_:) started.
+◇ Test case passing 1 argument d → "M0 0 L5" to rejects(_:) started.
+◇ Test case passing 2 arguments name → "My Bot", expected → "MB" to initials(name:expected:) started.
+◇ Test case passing 1 argument d → "M0 0 C1 1 2 2" to rejects(_:) started.
+◇ Test case passing 1 argument d → "M0 0 Q1 1" to rejects(_:) started.
+◇ Test case passing 2 arguments name → "Eve", expected → "EV" to initials(name:expected:) started.
+◇ Test case passing 1 argument d → "X1 2" to rejects(_:) started.
+◇ Test case passing 2 arguments name → "Research Team Bots", expected → "RT" to initials(name:expected:) started.
+◇ Test case passing 1 argument d → "M0 0 A1 1 0 0 1 2 2" to rejects(_:) started.
+◇ Test case passing 1 argument d → "M0 0 Lx 1" to rejects(_:) started.
+◇ Test case passing 2 arguments name → "Ann Lee Smith", expected → "AS" to initials(name:expected:) started.
+◇ Test case passing 1 argument d → "1 2" to rejects(_:) started.
+◇ Test case passing 2 arguments name → "Bob’s Helper", expected → "BH" to initials(name:expected:) started.
+◇ Test case passing 2 arguments name → "x", expected → "X" to initials(name:expected:) started.
+✔ Test theOpeningWaveIsShort() passed after 0.016 seconds.
+✔ Test excludesToolbarSurfacesWithoutExcludingBackgroundContentWindows() passed after 0.016 seconds.
+✔ Test facesKeepALittleLifeOnly() passed after 0.018 seconds.
+◇ Test eyeColors() started.
+◇ Test mix() started.
+◇ Test bodyColors() started.
+◇ Test ringStopsCloseTheLoop() started.
+◇ Test hexForms() started.
+◇ Test badHex() started.
+✔ Test swappedPanelsDontOverlap() passed after 0.018 seconds.
+✔ Test clock() passed after 0.018 seconds.
+✔ Test pcm16() passed after 0.018 seconds.
+✔ Test noFlickerOrFastFlashing() passed after 0.019 seconds.
+✔ Test rms() passed after 0.019 seconds.
+✔ Test micLayout() passed after 0.019 seconds.
+✔ Test exitsAreQuickerThanEntrances() passed after 0.019 seconds.
+✔ Test surfacesSettleWithoutVisibleOvershoot() passed after 0.018 seconds.
+✔ Test tallAreaStacks() passed after 0.019 seconds.
+✔ Test badBotFrames() passed after 0.019 seconds.
+✔ Test gridFitsTheCount(bots:cols:rows:) with 11 test cases passed after 0.019 seconds.
+✔ Test gazePointsAtTheTarget() passed after 0.019 seconds.
+✔ Test neverGuessesAppFromTitleOrEmptyRequest() passed after 0.019 seconds.
+✔ Test avatarStates(status:expected:) with 6 test cases passed after 0.019 seconds.
+✔ Test tilesDontOverlap() passed after 0.019 seconds.
+✔ Test emptyAreaGivesZeroTiles() passed after 0.019 seconds.
+✔ Test botRoundTrip() passed after 0.019 seconds.
+✔ Test matchesAppWithoutSpaceOrCase() passed after 0.019 seconds.
+✔ Test resolvesCommonBrowserNamesWithoutRestrictingOtherApps() passed after 0.019 seconds.
+✔ Test exactTitleWinsBeforeSubstring() passed after 0.019 seconds.
+✔ Test replyErrorAndSignedOut() passed after 0.019 seconds.
+✔ Test testHistoryAndApprovalDecode() passed after 0.019 seconds.
+✔ Test ring() passed after 0.019 seconds.
+✔ Test gazeLooksAheadWhenItCant() passed after 0.019 seconds.
+✔ Test speaker() passed after 0.019 seconds.
+✔ Test replyWithBareValue() passed after 0.019 seconds.
+✔ Test smallMessages() passed after 0.019 seconds.
+✔ Test lines() passed after 0.019 seconds.
+✔ Test emptyList() passed after 0.020 seconds.
+✔ Test replyMissingFields() passed after 0.020 seconds.
+✔ Test hostComesFirstAndShortRowIsCentered() passed after 0.020 seconds.
+✔ Test basicSquare() passed after 0.021 seconds.
+✔ Test implicitLinesAfterMove() passed after 0.022 seconds.
+✔ Test modelDecoding() passed after 0.022 seconds.
+✔ Test view() passed after 0.022 seconds.
+✔ Test openOnlyHidesDone() passed after 0.022 seconds.
+✔ Test compactNumbers() passed after 0.022 seconds.
+✔ Test springRecoversFromBadNumbers() passed after 0.022 seconds.
+✔ Test rejects(_:) with 10 test cases passed after 0.022 seconds.
+✔ Test curves() passed after 0.022 seconds.
+✔ Test malformed() passed after 0.022 seconds.
+✔ Test tilesStayInsideTheArea() passed after 0.022 seconds.
+✔ Test absolutePathsRequireAnExplicitBroadGrant() passed after 0.022 seconds.
+✔ Test initials(name:expected:) with 7 test cases passed after 0.022 seconds.
+✔ Test botCardOrder() passed after 0.022 seconds.
+✔ Test tasks() passed after 0.022 seconds.
+✔ Test allTasksGroupedHostFirstUnownedLast() passed after 0.022 seconds.
+✔ Test replyWithResult() passed after 0.022 seconds.
+✔ Test request() passed after 0.022 seconds.
+✔ Test testFolderBoundaryAndRealRead() passed after 0.022 seconds.
+✔ Test settingTheSameStateIsANoOp() passed after 0.022 seconds.
+✔ Test reduceMotionSkipsTheMorph() passed after 0.022 seconds.
+✔ Test easingAndClamp() passed after 0.022 seconds.
+✔ Test outlineAndPolygon() passed after 0.022 seconds.
+✔ Test faceLerp() passed after 0.022 seconds.
+✔ Test spanOfRing() passed after 0.022 seconds.
+✔ Test longStallsAreCapped() passed after 0.022 seconds.
+✔ Test spanOfShapeMatchesRing() passed after 0.022 seconds.
+✔ Test theHeadTurnsTowardWhoItLooksAt() passed after 0.022 seconds.
+✔ Test moodsMoveTheHead() passed after 0.022 seconds.
+✔ Test lerpAndCentroid() passed after 0.022 seconds.
+✔ Test expressionsChangeOverTime() passed after 0.022 seconds.
+✔ Test blinksCloseAndReopen() passed after 0.022 seconds.
+✔ Test sameSeedSameMotion() passed after 0.022 seconds.
+✔ Test foldedBotsLookingAtEachOtherLookAhead() passed after 0.022 seconds.
+✔ Test shapeChangesMorph() passed after 0.022 seconds.
+✔ Test extraBotsFoldIntoBubble() passed after 0.022 seconds.
+✔ Test wanderingEyesWhenNoOneToLookAt() passed after 0.022 seconds.
+✔ Test showingAllKeepsBubbleToFoldBack() passed after 0.022 seconds.
+✔ Test threeBots() passed after 0.022 seconds.
+✔ Test positions() passed after 0.022 seconds.
+✔ Test gaze() passed after 0.022 seconds.
+✔ Test noBots() passed after 0.022 seconds.
+✔ Test drawsTheBodyColor() passed after 0.022 seconds.
+✔ Test fiveFitWithoutBubble() passed after 0.022 seconds.
+✔ Test unknownShapesUseBlob() passed after 0.022 seconds.
+✔ Test everyShapeLoads() passed after 0.022 seconds.
+✔ Test contactSheetWritesAPNG() passed after 0.023 seconds.
+✔ Test failsCleanlyOnABadPath() passed after 0.023 seconds.
+✔ Suite MotionTests passed after 0.024 seconds.
+✔ Suite ObservationTests passed after 0.024 seconds.
+✔ Test eyeColors() passed after 0.005 seconds.
+✔ Test mix() passed after 0.005 seconds.
+✔ Test bodyColors() passed after 0.005 seconds.
+✔ Test ringStopsCloseTheLoop() passed after 0.005 seconds.
+✔ Test hexForms() passed after 0.005 seconds.
+✔ Test badHex() passed after 0.005 seconds.
+✔ Suite CallStateTests passed after 0.024 seconds.
+✔ Suite AudioFrameTests passed after 0.024 seconds.
+✔ Suite StageLayoutTests passed after 0.024 seconds.
+✔ Suite ServerMessageTests passed after 0.024 seconds.
+✔ Suite ActionTests passed after 0.024 seconds.
+✔ Test denialDoesNotLoopAndLaterSettingsGrantIsRecognized() passed after 0.023 seconds.
+✔ Suite TaskSortTests passed after 0.024 seconds.
+✔ Suite SVGPathTests passed after 0.024 seconds.
+✔ Suite BroadFileReadTests passed after 0.024 seconds.
+✔ Suite InitialsTests passed after 0.024 seconds.
+✔ Suite GeometryTests passed after 0.024 seconds.
+✔ Suite PillLayoutTests passed after 0.024 seconds.
+✔ Suite DrawingTests passed after 0.024 seconds.
+✔ Suite ColorTests passed after 0.024 seconds.
+✔ Test lookingAtSomeoneMovesTheEyesToThatSide() passed after 0.023 seconds.
+✔ Test firstCallRequestsOnceAndKeepsViewingEnabledAcrossRelaunch() passed after 0.023 seconds.
+✔ Test namedPipesAreRejectedWithoutBlockingTheCall() passed after 0.024 seconds.
+✔ Suite SpecialFileTests passed after 0.025 seconds.
+✔ Test existingGrantNeedsNoPromptAndExplicitViewingOffIsPreserved() passed after 0.025 seconds.
+✔ Suite CallPermissionTests passed after 0.025 seconds.
+✔ Test winksUseEitherEye() passed after 0.032 seconds.
+✔ Test everyShapeAndMoodDrawsTwoEyesInsideTheHead() passed after 0.035 seconds.
+✔ Test loadsFromFileContents() passed after 0.047 seconds.
+✔ Test blinkRangeIsOptional() passed after 0.047 seconds.
+✔ Test eyesStayFiniteOnOddData() passed after 0.055 seconds.
+✔ Suite MorphEngineTests passed after 0.056 seconds.
+✔ Test rootFolderAndExactSizeAndListCaps() passed after 0.079 seconds.
+✔ Suite FolderBoundaryTests passed after 0.080 seconds.
+✔ Test rejectsBrokenFiles() passed after 0.196 seconds.
+✔ Suite MorphDataTests passed after 0.197 seconds.
+✔ Test run with 100 tests in 20 suites passed after 0.198 seconds.

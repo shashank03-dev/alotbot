@@ -1,0 +1,42 @@
+✔ internal bot screens resolve only through the provider routes and retain display tokens server-side (0.6695ms)
+✔ RFB input is blocked in view-only mode and fragmented held keys are released when control ends (0.534375ms)
+✔ viewer capabilities do not expose upstream credentials and expire on close (2.399958ms)
+✔ viewer state and disconnect reject other bots, and takeover waits for RFB initialization (0.1695ms)
+✔ closing or disabling during access validation cannot grant stale control (0.122875ms)
+✔ RFB handshake parses fragmented frames and rejects unsupported protocols and input (0.166625ms)
+✔ desktop HTTP serves only authenticated same-viewer assets and rejects absolute URL escapes (35.122625ms)
+✔ real WebSocket relay gates input and releases held keys on hand-back and disconnect (89.784792ms)
+✔ desktop routes reject credentials, insecure providers, absent fork tokens and unowned monitors (0.526417ms)
+✔ RFB negotiation and every supported packet obey input boundaries and release state (0.477417ms)
+✔ viewer expiry invalidates its capability even without a state poll (0.487667ms)
+✔ RFB release keeps the parser aligned mid-packet and tracks QEMU keys by keycode (0.136083ms)
+✔ RFB server parsing waits for a fragmented desktop name and ignores frames after initialization (0.110375ms)
+✔ fork routes fall back to the primary desktop base when the provider has no fork base (0.0525ms)
+✔ viewer lifecycle: window index lookup, missing window lists, hand-back on disconnect, wrong-bot control and closeAll (0.307583ms)
+✔ desktop HTTP fails closed on non-viewer paths, missing methods, empty or unsafe assets (0.219666ms)
+✔ desktop HTTP defaults content type, uses global fetch by default and keeps upstream credentials server-side (0.488667ms)
+✔ desktop HTTP backpressure waits for drain without leaking listeners and stops when the client goes away (0.91425ms)
+✔ desktop HTTP destroys a response whose upstream body fails after headers were sent (0.235ms)
+✔ desktop sockets reject non-socket paths, missing URLs, other origins and wrong capabilities (3.916417ms)
+✔ desktop sockets stop and report provider protocol errors and invalid client handshakes (2.523083ms)
+✔ desktop sockets use a TLS upstream by default, drop input before it opens and report its failure (76.360709ms)
+✔ taking control on one viewer releases held keys and control on every other viewer (96.286459ms)
+✔ a packet started before release cannot become input after control is reacquired (0.377791ms)
+ℹ tests 24
+ℹ suites 0
+ℹ pass 24
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 479.976
+ℹ start of coverage report
+ℹ --------------------------------------------------------------------
+ℹ file                | line % | branch % | funcs % | uncovered lines
+ℹ --------------------------------------------------------------------
+ℹ src                 |        |          |         | 
+ℹ  computer-viewer.ts | 100.00 |   100.00 |  100.00 | 
+ℹ --------------------------------------------------------------------
+ℹ all files           | 100.00 |   100.00 |  100.00 | 
+ℹ --------------------------------------------------------------------
+ℹ end of coverage report
