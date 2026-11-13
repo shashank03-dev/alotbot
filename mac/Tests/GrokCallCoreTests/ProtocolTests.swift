@@ -53,6 +53,7 @@ import Testing
     }
 
     @Test func smallMessages() throws {
+        #expect(try ServerMessage.decode(#"{"t":"workspaceChanged"}"#) == .workspaceChanged)
         #expect(try ServerMessage.decode(#"{"t":"stopAudio","id":7}"#) == .stopAudio(7))
         #expect(try ServerMessage.decode(#"{"t":"stopAudio"}"#) == .stopAudio(-1))
         #expect(try ServerMessage.decode(#"{"t":"ended"}"#) == .ended)

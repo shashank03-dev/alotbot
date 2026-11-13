@@ -54,7 +54,7 @@ final class Prefs: ObservableObject {
     }
 }
 
-enum Tray: Equatable { case add, newBot, chat, voice, actions }
+enum Tray: Equatable { case add, newBot, chat }
 
 /// How the call shows on screen: the small circle, the pill with its buttons, or the full view (a tile per bot).
 enum OverlayMode: Equatable { case circle, pill, full }
@@ -63,10 +63,16 @@ enum Connection: Equatable { case starting, ready, failed(String) }
 
 @MainActor
 final class AppModel: ObservableObject {
+    lazy var workspaces = BotWorkspaceWindows(backend: backend)
+    func openWorkspace(_ botId: String, tab: WorkspaceTab = .activity) {
+        guard let name = bots.first(where: { $0.id == botId })?.name ?? callBots.first(where: { $0.id == botId })?.name else { show("This bot is no longer available."); return }
+        workspaces.open(botId: botId, name: name, tab: tab)
+    }
     let backend: Backend
     let audio = AudioIO()
     let prefs = Prefs()
-    let macTools = MacTools()
+    let macTools: MacTools
+    private let requestMicrophone: () async -> Bool
     @Published var resourceText = ""
     @Published var browserEnabled = false
 
@@ -87,7 +93,6 @@ final class AppModel: ObservableObject {
     @Published var pastCalls: [PastCall] = []
     @Published var joining = false
     @Published var leaving = false
-    @Published var lastCall: LeaveResult?
     @Published var toast: String?
 
     // Overlay
@@ -99,10 +104,7 @@ final class AppModel: ObservableObject {
     var expanded: Bool { mode == .pill }
     @Published var tray: Tray?
     @Published var cardBot: String?
-    @Published var highlightTask: Int?
     @Published var showAllBots = false
-    @Published var voiceBot: String?
-    @Published var savingVoice: String?
 
     private var clock: ClockMap?
     private var toastTask: Task<Void, Never>?
@@ -110,10 +112,18 @@ final class AppModel: ObservableObject {
     var inCall: Bool { view != nil }
     var callBots: [CallBot] { view?.bots ?? [] }
 
-    init(backend: Backend = Backend(), demo: Bool? = nil) {
+    init(backend: Backend = Backend(), demo: Bool? = nil, macTools: MacTools? = nil, requestMicrophone: (() async -> Bool)? = nil) {
         self.backend = backend
+        self.macTools = macTools ?? MacTools()
+        self.requestMicrophone = requestMicrophone ?? { await AudioIO.requestMic() }
         backend.onConnected = { [weak self] hello, clock in self?.connected(hello, clock) }
         backend.onStopped = { [weak self] why in self?.stopped(why) }
+        backend.onAuthenticationLost = { [weak self] in
+            let recording = self?.workspaces.hasRecordingLesson == true
+            self?.workspaces.closeAll()
+            self?.login = LoginState(state: "signed-out", error: recording ? "Sign in to Grok Bot to stop or save the computer lesson that was recording." : nil)
+            self?.bots = []; self?.picked = []
+        }
         backend.onMessage = { [weak self] msg in self?.handle(msg) }
         backend.onAudio = { [weak self] chunk in self?.audio.play(chunk) }
         audio.onMic = { [weak self] level, pcm in self?.backend.sendMic(AudioFrames.encodeMic(level: level, samples: pcm)) }
@@ -174,6 +184,8 @@ final class AppModel: ObservableObject {
                     try await backend.send("localResult", ["id": command.id, "text": text])
                 } catch { try? await backend.send("localResult", ["id": command.id, "error": error.localizedDescription]) }
             }
+        case .workspaceChanged:
+            workspaces.refreshVisible()
         case .actions(let a):
             actions = a
         case .tasks(let t):
@@ -232,6 +244,8 @@ final class AppModel: ObservableObject {
     }
 
     func signOut() async {
+        guard await workspaces.prepareToClose() else { return }
+        workspaces.closeAll()
         guard let s: LoginState = await attempt("Couldn't sign out", { try await backend.request("logout") }) else { return }
         login = s
         bots = []
@@ -259,11 +273,11 @@ final class AppModel: ObservableObject {
         guard !picked.isEmpty, !joining else { return }
         joining = true
         defer { joining = false }
-        guard await AudioIO.requestMic() else { show(AudioIO.AudioError.micDenied.localizedDescription); return }
+        macTools.prepareForCall()
+        guard await requestMicrophone() else { show(AudioIO.AudioError.micDenied.localizedDescription); return }
         guard let clock else { show(BackendError.notConnected.localizedDescription); return }
         do { try audio.start(clock: clock) } catch { show(error.localizedDescription); return }
         lines = []
-        lastCall = nil
         tray = nil
         cardBot = nil
         showAllBots = false
@@ -290,7 +304,6 @@ final class AppModel: ObservableObject {
         leaving = false
         endCallLocally()
         if let r {
-            lastCall = r
             show(r.file == nil ? "Call ended. Nothing was said, so it wasn't saved." : "Call saved.")
             await refreshCalls()
         }
@@ -347,13 +360,9 @@ final class AppModel: ObservableObject {
         if let voice { s["voice"] = voice ?? NSNull() }
         if let speed { s["speed"] = speed }
         if let language { s["language"] = language ?? NSNull() }
-        savingVoice = "Saving…"
         struct R: Decodable { let bot: Bot }
         if let r: R = await attempt("Couldn't save to Grok Bot", { try await backend.request("setVoice", ["botId": botId, "settings": s]) }) {
             if let i = bots.firstIndex(where: { $0.id == r.bot.id }) { bots[i] = r.bot } else { bots.append(r.bot) }
-            savingVoice = "Saved to Grok Bot"
-        } else {
-            savingVoice = nil
         }
     }
 
@@ -382,6 +391,11 @@ final class AppModel: ObservableObject {
             actions = list.actions
             if let detail = actionDetail, let latest = actions.first(where: { $0.id == detail.id }), latest.updatedAt != detail.updatedAt { await inspectAction(detail.id) }
         }
+    }
+
+    /// What bots are waiting for your OK on, oldest first; `botId` narrows it to one bot.
+    func approvals(for botId: String? = nil) -> [RecordedAction] {
+        actions.filter { $0.canResolve && (botId == nil || $0.botId == botId) }.sorted { $0.createdAt < $1.createdAt }
     }
 
     func inspectAction(_ id: String) async {
@@ -418,8 +432,6 @@ final class AppModel: ObservableObject {
 
     func setTask(_ id: Int, status: String) async { await taskOp("taskStatus", ["id": id, "status": status], "Couldn't update task #\(id)") }
     func removeTask(_ id: Int) async { await taskOp("taskRemove", ["id": id], "Couldn't remove task #\(id)") }
-    func linkTask(_ id: Int, waitsOn on: Int) async { await taskOp("taskLink", ["id": id, "on": on], "Couldn't link task #\(id)") }
-    func unlinkTask(_ id: Int, from on: Int) async { await taskOp("taskUnlink", ["id": id, "on": on], "Couldn't unlink task #\(id)") }
 
     /// Owners a task can have: the host, then every bot on the account.
     var owners: [String] { [hostName] + bots.map(\.name) }
@@ -450,22 +462,11 @@ final class AppModel: ObservableObject {
     func toggleTray(_ t: Tray) {
         cardBot = nil
         tray = tray == t ? nil : t
-        if t == .voice, voiceBot == nil || !callBots.contains(where: { $0.id == voiceBot }) { voiceBot = callBots.first?.id }
-        savingVoice = nil
     }
 
-    func openCard(_ botId: String, highlight: Int? = nil) {
+    func openCard(_ botId: String) {
         tray = nil
-        highlightTask = highlight
-        cardBot = cardBot == botId && highlight == nil ? nil : botId
-    }
-
-    /// The bot card for the task's owner, with that task highlighted (from a "waits on" chip).
-    func jump(toTask id: Int) {
-        guard let t = tasks.first(where: { $0.id == id }) else { return }
-        if let owner = t.owner, let b = callBots.first(where: { $0.name == owner }) { openCard(b.id, highlight: id) } else {
-            show("Task #\(id) belongs to \(t.owner ?? "nobody"), who isn't in this call. See it in the menu bar.")
-        }
+        cardBot = cardBot == botId ? nil : botId
     }
 
     /// Shows the call as the circle, the pill or the full view. Trays and cards close: each mode has its own place for them.

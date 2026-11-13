@@ -24,6 +24,8 @@ final class OverlayController {
     private var appObserver: NSObjectProtocol?
     private var restoreObservers: [NSObjectProtocol] = []
     private var host: NSHostingView<OverlayRoot>!
+    /// Takes the window down once the call's exit animation has played; cancelled if a call shows again first.
+    private var hideTask: Task<Void, Never>?
 
     init(model: AppModel) {
         self.model = model
@@ -92,8 +94,18 @@ final class OverlayController {
         if model.overlayShown && model.inCall { panel.orderFrontRegardless() }
     }
 
+    /// Showing is at once (the pill then animates in). Hiding waits for the pill or full view to finish
+    /// leaving: taking the window down at once cut the exit off, so the call just vanished.
     private func setVisible(_ on: Bool) {
-        if on { panel.orderFrontRegardless() } else { panel.orderOut(nil) }
+        hideTask?.cancel()
+        hideTask = nil
+        if on { panel.orderFrontRegardless(); return }
+        panel.ignoresMouseEvents = true // nothing is clickable while it leaves
+        hideTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(MotionSpec.overlayLinger))
+            guard !Task.isCancelled, let self, !(self.model.overlayShown && self.model.inCall) else { return }
+            self.panel.orderOut(nil)
+        }
     }
 
     private func updateMouse() {
@@ -143,6 +155,14 @@ final class HotKey {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// Set by "Reopen". Acted on only once quitting really happens, so a cancelled quit doesn't reopen later.
+    static var reopenOnQuit = false
+
+    func applicationWillTerminate(_ notification: Notification) {
+        guard Self.reopenOnQuit else { return }
+        _ = try? Process.run(URL(fileURLWithPath: "/bin/sh"), arguments: Relaunch.arguments(pid: getpid(), app: Bundle.main.bundlePath))
+    }
+
     private var model: AppModel!
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
@@ -167,7 +187,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popover = NSPopover()
         popover.behavior = .transient
         popover.animates = true
+        model.macTools.refreshPermissions()
+        AppLog.write("permissions on at launch: \(MacPermission.allCases.filter(model.macTools.granted.contains).map(\.rawValue))")
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            if model.macTools.needsSetup { showSetup() } else { model.macTools.requestFileAccessIfNeeded() }
+        }
+        NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.model.macTools.refreshPermissions() }
+        }
         popover.contentViewController = NSHostingController(rootView: MenuBarView(model: model, openSettings: { [weak self] in self?.openSettings() }, quit: { NSApp.terminate(nil) }))
+    }
+
+    private var setup: NSWindow?
+
+    private func showSetup() {
+        let w = NSWindow(contentRect: .zero, styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        w.title = "Grok Call"
+        w.isReleasedWhenClosed = false
+        w.appearance = NSAppearance(named: .darkAqua)
+        w.contentViewController = NSHostingController(rootView: SetupView(tools: model.macTools) { [weak self] in self?.setup?.close() })
+        // Closing the window any way counts as done, so it never comes back on its own.
+        NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.model.macTools.finishSetup(); self?.setup = nil }
+        }
+        w.center()
+        setup = w
+        NSApp.activate(ignoringOtherApps: true)
+        w.makeKeyAndOrderFront(nil)
     }
 
     @objc private func togglePopover() {
@@ -181,7 +228,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func openSettings() {
         popover.performClose(nil)
         if settings == nil {
-            let w = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 520, height: 620), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            let w = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 900, height: 650), styleMask: [.titled, .closable], backing: .buffered, defer: false)
             w.title = "Grok Call Settings"
             w.isReleasedWhenClosed = false
             w.appearance = NSAppearance(named: .darkAqua)
@@ -194,10 +241,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard model.inCall else { model.backend.stop(); return .terminateNow }
+        guard model.inCall || model.workspaces.hasRecordingLesson else { model.workspaces.closeAll(); model.backend.stop(); return .terminateNow }
         // Save the call (summary included) before quitting.
         Task {
-            await model.leave()
+            guard await model.workspaces.prepareToClose() else { NSApp.reply(toApplicationShouldTerminate: false); return }
+            if model.inCall { await model.leave() }
+            model.workspaces.closeAll()
             model.backend.stop()
             NSApp.reply(toApplicationShouldTerminate: true)
         }

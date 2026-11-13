@@ -2,126 +2,151 @@ import AppKit
 import GrokCallCore
 import SwiftUI
 
-/// The settings window: account, how you look, the overlay, and past calls.
+enum SettingsTab: String, CaseIterable, Identifiable {
+    case general = "General", connections = "Connections", mac = "This Mac", calls = "Past calls"
+    var id: String { rawValue }
+    var icon: String {
+        switch self {
+        case .general: "gearshape"
+        case .connections: "puzzlepiece.extension"
+        case .mac: "laptopcomputer"
+        case .calls: "clock.arrow.circlepath"
+        }
+    }
+}
+
+/// The settings window: you and your bots, the apps bots can use, what bots can reach on this Mac, and past calls.
 struct SettingsView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var prefs: Prefs
+    @Local private var tab = SettingsTab.general
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 26) {
-                account
-                look
-                overlay
-                LocalToolsSettings(model: model, tools: model.macTools)
-                VStack(alignment: .leading, spacing: 10) {
-                    SectionTitle(text: "Bot skills, routines and files")
-                    ForEach(model.bots) { bot in Button("Load \(bot.name)") { Task { await model.refreshResources(bot.id) } } }
-                    if !model.resourceText.isEmpty { Text(model.resourceText).font(.system(size: 11, design: .monospaced)).textSelection(.enabled) }
+        VStack(spacing: 0) {
+            SlidingSegments(selection: $tab, items: SettingsTab.allCases.map { .init(value: $0, title: $0.rawValue, icon: $0.icon) })
+                .frame(width: 560).padding(.vertical, 14)
+            Divider().overlay(Theme.hairline)
+            Group {
+                switch tab {
+                case .connections:
+                    if model.login.state == "signed-in" { ConnectionsView(backend: model.backend, embedded: true) } else { signInFirst }
+                case .general: page { account; look; callWindow; yourBots }
+                case .mac: page { LocalToolsSettings(model: model, tools: model.macTools) }
+                case .calls: page { calls }
                 }
-                calls
             }
-            .padding(24)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .transition(.opacity)
+            .animation(Motion.crossfade, value: tab)
         }
-        .frame(width: 520, height: 620)
-        .background(Theme.surface)
+        .frame(minWidth: 900, minHeight: 650)
+        .background(Theme.chrome)
         .environment(\.colorScheme, .dark)
     }
 
+    /// A centered, readable column of grouped sections.
+    private func page<C: View>(@ViewBuilder _ content: () -> C) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 28) { content() }
+                .frame(maxWidth: 560, alignment: .leading)
+                .padding(.vertical, 28)
+                .frame(maxWidth: .infinity)
+        }
+    }
+
+    private var signInFirst: some View {
+        Text("Sign in to connect apps.").foregroundStyle(Theme.secondary).frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     private var account: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SectionTitle(text: "Account")
-            switch model.login.state {
-            case "signed-in":
-                HStack {
-                    Label("Signed in to Grok Bot", systemImage: "checkmark.seal.fill").foregroundStyle(Theme.text)
+        SettingsGroup("Account") {
+            HStack {
+                switch model.login.state {
+                case "signed-in":
+                    Label("Signed in to Grok", systemImage: "checkmark.circle.fill").foregroundStyle(Theme.text)
                     Spacer()
-                    Button("Sign out") { Task { await model.signOut() } }.disabled(model.inCall).help(model.inCall ? "Leave the call first" : "")
-                }
-            case "signing-in":
-                HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Finish signing in in your browser.").foregroundStyle(Theme.text) }
-            default:
-                HStack {
+                    Button("Sign out") { Task { await model.signOut() } }.buttonStyle(FilledButton()).disabled(model.inCall).help(model.inCall ? "Leave the call first" : "")
+                case "signing-in":
+                    ProgressView().controlSize(.small); Text("Finish signing in in your browser.").foregroundStyle(Theme.text)
+                    Spacer()
+                default:
                     Text("Not signed in").foregroundStyle(Theme.secondary)
                     Spacer()
-                    Button("Sign in") { Task { await model.signIn() } }.disabled(model.connection != .ready)
+                    Button("Sign in") { Task { await model.signIn() } }.buttonStyle(FilledButton(primary: true)).disabled(model.connection != .ready)
                 }
             }
-            Text("Grok Call signs in the same way the Grok Bot app does. It's unofficial, so xAI could change or block it.")
-                .font(.system(size: 11.5)).foregroundStyle(Theme.secondary)
         }
-        .font(.system(size: 13.5))
     }
 
     private var look: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SectionTitle(text: "How you look in the call")
+        SettingsGroup("You in calls") {
             HStack(spacing: 18) {
-                HostAvatar(prefs: prefs, name: model.hostName, speaking: false, level: { 0 }).frame(width: 64, height: 64)
+                HostAvatar(prefs: prefs, name: model.hostName, speaking: false, level: { 0 }).frame(width: 56, height: 56)
                 Picker("", selection: $prefs.hostLook) { ForEach(HostLook.allCases) { Text($0.label).tag($0) } }
                     .pickerStyle(.segmented).labelsHidden().frame(width: 280)
             }
             switch prefs.hostLook {
-            case .initials:
-                Text("Shows \"\(String(model.hostName.prefix(1)).uppercased())\".").font(.system(size: 12.5)).foregroundStyle(Theme.secondary)
+            case .initials: EmptyView()
             case .photo:
-                HStack {
-                    Button(prefs.photo == nil ? "Choose photo…" : "Change photo…") { pickPhoto() }
-                    if prefs.photo == nil { Text("Initials show until you pick one.").font(.system(size: 12.5)).foregroundStyle(Theme.secondary) }
-                }
+                Button(prefs.photo == nil ? "Choose photo…" : "Change photo…") { pickPhoto() }.buttonStyle(FilledButton())
             case .character:
-                LazyVGrid(columns: Array(repeating: GridItem(.fixed(40), spacing: 8), count: 9), alignment: .leading, spacing: 8) {
+                LazyVGrid(columns: Array(repeating: GridItem(.fixed(40), spacing: 8), count: 10), alignment: .leading, spacing: 8) {
                     ForEach(model.choices?.shapes ?? ["blob"], id: \.self) { s in
-                        Button { prefs.hostShape = s } label: {
-                            MorphAvatar(shape: s, color: prefs.hostColor).frame(width: 30, height: 30).frame(width: 40, height: 40)
-                                .background(RoundedRectangle(cornerRadius: 10).fill(prefs.hostShape == s ? Color.white.opacity(0.14) : .clear))
+                        Button { withAnimation(Motion.spring(MotionSpec.press)) { prefs.hostShape = s } } label: {
+                            MorphAvatar(shape: s, color: prefs.hostColor).frame(width: 28, height: 28).frame(width: 40, height: 40)
+                                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(prefs.hostShape == s ? Theme.fillHover : .clear))
                         }
-                        .buttonStyle(.plain).accessibilityLabel("Shape \(s)")
+                        .buttonStyle(.plain).accessibilityLabel("Shape \(s)").accessibilityAddTraits(prefs.hostShape == s ? .isSelected : [])
                     }
                 }
-                HStack(spacing: 8) {
+                HStack(spacing: 10) {
                     ForEach(Palette.grok.keys.sorted(), id: \.self) { c in
-                        Button { prefs.hostColor = c } label: {
+                        Button { withAnimation(Motion.spring(MotionSpec.press)) { prefs.hostColor = c } } label: {
                             Circle().fill(Palette.body(c, onDark: false).color).frame(width: 20, height: 20)
-                                .overlay(Circle().stroke(Color.white, lineWidth: prefs.hostColor == c ? 2 : 0).padding(-3))
+                                .overlay(Circle().strokeBorder(Color.white, lineWidth: prefs.hostColor == c ? 2 : 0).padding(-4))
                         }
-                        .buttonStyle(.plain).accessibilityLabel("Color \(c)")
+                        .buttonStyle(.plain).accessibilityLabel("Color \(c)").accessibilityAddTraits(prefs.hostColor == c ? .isSelected : [])
                     }
                 }
             }
         }
     }
 
-    private var overlay: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            SectionTitle(text: "Overlay")
-            Toggle("Keep the pill open when I switch apps", isOn: $prefs.keepPill).foregroundStyle(Theme.text)
-            Text("Off: the pill folds into the circle when you click another app. You can always fold it by clicking your own avatar.")
-                .font(.system(size: 11.5)).foregroundStyle(Theme.secondary)
-            Text("⌥Esc stops every bot from anywhere; Esc does the same while the pill is focused.").font(.system(size: 11.5)).foregroundStyle(Theme.secondary)
+    private var callWindow: some View {
+        SettingsGroup("During a call") {
+            Toggle(isOn: $prefs.keepPill) { Text("Keep the call open when I switch apps").frame(maxWidth: .infinity, alignment: .leading) }.toggleStyle(.switch).foregroundStyle(Theme.text)
+            Text("Press ⌥ Esc to stop every bot from talking.").font(.system(size: 12)).foregroundStyle(Theme.secondary)
         }
-        .font(.system(size: 13.5))
+    }
+
+    private var yourBots: some View {
+        SettingsGroup("Your bots") {
+            if model.bots.isEmpty { Text("No bots yet.").foregroundStyle(Theme.secondary) }
+            ForEach(model.bots) { bot in
+                HStack(spacing: 12) {
+                    MorphAvatar(shape: bot.shape, color: bot.color).frame(width: 26, height: 26)
+                    Text(bot.name).foregroundStyle(Theme.text)
+                    Spacer()
+                    Button("Open workspace") { model.openWorkspace(bot.id) }.buttonStyle(QuietButton())
+                }
+            }
+        }
     }
 
     private var calls: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SectionTitle(text: "Past calls")
-            if model.pastCalls.isEmpty {
-                Text("No saved calls yet.").font(.system(size: 13)).foregroundStyle(Theme.secondary)
-            }
+        SettingsGroup("Past calls") {
+            if model.pastCalls.isEmpty { Text("No saved calls yet.").foregroundStyle(Theme.secondary) }
             ForEach(model.pastCalls) { c in
                 VStack(alignment: .leading, spacing: 5) {
                     HStack {
                         Text(Date(timeIntervalSince1970: c.at / 1000).formatted(date: .abbreviated, time: .shortened)).font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.text)
                         Spacer()
-                        Button("Show in Finder") { if let u = model.callURL(c) { NSWorkspace.shared.activateFileViewerSelecting([u]) } }.buttonStyle(.plain).foregroundStyle(Theme.secondary)
-                        Button("Save to Downloads") { model.saveToDownloads(c) }.buttonStyle(.plain).foregroundStyle(Theme.accent)
+                        Button("Show in Finder") { if let u = model.callURL(c) { NSWorkspace.shared.activateFileViewerSelecting([u]) } }.buttonStyle(QuietButton())
+                        Button("Save to Downloads") { model.saveToDownloads(c) }.buttonStyle(QuietButton(tint: Theme.accent))
                     }
-                    .font(.system(size: 12))
-                    Text(c.summary.isEmpty ? "No summary was saved." : c.summary).font(.system(size: 12.5)).foregroundStyle(Theme.secondary).lineLimit(3)
+                    Text(c.summary.isEmpty ? "No summary for this call." : c.summary).font(.system(size: 12.5)).foregroundStyle(Theme.secondary).lineLimit(3)
                 }
-                .padding(12)
-                .background(RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.04)))
+                .padding(.vertical, 4)
             }
         }
         .task { await model.refreshCalls() }
@@ -136,26 +161,58 @@ struct SettingsView: View {
     }
 }
 
+/// A titled, raised group of settings.
+struct SettingsGroup<Content: View>: View {
+    let title: String
+    @ViewBuilder var content: Content
+    init(_ title: String, @ViewBuilder content: () -> Content) { self.title = title; self.content = content() }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionTitle(text: title).padding(.leading, 4)
+            VStack(alignment: .leading, spacing: 12) { content }
+                .font(.system(size: 13.5))
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .elevated(RoundedRectangle(cornerRadius: 16, style: .continuous), high: false)
+        }
+    }
+}
 
+/// What bots can reach on this Mac: files, a browser of their own, your open windows.
 struct LocalToolsSettings: View {
     @ObservedObject var model: AppModel
     @ObservedObject var tools: MacTools
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SectionTitle(text: "This Mac")
-            Text(tools.folder?.path ?? "File access is off").font(.caption).textSelection(.enabled)
-            HStack {
-                Button("Choose folder…") { tools.chooseFolder() }
-                if tools.folder != nil { Button("Remove access") { tools.forgetFolder() } }
+        VStack(alignment: .leading, spacing: 28) {
+            SettingsGroup("Permissions") { PermissionRows(tools: tools) }
+            SettingsGroup("Files") {
+                Text(tools.folder?.path == "/" ? "Bots can read any file on this Mac." : tools.folder.map { "Bots can read files in \($0.path)." } ?? "Bots can't read your files.")
+                    .foregroundStyle(Theme.text).textSelection(.enabled)
+                HStack(spacing: 8) {
+                    if tools.folder?.path != "/" { Button("Allow all files") { tools.requestLocalFileAccess() }.buttonStyle(FilledButton()) }
+                    Button("Choose a folder…") { tools.chooseFolder() }.buttonStyle(FilledButton())
+                    if tools.folder != nil { Button("Turn off") { tools.forgetFolder() }.buttonStyle(QuietButton(tint: Theme.danger)) }
+                }
+                Text("Bots can only read files, never change them.").font(.system(size: 12)).foregroundStyle(Theme.secondary)
+                if tools.folder?.path == "/" {
+                    Button("Open macOS file access settings") { if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") { NSWorkspace.shared.open(url) } }
+                        .buttonStyle(QuietButton(tint: Theme.accent)).padding(.leading, -8)
+                }
             }
-            Text("Bots can list and read UTF-8 files up to 256 KiB inside this folder.").font(.caption).foregroundStyle(Theme.secondary)
-            Toggle("Dedicated browser", isOn: Binding(get: { model.browserEnabled }, set: { enabled in Task { await model.setBrowserEnabled(enabled) } }))
-            Text(tools.sharedWindow).font(.caption)
-            HStack {
-                Button("Share one window…") { tools.chooseWindow() }
-                Button("Stop sharing") { tools.stopSharing() }
+            SettingsGroup("Browser") {
+                Toggle(isOn: Binding(get: { model.browserEnabled }, set: { enabled in Task { await model.setBrowserEnabled(enabled) } })) { Text("Let bots use their own browser on this Mac").frame(maxWidth: .infinity, alignment: .leading) }
+                    .toggleStyle(.switch)
             }
-            if let error = tools.error { Text(error).font(.caption).foregroundStyle(Theme.danger) }
+            SettingsGroup("Your screen") {
+                Toggle(isOn: Binding(get: { tools.observationEnabled }, set: { tools.setObservationEnabled($0) })) { Text("Let bots see your open windows").frame(maxWidth: .infinity, alignment: .leading) }.toggleStyle(.switch)
+                Divider().overlay(Theme.hairline)
+                Text(tools.sharedWindow).foregroundStyle(Theme.text)
+                HStack(spacing: 8) {
+                    Button("Share one window…") { tools.chooseWindow() }.buttonStyle(FilledButton())
+                    Button("Stop sharing") { tools.stopSharing() }.buttonStyle(QuietButton())
+                }
+            }
+            if let error = tools.error { Text(error).font(.system(size: 12.5)).foregroundStyle(Theme.danger) }
         }
     }
 }

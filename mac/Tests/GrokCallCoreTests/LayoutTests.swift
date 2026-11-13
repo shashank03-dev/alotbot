@@ -63,7 +63,7 @@ import Testing
         #expect(l.hostX == 40)
         #expect(l.botX == [94, 148, 202])
         #expect(l.overflowX == nil)
-        #expect(l.width == 664) // 224 + 26 + 6 buttons of 56 + 5 gaps of 12 + 18
+        #expect(l.width == 596) // 224 + 26 + 5 buttons of 56 + 4 gaps of 12 + 18 (add, conversation, mic, full view, hang up)
     }
 
     @Test func noBots() {
@@ -71,7 +71,7 @@ import Testing
         #expect(l.shown.isEmpty)
         #expect(l.botX.isEmpty)
         #expect(l.overflowX == nil)
-        #expect(l.width == 502) // 62 + 26 + 336 + 60 + 18
+        #expect(l.width == 434) // 62 + 26 + 280 (5 buttons) + 48 (4 gaps) + 18
     }
 
     @Test func fiveFitWithoutBubble() {

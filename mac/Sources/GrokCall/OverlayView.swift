@@ -30,6 +30,8 @@ struct OverlayRoot: View {
     var onHitRects: ([CGRect]) -> Void
     var onBotRects: ([String: CGRect]) -> Void
     @Local private var dragFrom: CGPoint?
+    /// False until the pill has appeared: then the faces pop in, one after another.
+    @Local private var facesIn = false
     /// Set by the window from the pointer position. SwiftUI's own hover tracking misfires in a window
     /// that ignores the mouse outside the pill (it reported hover with the pointer far away).
     private var hovered: String? { model.hoveredBot }
@@ -53,6 +55,13 @@ struct OverlayRoot: View {
     /// Trays open below the pill, or above it when the pill is low on the screen.
     private var traysAbove: Bool { center.y > screen.height * 0.62 }
 
+    /// Where the circle or pill is, as a point in the screen: the pill and the full view grow from and shrink
+    /// toward it, so every change starts where your eye already is.
+    private var pillAnchor: UnitPoint {
+        let f = shellFrame
+        return UnitPoint(x: f.midX / max(1, screen.width), y: f.midY / max(1, screen.height))
+    }
+
     var body: some View {
         ZStack(alignment: .topLeading) {
             Color.clear
@@ -61,13 +70,22 @@ struct OverlayRoot: View {
                     StageView(model: model, prefs: prefs, rect: stageRect)
                         .frame(width: stageRect.width, height: stageRect.height)
                         .hitArea() // before `.position`, which would stretch it to the whole screen
+                        // Placed with `.position`, it fills the screen: the anchor is the pill's spot in the screen.
+                        .transition(Motion.stageTransition(anchor: pillAnchor, delay: 0.04))
                         .position(x: stageRect.midX, y: stageRect.midY)
-                        .transition(.scale(scale: 0.9).combined(with: .opacity))
                         .zIndex(4)
                 } else {
-                    shell
-                    avatars
-                    if model.expanded { controls; below }
+                    // One layer, so the call arrives and leaves (and swaps with the full view) as one piece.
+                    ZStack(alignment: .topLeading) {
+                        shell
+                        // Faces stay above the buttons while they fly across them as the pill opens.
+                        if model.expanded { controls.zIndex(1); below.zIndex(3) }
+                        avatars.zIndex(2)
+                    }
+                    .frame(width: screen.width, height: screen.height, alignment: .topLeading)
+                    .transition(Motion.stageTransition(anchor: pillAnchor, delay: 0.04))
+                    .onAppear { facesIn = true }
+                    .onDisappear { facesIn = false }
                 }
                 toast.zIndex(6)
             }
@@ -75,9 +93,11 @@ struct OverlayRoot: View {
         .frame(width: screen.width, height: screen.height, alignment: .topLeading)
         .onPreferenceChange(HitRects.self) { onHitRects($0) }
         .onPreferenceChange(BotRects.self) { onBotRects($0) }
-        .animation(Theme.bounce, value: model.mode)
-        .animation(Theme.settle, value: model.tray)
-        .animation(Theme.settle, value: model.cardBot)
+        // Opening springs out; folding settles without passing its mark.
+        .animation(model.expanded ? Motion.open : Motion.close, value: model.mode)
+        // A bot joining or leaving, or "+N" opening, resizes the pill smoothly instead of jumping.
+        .animation(Motion.layout, value: model.callBots.map(\.id))
+        .animation(Motion.layout, value: model.showAllBots)
     }
 
     // MARK: the circle / pill body
@@ -91,15 +111,14 @@ struct OverlayRoot: View {
     private var shell: some View {
         let f = shellFrame
         return ZStack {
-            RoundedRectangle(cornerRadius: model.expanded ? 34 : PillLayoutCG.orb / 2, style: .continuous)
-                .fill(Theme.surface)
-                .overlay(RoundedRectangle(cornerRadius: model.expanded ? 34 : PillLayoutCG.orb / 2, style: .continuous).stroke(Theme.hairline, lineWidth: 1))
-                .shadow(color: .black.opacity(0.45), radius: 18, y: 8)
+            Color.clear
+                .elevated(RoundedRectangle(cornerRadius: model.expanded ? 34 : PillLayoutCG.orb / 2, style: .continuous))
             if !model.expanded {
+                // The ring comes back once the pill has mostly folded, and goes at once when it opens.
                 RingLight(colors: model.callBots.map(\.color), mode: model.ringMode)
                     .frame(width: PillLayoutCG.orb + 12, height: PillLayoutCG.orb + 12)
                     .allowsHitTesting(false)
-                    .transition(.opacity)
+                    .transition(Motion.fadeTransition(delay: 0.16))
             }
         }
         .frame(width: f.width, height: f.height)
@@ -161,6 +180,7 @@ struct OverlayRoot: View {
         let level: () -> Double = { [audio = model.audio] in audio.voiceLevel() }
         let hostLevel: () -> Double = { [audio = model.audio] in Double(min(1, audio.micLevel * 5)) }
         let size: CGFloat = model.expanded ? PillLayoutCG.avatar : 20
+        let count = min(bots.count, PillLayout.maxShown)
         return ZStack(alignment: .topLeading) {
             ForEach(Array(bots.enumerated()), id: \.element.id) { i, b in
                 let shown = model.expanded ? layout.shown.contains(b.id) : i < PillLayout.maxShown
@@ -173,21 +193,34 @@ struct OverlayRoot: View {
                             Text(b.name).font(.system(size: 11, weight: .medium)).foregroundStyle(Theme.text)
                                 .padding(.horizontal, 8).padding(.vertical, 4)
                                 .background(Capsule().fill(Color.black.opacity(0.85)))
-                                .fixedSize().offset(y: -30).transition(.opacity.combined(with: .scale(scale: 0.9)))
+                                .fixedSize().offset(y: -30)
+                                .transition(.asymmetric(insertion: .offset(y: 4).combined(with: .opacity).animation(Motion.hover),
+                                                        removal: .opacity.animation(Motion.exit)))
                         }
                     }
-                    .overlay(alignment: .bottomTrailing) { if b.status == "error" { Circle().fill(Theme.danger).frame(width: 9, height: 9) } }
+                    .overlay(alignment: .bottomTrailing) {
+                        if b.status == "error" { Circle().fill(Theme.danger).frame(width: 9, height: 9).transition(Motion.pop()) }
+                    }
+                    .overlay(alignment: .topTrailing) {
+                        // This bot is waiting for your OK: tap it to answer.
+                        if model.expanded && !model.approvals(for: b.id).isEmpty { AttentionDot().offset(x: 3, y: -3).transition(Motion.pop()) }
+                    }
+                    // The call's opening wave: each face pops in just after the one before it.
+                    .scaleEffect(facesIn ? 1 : 0.55)
+                    .opacity(facesIn ? 1 : 0)
                     .opacity(shown ? 1 : 0)
+                    .transition(Motion.pop(anchor: Motion.anchor(botPoint(i, b.id), in: screen.size))) // a bot joining mid-call
                     .position(botPoint(i, b.id))
                     .offset(y: lift ? -3 : 0)
-                    .animation(Theme.reduceMotion ? Theme.settle : .spring(response: 0.5, dampingFraction: 0.62).delay(model.expanded ? Double(i) * 0.035 : 0), value: model.expanded)
-                    .animation(Theme.settle, value: hovered)
+                    .animation(Motion.avatar(index: i, count: count, opening: model.expanded), value: model.expanded)
+                    .animation(Motion.wave(index: i), value: facesIn)
+                    .animation(Motion.hover, value: hovered)
                     .zIndex(model.expanded ? 2 : 0)
                     .preference(key: BotRects.self, value: model.expanded && shown ? [b.id: slotRect(b.id)] : [:])
                     .onTapGesture { if model.expanded { model.openCard(b.id) } else { model.setMode(.pill) } }
                     .allowsHitTesting(model.expanded && shown)
                     .accessibilityElement()
-                    .accessibilityLabel("\(b.name), \(Labels.status(b.status))")
+                    .accessibilityLabel("\(b.name), \(Labels.status(b.status))\(model.approvals(for: b.id).isEmpty ? "" : ", needs your OK")")
                     .accessibilityAddTraits(.isButton)
             }
             HostAvatar(prefs: prefs, name: model.hostName, speaking: model.view?.userSpeaking == true && model.view?.muted == false, level: hostLevel)
@@ -198,7 +231,8 @@ struct OverlayRoot: View {
                 .allowsHitTesting(true)
                 .help(model.expanded ? "Fold into the circle" : "Open")
             if model.expanded, let ox = layout.overflowX {
-                overflowBubble(count: layout.overflow).position(x: pillX + CGFloat(ox), y: pillY + PillLayoutCG.height / 2).zIndex(3)
+                let p = CGPoint(x: pillX + CGFloat(ox), y: pillY + PillLayoutCG.height / 2)
+                overflowBubble(count: layout.overflow).transition(Motion.pop(anchor: Motion.anchor(p, in: screen.size))).position(p).zIndex(3)
             }
         }
     }
@@ -210,7 +244,6 @@ struct OverlayRoot: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(count > 0 ? "Show \(count) more bots" : "Show fewer bots")
-        .transition(.scale.combined(with: .opacity))
     }
 
     /// Who this bot looks at, turned into a direction from where it sits in the pill.
@@ -223,10 +256,21 @@ struct OverlayRoot: View {
     // MARK: buttons on the pill
 
     private var controls: some View {
-        CallButtons(model: model, opensFullView: true)
+        let x = pillX + pillWidth - CGFloat(PillLayout.padding) - controlsWidth / 2, y = pillY + PillLayoutCG.height / 2
+        return CallButtons(model: model, opensFullView: true)
             .frame(height: PillLayoutCG.height)
-        .position(x: pillX + pillWidth - CGFloat(PillLayout.padding) - controlsWidth / 2, y: pillY + PillLayoutCG.height / 2)
-        .transition(.opacity.combined(with: .scale(scale: 0.8, anchor: .leading)))
+            .transition(controlsTransition(from: Motion.anchor(CGPoint(x: x - controlsWidth / 2, y: y), in: screen.size)))
+            .position(x: x, y: y)
+    }
+
+    /// The buttons wait for the pill to open, then fade and grow into place from the avatars' side;
+    /// when it folds they go first, quickly, so the pill never shrinks over them.
+    /// `anchor`: the buttons' left edge, in screen units (they are placed with `.position`, so they fill the screen).
+    private func controlsTransition(from anchor: UnitPoint) -> AnyTransition {
+        if Theme.reduceMotion { return Motion.fadeTransition() }
+        return .asymmetric(
+            insertion: .scale(scale: 0.94, anchor: anchor).combined(with: .opacity).animation(Motion.surface.delay(MotionSpec.controlsDelay)),
+            removal: .opacity.animation(.easeIn(duration: MotionSpec.exit * 0.6)))
     }
 
     private var controlsWidth: CGFloat { CGFloat(PillLayout.buttons) * PillLayoutCG.button + CGFloat(PillLayout.buttons - 1) * CGFloat(PillLayout.buttonGap) }
@@ -245,15 +289,18 @@ struct OverlayRoot: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .hitArea()
                     .alignmentGuide(.top) { _ in 0 }
+                    .transition(Motion.surfaceTransition(anchor: traysAbove ? .bottom : .top, lift: traysAbove ? 6 : -6))
                     .modifier(PlaceBelow(x: cardX(for: id), y: traysAbove ? pillY - gap : pillY + PillLayoutCG.height + gap, above: traysAbove))
-                    .transition(.scale(scale: 0.92, anchor: traysAbove ? .bottom : .top).combined(with: .opacity))
+                    .id("card-\(id)") // another bot's card crossfades in
             } else if let t = model.tray {
                 TrayView(model: model, prefs: prefs, tray: t)
                     .frame(width: trayWidth)
                     .fixedSize(horizontal: false, vertical: true)
                     .hitArea()
+                    // It emerges from the pill: a few points of drift and a fade, never a slide by its whole height.
+                    .transition(Motion.surfaceTransition(anchor: traysAbove ? .bottom : .top, lift: traysAbove ? 6 : -6))
                     .modifier(PlaceBelow(x: x, y: traysAbove ? pillY - gap : pillY + PillLayoutCG.height + gap, above: traysAbove))
-                    .transition(.move(edge: traysAbove ? .bottom : .top).combined(with: .opacity))
+                    .id(t) // switching trays crossfades one panel into the next
             }
         }
     }
@@ -268,18 +315,18 @@ struct OverlayRoot: View {
             if let t = model.toast {
                 Text(t).font(.system(size: 12.5)).foregroundStyle(Theme.text).multilineTextAlignment(.leading)
                     .padding(.horizontal, 14).padding(.vertical, 9)
-                    .background(Capsule().fill(Color.black.opacity(0.88)))
+                    .elevated(Capsule(), fill: Theme.raised, high: false)
                     .frame(maxWidth: 420)
                     .fixedSize(horizontal: false, vertical: true)
+                    .transition(Motion.surfaceTransition(anchor: .bottom, lift: 6))
+                    .id(t) // a new message replaces the old one with a crossfade
                     .modifier(model.mode == .full
                         ? PlaceBelow(x: stageRect.midX - 210, y: stageRect.maxY - StageMetrics.controls - 8, above: true)
                         : PlaceBelow(x: model.expanded ? pillX : center.x - 60, y: traysAbove ? (model.expanded ? pillY : center.y - 46) - 46 : (model.expanded ? pillY + PillLayoutCG.height : center.y + 46) + 8, above: false))
-                    .transition(.opacity)
                     .allowsHitTesting(false)
                     .accessibilityAddTraits(.updatesFrequently)
             }
         }
-        .animation(Theme.settle, value: model.toast)
     }
 }
 
@@ -328,23 +375,31 @@ struct RingLight: View {
             ZStack {
                 Circle().stroke(AngularGradient(colors: stops, center: .center), lineWidth: 1.5).opacity(mode == .rest ? 0.28 : 0.18)
                 if mode == .strobe {
+                    // You're talking: the segments pulse in a slow travelling wave (well under 3 flashes a second).
                     ForEach(0..<8, id: \.self) { i in
-                        let flash = Theme.reduceMotion ? 0.8 : 0.25 + 0.75 * max(0, sin(t * 26 + Double(i) * 1.7))
+                        let wave = sin(t * 2 * .pi * MotionSpec.strobeHz - Double(i) * .pi / 4)
+                        let flash = Theme.reduceMotion ? 0.8 : 0.4 + 0.6 * (0.5 + 0.5 * wave)
                         Circle().trim(from: Double(i) / 8 + 0.015, to: Double(i) / 8 + 0.095)
                             .stroke(stops[i % max(1, stops.count - 1)], style: StrokeStyle(lineWidth: 3, lineCap: .round))
                             .opacity(flash)
-                            .shadow(color: stops[i % max(1, stops.count - 1)].opacity(0.9 * flash), radius: 5)
+                            .shadow(color: stops[i % max(1, stops.count - 1)].opacity(0.8 * flash), radius: 5)
                     }
                     .rotationEffect(.radians(spin.angle))
+                    .transition(.opacity)
                 } else {
                     let arc = Circle().trim(from: 0, to: mode == .spin ? 0.32 : 0.18)
                         .stroke(AngularGradient(colors: [stops.first!.opacity(0)] + stops, center: .center, startAngle: .degrees(0), endAngle: .degrees(mode == .spin ? 115 : 65)),
                                 style: StrokeStyle(lineWidth: 3, lineCap: .round))
-                    arc.blur(radius: 5).opacity(mode == .spin ? 0.9 : 0.35)
-                    arc.opacity(mode == .spin ? 1 : 0.5)
+                    ZStack {
+                        arc.blur(radius: 5).opacity(mode == .spin ? 0.9 : 0.35)
+                        arc.opacity(mode == .spin ? 1 : 0.5)
+                    }
+                    .rotationEffect(.radians(spin.angle))
+                    .transition(.opacity)
                 }
             }
-            .rotationEffect(.radians(mode == .strobe ? 0 : spin.angle))
+            // Switching between resting, spinning and pulsing crossfades; the arc grows and brightens smoothly.
+            .animation(Motion.crossfade, value: mode)
         }
     }
 }
@@ -357,20 +412,28 @@ struct CallButtons: View {
     var body: some View {
         let muted = model.view?.muted == true
         HStack(spacing: CGFloat(PillLayout.buttonGap)) {
-            if model.leaving {
-                HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Saving the call…").font(.system(size: 13)).foregroundStyle(Theme.secondary) }
-                    .padding(.trailing, 8)
-            }
-            CircleButton(symbol: "plus", label: "Call in a bot", active: model.tray == .add || model.tray == .newBot) { model.toggleTray(.add) }
-            CircleButton(symbol: "ellipsis.bubble", label: "Transcript and message", active: model.tray == .chat) { model.toggleTray(.chat) }
-            CircleButton(symbol: "clock.arrow.circlepath", label: "Action history", active: model.tray == .actions) { model.toggleTray(.actions) }
-            CircleButton(symbol: "gearshape", label: "Voices", active: model.tray == .voice) { model.toggleTray(.voice) }
-            CircleButton(symbol: muted ? "mic.slash" : "mic", label: muted ? "Unmute" : "Mute", active: muted) { model.toggleMute() }
+            CircleButton(symbol: "plus", label: "Add a bot", active: model.tray == .add || model.tray == .newBot) { model.toggleTray(.add) }
+            CircleButton(symbol: "text.bubble", label: "Conversation", active: model.tray == .chat) { model.toggleTray(.chat) }
+            CircleButton(symbol: muted ? "mic.slash.fill" : "mic.fill", label: muted ? "Unmute" : "Mute", active: muted) { model.toggleMute() }
             if opensFullView {
                 CircleButton(symbol: "arrow.up.left.and.arrow.down.right", label: "Full view", active: false) { model.setMode(.full) }
             }
-            CircleButton(symbol: "phone.down.fill", label: "Leave the call", tint: Theme.danger) { Task { await model.leave() } }
+            // While the call saves, the hang-up button spins: a "Saving the call…" label here used to widen the row
+            // past the pill and over the avatars.
+            CircleButton(symbol: "phone.down.fill", label: model.leaving ? "Saving the call…" : "Leave call", tint: Theme.danger, busy: model.leaving) { Task { await model.leave() } }
         }
         .disabled(model.leaving)
+    }
+}
+
+/// A small orange dot that gently pulses: this needs you.
+struct AttentionDot: View {
+    @Local private var on = false
+    var body: some View {
+        Circle().fill(Theme.warn).frame(width: 11, height: 11)
+            .overlay(Circle().strokeBorder(Theme.surface, lineWidth: 2))
+            .background(Circle().fill(Theme.warn.opacity(0.45)).scaleEffect(on ? 1.9 : 1).opacity(on ? 0 : 0.8))
+            .onAppear { if !Theme.reduceMotion { withAnimation(.easeOut(duration: 1.4).repeatForever(autoreverses: false)) { on = true } } }
+            .accessibilityHidden(true)
     }
 }

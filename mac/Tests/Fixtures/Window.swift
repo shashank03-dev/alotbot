@@ -11,5 +11,5 @@ window.title = CommandLine.arguments[1]
 let button = NSButton(title: "Press verification button (0)", target: counter, action: #selector(Counter.press(_:)))
 button.frame = NSRect(x: 30, y: 50, width: 250, height: 35)
 window.contentView?.addSubview(button)
-window.orderFrontRegardless()
+if CommandLine.arguments.contains("--background") { window.orderBack(nil) } else { window.orderFrontRegardless() }
 app.run()

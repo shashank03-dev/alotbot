@@ -70,3 +70,15 @@ import Darwin
         #expect(throws: (any Error).self) { try FolderReader.run(root: dir, operation: "delete", path: "proof.txt") }
     }
 }
+
+@Suite struct BroadFileReadTests {
+    @Test func absolutePathsRequireAnExplicitBroadGrant() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("proof.txt")
+        try "read only".write(to: file, atomically: true, encoding: .utf8)
+        #expect(try FolderReader.run(root: URL(fileURLWithPath: "/"), operation: "read", path: file.path) == "read only")
+        #expect(throws: (any Error).self) { try FolderReader.run(root: dir, operation: "read", path: file.path) }
+    }
+}

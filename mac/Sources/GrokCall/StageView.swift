@@ -39,9 +39,7 @@ struct StageView: View {
     var body: some View {
         let l = layout
         ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 34, style: .continuous).fill(Theme.surface)
-                .overlay(RoundedRectangle(cornerRadius: 34, style: .continuous).stroke(Theme.hairline, lineWidth: 1))
-                .shadow(color: .black.opacity(0.5), radius: 30, y: 14)
+            Color.clear.elevated(RoundedRectangle(cornerRadius: 34, style: .continuous))
             header
             grid(l)
                 .frame(width: gridArea.width, height: gridArea.height)
@@ -52,8 +50,6 @@ struct StageView: View {
             overlays(l)
         }
         .frame(width: rect.width, height: rect.height, alignment: .topLeading)
-        .animation(Theme.settle, value: model.tray)
-        .animation(Theme.settle, value: model.cardBot)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Grok Call full view")
     }
@@ -69,7 +65,7 @@ struct StageView: View {
                     .transaction { $0.animation = nil } // a crossfade draws both lines on top of each other
             }
             Spacer()
-            CircleButton(symbol: "arrow.down.right.and.arrow.up.left", label: "Back to the pill", size: 38) { model.setMode(.pill) }
+            CircleButton(symbol: "arrow.down.right.and.arrow.up.left", label: "Smaller view", size: 38) { model.setMode(.pill) }
         }
         .padding(.horizontal, StageMetrics.pad)
         .frame(width: rect.width, height: StageMetrics.header)
@@ -78,7 +74,7 @@ struct StageView: View {
     /// Who is talking; else whether the bots are waiting for you, thinking, or quiet.
     private var subtitle: String {
         if let s = speaker { return s == "host" ? "You're talking" : "\(model.callBots.first { $0.id == s }?.name ?? "A bot") is talking" }
-        if model.view?.waitingForHost == true { return "Waiting for you" }
+        if model.view?.waitingForHost == true { return "Your turn" }
         return model.callBots.contains { $0.status == "thinking" } ? "Thinking…" : "Quiet"
     }
 
@@ -97,12 +93,21 @@ struct StageView: View {
                 if let c = l.centers[b.id] {
                     BotTile(model: model, bot: b, layout: l, speaker: speaker)
                         .frame(width: size.width, height: size.height)
+                        .transition(tileTransition(from: Motion.anchor(c, in: CGSize(width: gridArea.width, height: gridArea.height))))
                         .position(c)
-                        .transition(.scale(scale: 0.8).combined(with: .opacity))
                 }
             }
         }
-        .animation(Theme.bounce, value: l)
+        // A bot joining or leaving: the tiles glide to their new places and sizes, without overshooting.
+        .animation(Motion.layout, value: l)
+    }
+
+    /// A joining bot's tile grows into its place; a leaving one fades back out of the way. `anchor`: the tile's
+    /// center in the grid (placed with `.position`, a tile fills the grid).
+    private func tileTransition(from anchor: UnitPoint) -> AnyTransition {
+        if Theme.reduceMotion { return Motion.fadeTransition() }
+        return .asymmetric(insertion: .scale(scale: 0.9, anchor: anchor).combined(with: .opacity).animation(Motion.layout.delay(0.08)),
+                           removal: .scale(scale: 0.94, anchor: anchor).combined(with: .opacity).animation(Motion.exit))
     }
 
     // MARK: controls
@@ -117,18 +122,23 @@ struct StageView: View {
             BotCard(model: model, bot: b)
                 .frame(width: StageMetrics.card)
                 .fixedSize(horizontal: false, vertical: true)
+                .transition(Motion.surfaceTransition(anchor: p.x > cardTileX(c, l) ? .leading : .trailing))
                 .modifier(PlaceBelow(x: p.x, y: p.y, above: false))
-                .transition(.scale(scale: 0.92).combined(with: .opacity))
+                .id("card-\(id)")
                 .zIndex(5)
         } else if let t = model.tray {
             TrayView(model: model, prefs: prefs, tray: t)
                 .frame(width: StageMetrics.tray)
                 .fixedSize(horizontal: false, vertical: true)
+                .transition(Motion.surfaceTransition(anchor: .bottom, lift: 6))
                 .modifier(PlaceBelow(x: (rect.width - StageMetrics.tray) / 2, y: rect.height - StageMetrics.controls + 4, above: true))
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .id(t)
                 .zIndex(5)
         }
     }
+
+    /// The tile's left edge in the full view, to tell which side of it the card opens on.
+    private func cardTileX(_ c: CGPoint, _ l: StageLayout) -> CGFloat { gridArea.minX + c.x - l.tileWidth / 2 }
 
     /// The card sits beside its tile (right if there's room, else left), top-aligned, inside the view.
     private func cardOrigin(center c: CGPoint, _ l: StageLayout) -> CGPoint {
@@ -151,7 +161,8 @@ private struct TileChrome<Content: View>: View {
     var body: some View {
         let on = glow != nil
         ZStack {
-            RoundedRectangle(cornerRadius: 24, style: .continuous).fill(Color.white.opacity(0.045))
+            RoundedRectangle(cornerRadius: 24, style: .continuous).fill(Theme.fill)
+                .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(LinearGradient(colors: [Color.white.opacity(0.07), .clear], startPoint: .top, endPoint: .center), lineWidth: 1))
             if let g = glow {
                 RoundedRectangle(cornerRadius: 24, style: .continuous)
                     .fill(RadialGradient(colors: [g.opacity(0.22), g.opacity(0)], center: .center, startRadius: 0, endRadius: 260))
@@ -162,9 +173,10 @@ private struct TileChrome<Content: View>: View {
         .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(glow ?? Theme.hairline, lineWidth: on ? 2 : 1))
         .shadow(color: (glow ?? .clear).opacity(on ? 0.45 : 0), radius: on ? 22 : 0)
         .opacity(dim ? 0.55 : 1)
-        .scaleEffect(on && !Theme.reduceMotion ? 1.025 : 1)
-        .animation(Theme.settle, value: on)
-        .animation(Theme.settle, value: dim)
+        .scaleEffect(on && !Theme.reduceMotion ? 1.02 : 1)
+        // The glow comes up quickly and fades out slowly, so a quick back-and-forth doesn't flicker.
+        .animation(on ? Motion.glowIn : Motion.glowOut, value: on)
+        .animation(Motion.crossfade, value: dim)
     }
 }
 
@@ -185,10 +197,10 @@ private struct TileLabel: View {
                 Text(caption).font(.system(size: max(11, min(13.5, size * 0.062)))).foregroundStyle(Theme.text.opacity(0.8))
                     .multilineTextAlignment(.center).lineLimit(2).truncationMode(.head)
                     .padding(.top, 4).padding(.horizontal, 14)
-                    .transition(.opacity)
+                    .transition(Motion.fadeTransition())
             }
         }
-        .animation(Theme.settle, value: caption == nil)
+        .animation(Motion.crossfade, value: caption == nil)
     }
 }
 
@@ -218,11 +230,12 @@ private struct BotTile: View {
                         .frame(width: avatar, height: avatar)
                         .keyframeAnimator(initialValue: 1.0, trigger: speaker) { v, s in v.scaleEffect(s) } keyframes: { _ in
                             // Listeners perk up when someone new starts talking; the speaker doesn't.
-                            let peak = speaker != nil && !speaking && !Theme.reduceMotion ? 1.09 : 1.0
+                            // A gentle nod, not a bounce: it reads as attention, and it happens on every turn.
+                            let peak = speaker != nil && !speaking && !Theme.reduceMotion ? 1.045 : 1.0
                             KeyframeTrack {
                                 LinearKeyframe(1.0, duration: max(0.02, delay)) // a zero-length keyframe makes a non-finite scale and crashes AppKit
-                                SpringKeyframe(peak, duration: 0.16, spring: .snappy)
-                                SpringKeyframe(1.0, duration: 0.4, spring: .bouncy)
+                                SpringKeyframe(peak, duration: 0.24, spring: .snappy(duration: 0.24))
+                                SpringKeyframe(1.0, duration: 0.55, spring: .bouncy(duration: 0.55, extraBounce: -0.1))
                             }
                         }
                     TileLabel(name: bot.name, status: statusText, statusColor: bot.status == "error" ? Theme.danger : speaking ? color : Theme.secondary,
@@ -233,9 +246,13 @@ private struct BotTile: View {
             .frame(width: g.size.width, height: g.size.height)
             .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
             .onTapGesture { model.openCard(bot.id) }
+            .overlay(alignment: .topTrailing) {
+                if !model.approvals(for: bot.id).isEmpty { AttentionDot().scaleEffect(1.3).padding(14).transition(Motion.pop()) }
+            }
+            .contextMenu { Button("Open workspace") { model.openWorkspace(bot.id) } }
         }
         .accessibilityElement()
-        .accessibilityLabel("\(bot.name), \(statusText)")
+        .accessibilityLabel("\(bot.name), \(statusText)\(model.approvals(for: bot.id).isEmpty ? "" : ", needs your OK")")
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { model.openCard(bot.id) }
     }
@@ -270,7 +287,7 @@ private struct HostTile: View {
                 VStack(spacing: side * 0.05) {
                     HostAvatar(prefs: prefs, name: model.hostName, speaking: speaking, level: { [audio = model.audio] in Double(min(1, audio.micLevel * 5)) })
                         .frame(width: side * 0.5, height: side * 0.5)
-                    TileLabel(name: "You", status: muted ? "Muted" : speaking ? "Talking" : model.view?.waitingForHost == true ? "Bots are waiting for you" : "In the call",
+                    TileLabel(name: "You", status: muted ? "Muted" : speaking ? "Talking" : model.view?.waitingForHost == true ? "Your turn" : "Listening",
                               statusColor: muted ? Theme.danger : Theme.secondary, size: side)
                 }
                 .padding(.vertical, 10)

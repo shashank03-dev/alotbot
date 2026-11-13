@@ -35,14 +35,28 @@ cat > "$app/Contents/Info.plist" <<PLIST
   <key>CFBundleVersion</key><string>1</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
+  <key>NSScreenCaptureUsageDescription</key><string>Grok Call reads an app window when you ask your bots to look at it.</string>
   <key>NSMicrophoneUsageDescription</key><string>Grok Call sends your voice to the bots in your call.</string>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
   <key>GCRepoPath</key><string>$repo</string>
   <key>GCNodePath</key><string>$node_bin</string>
 </dict>
 </plist>
 PLIST
 
-# Signed for this Mac only (ad hoc). Another Mac needs your Developer ID signature.
-codesign --force --deep --sign - "$app"
+# Signed with one local certificate so macOS keeps Microphone, Screen Recording and Accessibility
+# access across rebuilds (an ad hoc signature changes every build, and macOS then asks again).
+# Works on this Mac only. Another Mac needs your Developer ID signature.
+sign_name="Grok Call Local Signing"
+if ! security find-certificate -c "$sign_name" >/dev/null 2>&1; then
+  echo "Creating the local signing certificate \"$sign_name\" in your login keychain (once)."
+  tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+  /usr/bin/openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -subj "/CN=$sign_name" \
+    -keyout "$tmp/key.pem" -out "$tmp/cert.pem" \
+    -addext "keyUsage=critical,digitalSignature" -addext "extendedKeyUsage=critical,codeSigning" 2>/dev/null
+  /usr/bin/openssl pkcs12 -export -inkey "$tmp/key.pem" -in "$tmp/cert.pem" -out "$tmp/id.p12" -passout pass:grokcall
+  security import "$tmp/id.p12" -k "$HOME/Library/Keychains/login.keychain-db" -P grokcall -T /usr/bin/codesign >/dev/null
+fi
+codesign --force --deep --sign "$sign_name" "$app"
 echo "Built: $app"

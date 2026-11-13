@@ -48,6 +48,7 @@ enum BackendError: LocalizedError, Equatable {
 
 /// Runs `node src/overlay/main.ts` and talks to it over its local WebSocket.
 final class Backend: NSObject, URLSessionWebSocketDelegate {
+    var onAuthenticationLost: (() -> Void)?
     var onMessage: ((ServerMessage) -> Void)?
     var onAudio: ((AudioFrames.BotChunk) -> Void)?
     /// The hello reply, and the local clock reading that matches its `serverNow`.
@@ -175,6 +176,7 @@ final class Backend: NSObject, URLSessionWebSocketDelegate {
             lock.lock()
             let cont = pending.removeValue(forKey: req)
             lock.unlock()
+            if signedOut { DispatchQueue.main.async { [weak self] in self?.onAuthenticationLost?() } }
             if ok { cont?.resume(returning: result) } else { cont?.resume(throwing: BackendError.refused(error ?? "Request failed.", signedOut: signedOut)) }
             return
         }

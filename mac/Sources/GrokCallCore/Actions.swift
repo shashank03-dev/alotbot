@@ -41,9 +41,9 @@ public enum FolderReader {
     public static let maxBytes = 256 * 1024
     public static func run(root: URL?, operation: String, path: String) throws -> String {
         guard let root else { throw failure("Choose a folder in Grok Call first.") }
-        guard !path.hasPrefix("/"), !path.contains("\0") else { throw failure("Use a relative path within the selected folder.") }
+        guard (!path.hasPrefix("/") || root.standardizedFileURL.path == "/"), !path.contains("\0") else { throw failure("Use a relative path within the selected folder.") }
         let base = root.standardizedFileURL.resolvingSymlinksInPath()
-        let file = base.appendingPathComponent(path).standardizedFileURL.resolvingSymlinksInPath()
+        let file = (path.hasPrefix("/") ? URL(fileURLWithPath: path) : base.appendingPathComponent(path)).standardizedFileURL.resolvingSymlinksInPath()
         guard file.path == base.path || file.path.hasPrefix(base.path == "/" ? "/" : base.path + "/") else { throw failure("That path leaves the selected folder.") }
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: file.path, isDirectory: &isDirectory) else { throw failure("The path does not exist.") }
@@ -69,6 +69,9 @@ public struct LocalToolCommand: Codable, Equatable, Sendable {
         public var operation: String
         public var path: String?
         public var control: String?
+        public var app: String?
+        public var title: String?
+        public var windowId: UInt32?
     }
     public var id: String
     public var tool: String
