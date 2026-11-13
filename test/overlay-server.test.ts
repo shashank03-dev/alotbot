@@ -84,12 +84,14 @@ afterEach(async () => {
 });
 
 /** `viewMs: null` leaves it out, so the server's default cadence is used. */
-async function start(signedIn = true, viewMs: number | null = 5): Promise<Harness> {
+async function start(signedIn = true, viewMs: number | null = 5, workspaceEntries: {agentId:string;body:object}[] = [], workspaceReplies: Record<string,{status?:number;body:unknown}> = {}): Promise<Harness> {
   const agents = [agent('a', 'Bot A'), agent('b', 'Bot B'), agent('c', 'Bot C')];
   const jobs: { agentId: string; callId: string; request: string; at: number }[] = [];
   let minted = 0;
   const up = await mock((r, res) => {
     const method = r.url.split('/').pop()!;
+    if(method in workspaceReplies){const reply=workspaceReplies[method];return sendJson(res,reply.status??200,reply.body);}
+    if (method === 'SendGrokBotDraft') return sendJson(res, 200, {accepted:true});
     if (method?.startsWith('ResolveGrokBot')) return sendJson(res, 200, {});
     if (method === 'ListGrokBotAgentSkills' || method === 'ListGrokBotAgentRoutines' || method === 'ListGrokBotUserComputers' || method === 'ListGrokBotAgentFiles' || method === 'ListGrokBotUserStoreFiles') return sendJson(res, 200, {});
     if (method === 'ListGrokBotAgents') return sendJson(res, 200, { agents });
@@ -106,7 +108,7 @@ async function start(signedIn = true, viewMs: number | null = 5): Promise<Harnes
         { seq: String(2 * i + 2), body: b64({ kind: 'send-message', requestId: `req-${i}`, message: { type: 'text', content: `Done: ${j.request}`, channel: `voice:${j.callId}` }, timestampMs: j.at }) },
         { seq: String(2 * i + 1), body: b64({ kind: 'message', role: 'user', content: j.request, channel: `voice:${j.callId}`, channelSender: 'the call', requestId: `req-${i}`, timestampMs: j.at }) },
       ]);
-      return sendJson(res, 200, { entries });
+      return sendJson(res, 200, { entries: [...entries, ...workspaceEntries.filter(e=>e.agentId===r.body.agentId).map((e,i)=>({seq:String(1000+i),body:b64(e.body)}))] });
     }
     // Like Grok Bot: one URL for every session, a new secret each time.
     if (method === 'MintSandVoiceCallSecret') return sendJson(res, 200, { clientSecret: `secret-${++minted}`, model: 'm', websocketUrl: 'wss://voice.test/rt' });
@@ -130,6 +132,7 @@ async function start(signedIn = true, viewMs: number | null = 5): Promise<Harnes
     dataDir: dir,
     token: TOKEN,
     apiUrl: up.url,
+    fetch:async(url,options)=>fetch(String(url).replace('https://workspace.test',up.url),options),
     siteUrl: 'https://site.test',
     pollMs: 60_000,
     clock: () => now,
@@ -379,6 +382,17 @@ test('createBot makes the bot, and can pull it straight into the call', async ()
   await c.next((m) => m.t === 'view' && m.view.bots.length === 3);
 });
 
+test('a bot made during a call: the bots in the call expect its name and can invite it', async () => {
+  const h = await start();
+  const c = await connect(h);
+  await inCall(h, c);
+  await c.ok('createBot', { bot: { name: 'Researcher', description: 'Finds things', shape: 'star', color: 'violet' } });
+  const sent = h.sockets.get('a')!.sent.map((x: any) => (typeof x === 'string' ? JSON.parse(x) : x));
+  const names = sent.filter((m: any) => m.session?.audio?.input?.transcription).at(-1).session.audio.input.transcription.keyterms;
+  assert.ok(names.includes('Researcher'), names.join(', '));
+  assert.match(sent.filter((m: any) => m.session?.instructions).at(-1).session.instructions, /Researcher/);
+});
+
 test('tasks outside a call are saved, and every mistake is explained', async () => {
   const h = await start();
   const c = await connect(h);
@@ -442,6 +456,8 @@ test('every call writes a live log: each bot\'s voice traffic, tools, app reques
   c.ws.send(frame);
   await new Promise((r) => setTimeout(r, 1050)); // the mic is summed up once a second
   c.ws.send(frame);
+  await c.fails('connections', { action: 'install', id: 'private', values: { SECRET: 'setup-secret-never-log' } }, /Grok/);
+  await c.ok('connections', { action: 'authStatus' });
   await c.fails('addBot', { botId: 'zzz' }, /No Grok Bot/);
   (b.onclose as any)({ code: 1006, reason: 'gone' });
   (b.onerror as any)({ message: 'reset' });
@@ -455,7 +471,8 @@ test('every call writes a live log: each bot\'s voice traffic, tools, app reques
   const file = path.join(h.dir, 'logs', logs[0]);
   assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'only this user can read it');
   const raw = fs.readFileSync(file, 'utf8');
-  assert.doesNotMatch(raw, /secret-\d/, 'voice secrets are never logged');
+  assert.doesNotMatch(raw, /secret-\d|setup-secret-never-log/, 'voice and connection setup secrets are never logged');
+  assert.match(raw, /Connection command failed/);
   const entries = raw.trim().split('\n').map((l) => JSON.parse(l));
   for (const e of entries) assert.ok(typeof e.at === 'string' && typeof e.ms === 'number' && typeof e.kind === 'string');
   const has = (pred: (e: any) => boolean, what: string) => assert.ok(entries.some(pred), what);
@@ -739,4 +756,109 @@ test('the enabled desktop browser executes through the call and records its veri
   assert.ok(a.outputs().some((o) => o.includes('about:blank')));
   assert.equal((await c.ok('actions')).actions.find((a: any) => a.tool === 'mac_browser').status, 'completed');
   await c.ok('localConfig', { browser: false });
+});
+
+test('background observation is routed to the Mac with a screen action and invalid scopes are refused', async () => {
+  const h = await start(); const c = await connect(h); await inCall(h, c);
+  const a = h.sockets.get('a')!;
+  assert.ok(a.lastSession().tools.some((t: any) => t.name === 'mac_observe'));
+  reply(a, '', [['mac_observe', { operation: 'read', app: 'Zen', title: 'YouTube', windowId: 12 }]]);
+  const command = await c.next((m) => m.t === 'localTool');
+  assert.deepEqual(command.input, { operation: 'read', app: 'Zen', title: 'YouTube', windowId: 12 });
+  const action = (await c.ok('actions')).actions.find((r: any) => r.tool === 'mac_observe');
+  assert.equal(action.target, 'screen');
+  await c.ok('localResult', { id: command.id, text: '{"status":"ambiguous","windows":[{"id":12},{"id":13}]}' });
+  assert.equal((await c.ok('action', { id: action.id })).action.status, 'completed');
+  reply(a, '', [['mac_observe', { operation: 'read', app: 'Zen', windowId: -1 }]]);
+  await new Promise((r) => setTimeout(r, 25));
+  assert.equal(c.msgs.filter((m) => m.t === 'localTool').length, 1);
+});
+
+test('user readiness leads to a fresh observation instead of replaying a blocked page result', async () => {
+  const h = await start(); const c = await connect(h); await inCall(h, c);
+  const a = h.sockets.get('a')!;
+  const input = { operation: 'read', app: 'Zen', title: 'YouTube' };
+  reply(a, '', [['mac_observe', input]]);
+  const first = await c.next((m) => m.t === 'localTool');
+  await c.ok('localResult', { id: first.id, text: '{"status":"not_found","note":"Select YouTube in Zen, then tell me when it is ready."}' });
+  for (let i = 0; i < 100 && !a.outputs().some((o) => o.includes('not_found')); i++) await new Promise((r) => setTimeout(r, 5));
+  assert.ok(a.outputs().some((o) => o.includes('not_found')));
+  reply(a, 'Select YouTube in Zen and tell me when it is ready.');
+  await c.ok('say', { text: "It's ready now" });
+  reply(a, '', [['mac_observe', input]]);
+  const second = await c.next((m) => m.t === 'localTool' && m.id !== first.id);
+  assert.notEqual(second.id, first.id);
+  await c.ok('localResult', { id: second.id, text: '{"status":"captured","text":"Fresh verification phrase: cobalt orchard nine"}' });
+  for (let i = 0; i < 100 && !a.outputs().some((o) => o.includes('cobalt orchard nine')); i++) await new Promise((r) => setTimeout(r, 5));
+  assert.ok(a.outputs().some((o) => o.includes('cobalt orchard nine')));
+  assert.equal((await c.ok('actions')).actions.filter((x: any) => x.tool === 'mac_observe').length, 2);
+  assert.equal(c.msgs.filter((m) => m.t === 'localTool').length, 2);
+});
+
+test('viewing tools require a capture operation instead of allowing metadata-only sight claims', async () => {
+  const h = await start(); const c = await connect(h); await inCall(h, c);
+  const a = h.sockets.get('a')!;
+  reply(a, '', [['mac_observe', { operation: 'list', app: 'Zen' }]]);
+  await new Promise((r) => setTimeout(r, 25));
+  assert.equal(c.msgs.filter((m) => m.t === 'localTool').length, 0, 'metadata-only operation must not be offered to the voice bot');
+  reply(a, '', [['mac_observe', { operation: 'read_all', app: 'Zen' }]]);
+  const command = await c.next((m) => m.t === 'localTool');
+  assert.equal(command.input.operation, 'read_all');
+  await c.ok('localResult', { id: command.id, text: '{"status":"read_all","capturedCount":1,"windows":[{"status":"captured","text":"Actual background page"}]}' });
+});
+
+test('workspace draft submissions persist redacted receipts and cannot be replayed from another UI request',async()=>{
+ const body={id:'draft-entry',sessionId:'session',kind:'send-message',message:{type:'email-draft',draft:{from:'sender@test.invalid',to:['recipient@test.invalid'],subject:'Review',body:'Original'}}};
+ const h=await start(true,5,[{agentId:'uuid-a',body}]);const c=await connect(h);await inCall(h,c);
+ const resources=await c.ok('workspace',{botId:'a',action:'resources'});assert.equal(resources.bot.agentId,'uuid-a');
+ const revision=(await c.ok('workspace',{botId:'a',action:'activity'})).cards[0].draft.revision;
+ await c.fails('workspace',{botId:'b',action:'draftSend',id:'draft-entry',sessionId:'session',body:'PRIVATE-DRAFT',revision},/changed|editable/);
+ await c.ok('workspace',{botId:'a',action:'draftSend',id:'draft-entry',sessionId:'session',body:'PRIVATE-DRAFT',revision});
+ await c.fails('workspace',{botId:'a',action:'draftSend',id:'draft-entry',sessionId:'session',body:'PRIVATE-DRAFT',revision},/already submitted/);
+ assert.equal(h.up.requests.filter(r=>r.url.endsWith('/SendGrokBotDraft')).length,1);
+ const actions=(await c.ok('actions')).actions;
+ const receipt=actions.find((a:any)=>a.tool==='draftSend'&&a.botId==='a');assert.equal(receipt.status,'completed');
+ assert.doesNotMatch(JSON.stringify((await c.ok('action',{id:receipt.id})).action),/PRIVATE-DRAFT/);
+ const text=fs.readdirSync(path.join(h.dir,'logs')).map(name=>fs.readFileSync(path.join(h.dir,'logs',name),'utf8')).join('\n');assert.doesNotMatch(text,/PRIVATE-DRAFT/);
+ const activity=await c.ok('workspace',{botId:'a',action:'activity'});assert.equal(activity.cards[0].id,'draft-entry');
+ await c.fails('workspace',{botId:'a',action:'computerViewState',viewerId:'unknown'},/closed/);
+ await c.fails('workspace',{botId:'a',action:'computerClose',viewerId:'unknown'},/closed/);
+ await c.fails('workspace',{botId:'a',action:'computerControl',viewerId:'unknown',enabled:true},/closed/);
+});
+
+test('workspace events, viewer assets, saved activity and uncertain mutations survive transport and account lifecycle changes',async()=>{
+ const replies:Record<string,{status?:number;body:unknown}>={
+  GetSandBoxRunState:{body:{state:'SAND_BOX_RUN_STATE_RUNNING'}},EnsureSandBox:{body:{gatewayUrl:'https://workspace.test',gatewayToken:'gateway',vncUrl:'https://workspace.test/vnc.html'}},
+  getAgentAutomations:{body:[]},getForeverBoxStatus:{body:{state:'running',vncUrl:'https://workspace.test/vnc.html',windows:[{subagentId:'screen',vncUrl:'https://workspace.test/vnc.html'}]}},
+  ensureForeverBox:{body:{state:'running',vncUrl:'https://workspace.test/vnc.html',windows:[{subagentId:'screen',vncUrl:'https://workspace.test/vnc.html'}]}},events:{body:'data: changed\n\n'},'vnc.html':{body:'viewer'},
+  ListGrokBotAgentAutomations:{body:{}},AddGrokBotAgentSkill:{body:{accepted:true}},
+ };
+ const h=await start(true,5,[{agentId:'uuid-a',body:{id:'entry',message:{type:'text',content:'Private result'}}}],replies),c=await connect(h);
+ await c.ok('workspace',{botId:'a',action:'resources'});await c.next(m=>m.t==='workspaceChanged');
+ await c.ok('workspace',{botId:'a',action:'activity'});
+ replies.ListGrokBotTranscriptEntries={status:503,body:{message:'Offline'}};
+ const offline=await c.ok('workspace',{botId:'a',action:'activity'});assert.equal(offline.stale,true);assert.equal(offline.cards[0].text,'');
+ delete replies.ListGrokBotTranscriptEntries;
+ const viewer=await c.ok('workspace',{botId:'a',action:'computerOpen',monitor:'screen'});
+ const response=await fetch(viewer.url,{headers:{authorization:viewer.authorization}});assert.equal(response.status,200);assert.equal(await response.text(),'viewer');
+ assert.equal((await c.ok('workspace',{botId:'a',action:'computerViewState',viewerId:viewer.id})).hasControl,false);
+ await c.ok('workspace',{botId:'a',action:'computerClose',viewerId:viewer.id});
+ const other=await c.ok('workspace',{botId:'a',action:'computerOpen'});
+ const bad=new WebSocket(other.url.replace('http:','ws:').replace(/vnc.html.*/, 'socket'),{origin:'https://evil.test',headers:{authorization:other.authorization}});
+ await new Promise<void>(resolve=>{bad.once('error',()=>resolve());});bad.terminate();
+ await c.ok('workspace',{botId:'a',action:'skillCreate',name:'Test',content:'Instructions'});
+ replies.AddGrokBotAgentSkill={status:503,body:{message:'Outcome unknown'}};
+ await c.fails('workspace',{botId:'a',action:'skillCreate',name:'Test',content:'Instructions'},/Outcome unknown/);
+ const actions=(await c.ok('actions')).actions;assert.ok(actions.some((a:any)=>a.tool==='skillCreate'&&a.status==='unknown'&&a.callId==='workspace'));
+ await c.ok('logout');
+ new AuthStore(h.dir).write({accessToken:'tok',refreshToken:null,machineId:'mid'});
+ await c.ok('workspace',{botId:'a',action:'resources'});
+ await c.ok('workspace',{botId:'a',action:'activity'});
+ const reopened=await c.ok('workspace',{botId:'a',action:'computerOpen'});await c.ok('workspace',{botId:'a',action:'computerClose',viewerId:reopened.id});
+});
+
+test('malformed HTTP viewer targets close the request without exposing a transport exception',async()=>{
+ const h=await start(),c=await connect(h);await c.ok('bots');
+ const {request}=await import('node:http');const origin=new URL(h.url);origin.protocol='http:';
+ await assert.rejects(new Promise<void>((resolve,reject)=>{const req=request(origin,{path:'http://'},res=>{res.resume();res.once('end',()=>resolve());});req.once('error',reject);req.end();}),/socket hang up|ECONNRESET/);
 });

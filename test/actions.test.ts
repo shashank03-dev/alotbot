@@ -73,7 +73,7 @@ test('jobs to watch: open ones for a day, answered ones for a quiet window; only
   assert.deepEqual(s.watchedJobs(1000, 200).map((x) => x.id), [open.id, answered.id]);
   assert.deepEqual(s.watchedJobs(1000, 50).map((x) => x.id), [open.id], 'answered too long ago');
   t = 2000;
-  assert.deepEqual(s.watchedJobs(1000, 5000).map((x) => x.id), [], 'older than a day');
+  assert.deepEqual(s.watchedJobs(1000, 5000).map((x) => x.id), [open.id], 'unresolved jobs remain visible after the old age limit');
   assert.ok(!s.watchedJobs(1e9, 1e9).some((x) => x.id === app.id || x.id === search.id), 'only background jobs');
   s.close();
 });
@@ -170,4 +170,18 @@ test('a filesystem open failure is surfaced without renaming or replacing user f
   assert.throws(() => new ActionStore(dir));
   assert.ok(fs.statSync(path.join(dir, 'actions.sqlite')).isDirectory());
   assert.deepEqual(fs.readdirSync(dir), ['actions.sqlite']);
+});
+
+test('workspace metadata survives restart without draft, secure input or executable stale actions',()=>{
+ const dir=path.join(tmp,'workspace-cards');let store=new ActionStore(dir);
+ const card:any={id:'entry',seq:4,kind:'secret-request',title:'Secret requested',status:'pending',requestId:'r',sessionId:'s',text:'PRIVATE',draft:{body:'PRIVATE',signatureHtml:'PRIVATE',attachments:[{path:'/PRIVATE/file.pdf',sizeBytes:2}],revision:'PRIVATE'},actions:['respond'],fields:[{value:'PRIVATE'}]};
+ store.saveWorkspaceCards('uuid-a',[card]);assert.doesNotMatch(fs.readFileSync(store.file).toString(),/PRIVATE/);
+ store.close();store=new ActionStore(dir);const saved=store.workspaceCards('uuid-a');assert.equal(saved[0].id,'entry');assert.deepEqual(saved[0].actions,[]);assert.equal(saved[0].text,'');assert.deepEqual(store.workspaceCards('uuid-b'),[]);assert.deepEqual(store.workspaceCards('uuid-a',4),[]);
+ store.saveWorkspaceCards('uuid-a',[{...card,seq:3,status:'stale'}]);assert.equal(store.workspaceCards('uuid-a')[0].status,'pending');
+ store.saveWorkspaceCards('uuid-a',Array.from({length:1001},(_,i)=>({...card,id:'e'+i,seq:i+10})));assert.equal(store.workspaceCards('uuid-a').length,100);assert.ok(store.workspaceCards('uuid-a',11).every(c=>c.seq<11));store.close();
+});
+test('a workspace persistence failure rolls back the whole batch',()=>{
+ const store=fresh(),other=new DatabaseSync(store.file);other.exec("CREATE TRIGGER fail_workspace BEFORE INSERT ON workspace_events WHEN NEW.seq=2 BEGIN SELECT RAISE(FAIL,'write failed'); END");
+ const card:any={id:'one',seq:1,kind:'text',title:'Message',status:'done',requestId:'',sessionId:''};
+ assert.throws(()=>store.saveWorkspaceCards('a',[card,{...card,id:'two',seq:2}]),/write failed/);assert.deepEqual(store.workspaceCards('a'),[]);other.close();store.close();
 });

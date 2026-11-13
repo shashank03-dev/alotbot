@@ -81,7 +81,7 @@ test('discovery lists real names and connection states without credentials or sc
   servers.servers[0].url = 'https://private.invalid/?secret=do-not-return';
   const { call } = await setup();
   const out = await call('list_connected_apps');
-  assert.deepEqual(out.apps, [{ id: 'user-Mail', name: 'Mail', status: 'connected' }, { id: 'user-Offline', name: 'Offline', status: 'needsAuth' }]);
+  assert.deepEqual(out.apps, [{ id: 'user-Mail', name: 'Mail', status: 'connected' }, { id: 'user-Offline', name: 'Offline', status: 'available' }]);
   assert.doesNotMatch(JSON.stringify(out), /do-not-return|inputSchema|Your profile/);
 });
 
@@ -545,4 +545,20 @@ test('one malformed connector or tool leaves the others usable', async () => {
   const found = await call('find_app_tools', { app: 'Mail' });
   assert.equal(found.tools.length, 1);
   assert.ok((await call('use_app_tool', { app: 'Mail', tool: 'user-Mail-profile', arguments: {} })).success);
+});
+
+test('a public connector without an OAuth token can still discover and execute its tools',async()=>{
+ const {call}=await setup();
+ servers.servers[0].userHasAccessToken=false;
+ const tools=await call('find_app_tools',{app:'Mail'});
+ assert.equal(tools.tools[0].name,'user-Mail-profile');
+ const used=await call('use_app_tool',{app:'Mail',tool:'user-Mail-profile',arguments:{}});
+ assert.doesNotMatch(JSON.stringify(used),/needsAuth/);
+});
+
+test('bots report provider outages without telling the user to reconnect',async()=>{
+ const {call}=await setup();
+ listed.servers[0]={serverIdentifier:'user-Mail',status:'needsAuth',error:'HTTP 503 deployment unavailable'};
+ const out=await call('find_app_tools',{app:'Mail'});
+ assert.equal(out.status,'unavailable');assert.match(out.error,/service.*unavailable/i);assert.doesNotMatch(out.error,/needsAuth/);
 });

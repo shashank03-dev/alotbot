@@ -155,7 +155,7 @@ test('approvalOf reads every kind of ask, and approvalText says what to do', () 
   assert.equal(askTarget({ description: ' Read a file ' }), 'Read a file');
   assert.equal(askTarget(undefined), 'an action on this Mac');
   assert.match(approvalText({ kind: 'auto_review', requestId: 'r', entryId: null, summary: 'Post it', status: 'pending' }), /approval: Post it\. He can approve it in Grok Call/);
-  assert.equal(approvalText({ kind: 'connector', requestId: 'r', entryId: null, summary: 'X connected', status: 'pending' }), 'It needs X connected in the Grok Bot app first.');
+  assert.equal(approvalText({ kind: 'connector', requestId: 'r', entryId: null, summary: 'X connected', status: 'pending' }), 'It needs X connected in Grok Call’s Connections first.');
 });
 
 test('what Shashank types in a bot\'s chat during its call is passed on; other chat is not', async () => {
@@ -210,6 +210,10 @@ test('checks are frequent after a job and during a call, slower later, and stop 
   assert.equal(t.due()[0].ms, JOB_POLL_MS, 'fast during the call');
   t.w.callEnded('a');
   t.at(t.now + JOB_MAX_AGE_MS + 1);
+  await t.tick();
+  assert.equal(t.due().length, 1, 'unfinished cloud work is still watched after a day');
+  t.store.update(a.id, { status: 'completed' });
+  t.at(t.now + JOB_QUIET_MS + 1);
   await t.tick();
   assert.equal(t.due().length, 0, 'nothing left to watch');
   t.w.noteJob(t.job());

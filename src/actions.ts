@@ -1,6 +1,7 @@
 // The record of every action a bot takes from a call: written before it is dispatched, updated as it runs, kept after
 // the call. SQLite (node:sqlite), so a state change and its deduplication happen in one transaction even when several
 // bots finish at once.
+import type { WorkCard } from './work-cards.ts';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -62,6 +63,8 @@ export type ActionPatch = Partial<Pick<Action, 'status' | 'requestId' | 'summary
 
 const FILE = 'actions.sqlite';
 const SCHEMA = `
+  CREATE TABLE IF NOT EXISTS workspace_events (agent_id TEXT NOT NULL, entry_id TEXT NOT NULL, seq INTEGER NOT NULL, body TEXT NOT NULL, PRIMARY KEY(agent_id,entry_id));
+  CREATE INDEX IF NOT EXISTS workspace_events_seq ON workspace_events(agent_id,seq);
   CREATE TABLE IF NOT EXISTS actions (
     id TEXT PRIMARY KEY, call_id TEXT NOT NULL, bot_id TEXT NOT NULL, bot_name TEXT NOT NULL, target TEXT NOT NULL,
     tool TEXT NOT NULL, input TEXT NOT NULL, status TEXT NOT NULL, request_id TEXT, summary TEXT, result TEXT,
@@ -179,18 +182,35 @@ export class ActionStore {
   }
 
   /**
-   * Background jobs (send_task; a search answers at once) still worth watching: running or waiting for approval and younger than `maxAgeMs`, or answered within
+   * Background jobs (send_task; a search answers at once) still worth watching: running or waiting for approval regardless of age, or recent jobs answered within
    * the last `quietMs` (an agent often says "on it" first and sends the result later).
    */
   watchedJobs(maxAgeMs: number, quietMs: number): Action[] {
     const now = this.now();
     return this.db
       .prepare(
-        `SELECT * FROM actions WHERE target = 'agent' AND tool = 'send_task' AND created_at >= ? AND
-         (status IN ('running', 'waiting_approval', 'unknown') OR updated_at >= ?) ORDER BY created_at`,
+        `SELECT * FROM actions WHERE target = 'agent' AND tool = 'send_task' AND
+         (status IN ('running', 'waiting_approval', 'unknown') OR (created_at >= ? AND updated_at >= ?)) ORDER BY created_at`,
       )
       .all(now - maxAgeMs, now - quietMs)
       .map(toAction);
+  }
+
+  saveWorkspaceCards(agentId: string, cards: WorkCard[]) {
+    const write=this.db.prepare('INSERT INTO workspace_events(agent_id,entry_id,seq,body) VALUES(?,?,?,?) ON CONFLICT(agent_id,entry_id) DO UPDATE SET seq=excluded.seq,body=excluded.body WHERE excluded.seq>=workspace_events.seq');
+    this.db.exec('BEGIN');
+    try {
+      for(const card of cards){
+        const saved={id:card.id,seq:card.seq,kind:card.kind,title:card.title,status:card.status,requestId:card.requestId,sessionId:card.sessionId,text:'',actions:[],options:[],fields:[],draft:null,details:{},links:[],multiSelect:false,nativeRequired:false,allowCustom:false};
+        write.run(agentId,card.id,card.seq,JSON.stringify(saved));
+      }
+      this.db.prepare('DELETE FROM workspace_events WHERE agent_id=? AND entry_id IN (SELECT entry_id FROM workspace_events WHERE agent_id=? ORDER BY seq DESC LIMIT -1 OFFSET 1000)').run(agentId,agentId);
+      this.db.exec('COMMIT');
+    }catch(error){this.db.exec('ROLLBACK');throw error;}
+  }
+  workspaceCards(agentId: string, beforeSeq?: number): WorkCard[] {
+    const rows=beforeSeq===undefined?this.db.prepare('SELECT body FROM workspace_events WHERE agent_id=? ORDER BY seq DESC LIMIT 100').all(agentId):this.db.prepare('SELECT body FROM workspace_events WHERE agent_id=? AND seq<? ORDER BY seq DESC LIMIT 100').all(agentId,beforeSeq);
+    return rows.map(row=>JSON.parse(String(row.body)));
   }
 
   byRequest(botId: string, requestId: string): Action | null {

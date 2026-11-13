@@ -1,3 +1,4 @@
+import { ComputerViewer } from '../computer-viewer.ts';
 import { LocalBrowser } from '../browser.ts';
 import { LOCAL_TOOLS, localTarget } from '../local-tools.ts';
 import { argumentError } from '../validation.ts';
@@ -119,14 +120,17 @@ export function createOverlayServer(opts: OverlayOptions) {
   const clock = opts.clock ?? (() => performance.now() / 1000);
   const openSocket = opts.openSocket ?? defaultOpenSocket;
 
-  const http_ = http.createServer((_req, res) => {
-    res.writeHead(404, { 'content-type': 'text/plain' });
-    res.end('not here');
+  const http_ = http.createServer((req, res) => {
+    void (async () => {
+      if (client && await client.viewers.handle(req, res)) return;
+      res.writeHead(404, { 'content-type': 'text/plain' }); res.end('not here');
+    })().catch(() => { res.destroy(); });
   });
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE });
   let client: Session | null = null;
 
   http_.on('upgrade', (req, socket, head) => {
+    if (client?.viewers.upgrade(req, socket, head)) return;
     if (!upgradeAllowed(req, opts.token)) {
       socket.end('HTTP/1.1 403 Forbidden\r\n\r\n');
       return;
@@ -152,7 +156,21 @@ export function createOverlayServer(opts: OverlayOptions) {
     log: CallLog | null = null;
     mic = new MicStats(0);
     browser = new LocalBrowser(opts.dataDir);
+    connections = grok.createConnections();
+    runtime = this.createRuntime();
+    viewers = this.createViewers();
     localPending = new Map<string, { resolve: (v: any) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
+
+    private createRuntime() {
+      return grok.createRuntime({
+        loadActivity:(id,before)=>actionStore.workspaceCards(id,before),
+        saveActivity:(id,cards)=>actionStore.saveWorkspaceCards(id,cards),
+        onChanged:()=>this.send({t:'workspaceChanged'}),
+      });
+    }
+    private createViewers() {
+      return new ComputerViewer(this.runtime, {origin:()=>`http://127.0.0.1:${(http_.address() as import('node:net').AddressInfo).port}`,fetch:opts.fetch});
+    }
 
     async localTool(botId: string, name: string, input: Record<string, unknown>) {
       const tool = LOCAL_TOOLS.find((t) => t.name === name)!;
@@ -169,7 +187,7 @@ export function createOverlayServer(opts: OverlayOptions) {
       if (name === 'mac_browser') return { kind: 'served' as const, output: await this.browser.run(input) };
       const id = crypto.randomUUID();
       const output = await new Promise((resolve, reject) => {
-        const timer = setTimeout(() => { this.localPending.delete(id); reject(new Error('This Mac did not answer; outcome unknown. Do not retry a press automatically.')); }, 15_000);
+        const timer = setTimeout(() => { this.localPending.delete(id); reject(new Error('This Mac did not answer; outcome unknown. Do not retry a press automatically.')); }, name === 'mac_observe' ? 60_000 : 15_000);
         this.localPending.set(id, { resolve, reject, timer });
         this.send({ t: 'localTool', id, tool: name, input });
       });
@@ -192,6 +210,8 @@ export function createOverlayServer(opts: OverlayOptions) {
     }
 
     onClose() {
+      this.connections.close();
+      this.viewers.closeAll(); this.runtime.close();
       void this.browser.close();
       for (const p of this.localPending.values()) { clearTimeout(p.timer); p.reject(new Error('The Mac app disconnected; outcome unknown.')); }
       this.localPending.clear();
@@ -218,14 +238,18 @@ export function createOverlayServer(opts: OverlayOptions) {
       const req = msg?.req ?? null;
       const op = String(msg?.op);
       const { op: _op, req: _req, ...args } = msg ?? {};
-      this.log?.write('app', { op, args });
+      this.log?.write('app', { op, args: ['connections', 'workspace'].includes(op) ? { action: msg.action } : args });
       Promise.resolve()
         .then(() => this.run(op, msg ?? {}))
         .then(
           (result) => this.send({ t: 'reply', req, ok: true, result: result ?? null }),
           (err) => {
-            this.log?.write('app-error', { op, error: (err as Error).message });
+            this.log?.write('app-error', { op, error: ['connections', 'workspace'].includes(op) ? 'Connection command failed' : (err as Error).message });
             const signedOut = err instanceof SignedOutError;
+            if(signedOut){
+              this.viewers.closeAll();this.runtime.close();this.runtime=this.createRuntime();
+              this.viewers=this.createViewers();
+            }
             this.send({ t: 'reply', req, ok: false, error: (err as Error).message, ...(signedOut ? { signedOut } : {}) });
           },
         );
@@ -264,12 +288,41 @@ export function createOverlayServer(opts: OverlayOptions) {
         case 'logout':
           if (this.call) throw new ClientError('leave the call before signing out');
           login.cancel();
+          this.connections.close();
+          this.viewers.closeAll(); this.runtime.close(); this.runtime = this.createRuntime();
+          this.viewers = this.createViewers();
           store.clear();
           this.bots = [];
           return login.state();
+        case 'workspace': {
+          const botId = str(m.botId, 'botId'), action = str(m.action, 'action');
+          if (action === 'computerOpen') return this.viewers.open(botId, typeof m.monitor === 'string' ? m.monitor : undefined);
+          if (action === 'computerControl') return this.viewers.control(str(m.viewerId, 'viewerId'), m.enabled === true, botId);
+          if (action === 'computerViewState') return this.viewers.validateState(str(m.viewerId, 'viewerId'), botId);
+          if (action === 'computerClose') return this.viewers.disconnect(str(m.viewerId, 'viewerId'), botId);
+          const writes = ['cardControl','routineCreate','routineUpdate','routineDelete','routineEnable','routineRun','skillCreate','skillUpdate','skillDelete','skillEnable','memoryShare','libraryPin','pluginEnable','cardDecision','cardRespond','draftSend','draftDiscard','phoneControl','mcpCall','paymentBegin','paymentFinish','teachStart','teachStop','fileUploadFinish','handBack'];
+          if (!writes.includes(action)) return this.runtime.command(botId, action, m);
+          const identity = await this.runtime.identity(botId);
+          const requestAction = ['cardControl','draftSend','draftDiscard','cardRespond','cardDecision','paymentFinish'].includes(action);
+          const dedupeKey = requestAction && typeof m.id==='string' ? `workspace-request:${identity.agentId}:${m.id}` : null;
+          if(dedupeKey&&actionStore.dedupe(dedupeKey,0))throw new Error('This request was already submitted or its outcome is unknown. Refresh this bot’s activity before trying again.');
+          const record = actionStore.create({dedupeKey,callId: this.call ? `${this.call.callId}-${botId}` : 'workspace', botId, botName: identity.name, target: 'app', tool: action, input: {action,...(typeof m.id==='string'?{entryId:m.id}:{})}});
+          try {
+            const result = await this.runtime.command(botId, action, m);
+            actionStore.update(record.id, {status:'completed', summary:'The provider accepted the workspace request.'});
+            this.actionsChanged(botId);
+            return result;
+          } catch (error) {
+            const uncertain = /outcome unknown|did not answer|network|fetch failed|timeout/i.test((error as Error).message);
+            actionStore.update(record.id, {status:uncertain?'unknown':'failed', error:uncertain?'Outcome unknown. Inspect this bot’s activity before retrying.':'The workspace request failed. Refresh its state before retrying.'});
+            this.actionsChanged(botId);
+            throw error;
+          }
+        }
+        case 'connections':
+          return this.connections.command(str(m.action, 'action'), m);
         case 'bots':
-          this.bots = await grok.listBots();
-          return { bots: this.bots };
+          return { bots: await this.refreshBots() };
         case 'join':
           return this.join(m.botIds);
         case 'leave':
@@ -302,7 +355,7 @@ export function createOverlayServer(opts: OverlayOptions) {
           return this.setVoice(str(m.botId, 'botId'), parseVoiceSettings(m.settings));
         case 'createBot': {
           const bot = await grok.createBot(parseNewBot(m.bot));
-          this.bots = await grok.listBots();
+          await this.refreshBots();
           if (m.addToCall === true && this.call?.phase === 'in-call') this.call.addBot(bot);
           return { bot };
         }
@@ -338,6 +391,13 @@ export function createOverlayServer(opts: OverlayOptions) {
         default:
           throw new ClientError(`unknown op "${op}"`);
       }
+    }
+
+    /** Reloads the bot list; a call in progress learns about new bots too. */
+    async refreshBots(): Promise<Bot[]> {
+      this.bots = await grok.listBots();
+      this.call?.setAvailable(this.bots);
+      return this.bots;
     }
 
     async freshBots(): Promise<Bot[]> {

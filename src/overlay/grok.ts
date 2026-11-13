@@ -1,3 +1,5 @@
+import {SHAPES,COLORS} from '../appearance.ts';
+export {SHAPES,COLORS} from '../appearance.ts';
 import crypto from 'node:crypto';
 import { type Bot, GrokBotClient } from '../grokbot.ts';
 
@@ -12,17 +14,9 @@ export const LANGUAGES = [
   'en', 'ar-EG', 'ar-SA', 'ar-AE', 'bn', 'ca', 'zh', 'da', 'nl', 'fi', 'fr', 'de', 'hi', 'hu', 'id', 'it', 'ja', 'ko', 'pl', 'pt-BR',
   'pt-PT', 'ru', 'es-MX', 'es-ES', 'sv', 'th', 'tr', 'vi',
 ] as const;
-/** Every shape Grok Bot can draw. */
-export const SHAPES = [
-  'blob', 'pebble', 'bean', 'egg', 'squircle', 'tablet', 'capsule', 'cylinder', 'hex', 'gem', 'crystal', 'wedge', 'shield', 'dome',
-  'arch', 'cloud', 'teardrop', 'leaf', 'square', 'sparkle', 'clover', 'flower', 'heart', 'house', 'star',
-] as const;
 /** The shapes Grok Bot's own picker offers for a new bot. */
 export const PICKER_SHAPES = ['blob', 'cloud', 'square', 'sparkle', 'clover', 'heart', 'flower', 'teardrop', 'tablet', 'wedge', 'house', 'star', 'hex'] as const;
-export const COLORS = {
-  black: '#000000', brown: '#936439', red: '#FF263C', orange: '#FF6700', yellow: '#FF9800', green: '#00C972', cyan: '#00BCA6',
-  blue: '#1084FE', violet: '#9159FE', magenta: '#FF309B', gray: '#777777',
-} as const;
+
 
 export const NAME_MAX = 60;
 export const DESCRIPTION_MAX = 500;

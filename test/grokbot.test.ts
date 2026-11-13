@@ -354,7 +354,7 @@ test('voiceSession: the connected apps come with the session; a late or failed l
   const mail = { name: 'Mail', serverIdentifier: 'user-Mail', type: 'HTTP', userHasAccessToken: true };
   const render = { name: 'Render', serverIdentifier: 'user-Render', type: 'HTTP', userHasAccessToken: false };
   const MAIL = { id: 'user-Mail', name: 'Mail', status: 'connected' };
-  const RENDER = { id: 'user-Render', name: 'Render', status: 'needsAuth' };
+  const RENDER = { id: 'user-Render', name: 'Render', status: 'available' };
   const timed = async () => { const s = Date.now(); const v = await grok.voiceSession('1'); return { apps: v.apps, ms: Date.now() - s, v }; };
 
   b.apps = null;
@@ -420,11 +420,11 @@ test('landedText turns each kind of agent message into words the bot can say', (
   assert.equal(landedText({ type: 'text', content: '  Posted it.  ' }), 'Posted it.');
   assert.equal(landedText({ type: 'text', content: '   ' }), null);
   assert.equal(landedText({ type: 'text' }), null);
-  assert.equal(landedText({ type: 'auto-review-approval', approval: { summary: 'Post a comment on PR 1249' } }), 'It is waiting for approval in the Grok Bot app: Post a comment on PR 1249.');
-  assert.equal(landedText({ type: 'auto-review-approval' }), 'It is waiting for approval in the Grok Bot app: an action it wants to take.');
-  assert.equal(landedText({ type: 'connector', connector: 'X', variant: 'connect' }), 'It needs X connected in the Grok Bot app first.');
-  assert.equal(landedText({ type: 'connector', connector: 'Gmail', variant: 'reauth' }), 'It needs Gmail signed in again in the Grok Bot app first.');
-  assert.equal(landedText({ type: 'connector' }), 'It needs an app signed in again in the Grok Bot app first.');
+  assert.equal(landedText({ type: 'auto-review-approval', approval: { summary: 'Post a comment on PR 1249' } }), 'It is waiting for approval in Grok Call’s Activity: Post a comment on PR 1249.');
+  assert.equal(landedText({ type: 'auto-review-approval' }), 'It is waiting for approval in Grok Call’s Activity: an action it wants to take.');
+  assert.equal(landedText({ type: 'connector', connector: 'X', variant: 'connect' }), 'It needs X connected in Grok Call’s Connections first.');
+  assert.equal(landedText({ type: 'connector', connector: 'Gmail', variant: 'reauth' }), 'It needs Gmail signed in again in Grok Call’s Connections first.');
+  assert.equal(landedText({ type: 'connector' }), 'It needs an app signed in again in Grok Call’s Connections first.');
   assert.equal(landedText({ type: 'widget', widget: { prompt: 'Which one?', options: [{ label: 'A' }, { label: ' ' }, null, { label: 'B' }] } }), 'Which one? Options: A, B.');
   assert.equal(landedText({ type: 'widget', widget: { options: 'nope' } }), 'It asks a question');
   assert.equal(landedText({ type: 'draft-card' }), 'It sent a draft-card card, which only shows in the Grok Bot app chat.');
@@ -550,4 +550,42 @@ test('file catalogs and approvals use the UUID and exact request contracts', asy
   await assert.rejects(grok.files('missing'), /UUID/);
   extras.ListGrokBotAgentFiles = {}; extras.ListGrokBotUserStoreFiles = {};
   assert.deepEqual(await grok.files('1'), []);
+});
+
+ test('supported interactive results direct the call to the bot workspace without reading secure values',()=>{
+  for(const type of ['user-form','secret-request','email-draft','slack-draft','imessage-draft','meeting-chat-draft']){
+   const result=landedText({type,content:'PRIVATE-VALUE'});assert.match(result!,/Activity in Grok Call/);assert.doesNotMatch(result!,/PRIVATE-VALUE/);
+  }
+ });
+
+test('runtime routine changes are sent once to the exact bot and refusals are not reported as saved', async () => {
+  b.agents = {agents:[{...AGENTS[0],agentId:'uuid-1'}]};
+  extras.GetSandBoxRunState={state:'SAND_BOX_RUN_STATE_HIBERNATED'};
+  extras.ListGrokBotAgentAutomations={automations:[{automationId:'routine',recordJson:JSON.stringify({id:'slug',name:'Daily'})}]};
+  extras.SendGrokBotUserMessage={dispatched:true};
+  const {grok}=client(); const runtime=grok.createRuntime();
+  const spec={name:'Test',prompt:'Report',trigger:{type:'cron',schedule:'0 9 * * *'},isEnabled:false};
+  assert.deepEqual(await runtime.command('1','routineCreate',{spec}),{accepted:true,queued:true});
+  await runtime.command('1','routineUpdate',{id:'routine',spec});
+  let sent=up.requests.filter(r=>r.url.endsWith('/SendGrokBotUserMessage'));
+  assert.equal(sent.length,2);
+  assert.equal(sent[0].body.agentId,'uuid-1');assert.equal(sent[0].body.sessionId,'');
+  assert.match(sent[0].body.text,/Do not run the routine/);
+  assert.ok(sent[0].body.text.endsWith(JSON.stringify(spec)));
+  assert.match(sent[1].body.text,/existing routine identified by slug/);
+  for(const response of [{dispatched:false},{},{dispatched:true,refusal:{reason:'denied'}}]){
+    extras.SendGrokBotUserMessage=response;
+    await assert.rejects(runtime.command('1','routineCreate',{spec}),/did not accept/);
+  }
+  sent=up.requests.filter(r=>r.url.endsWith('/SendGrokBotUserMessage'));
+  assert.equal(sent.length,5,'No uncertain or refused request is automatically retried');
+  runtime.close();
+  await assert.rejects(grok.createRuntime().command('missing','resources'),/not available/);
+});
+
+test('sign-out while the computer connection is loading cannot reuse account credentials',async()=>{
+ const {store,grok}=client();b.agents={agents:[{...AGENTS[0],agentId:'uuid-1'}]};
+ extras.GetSandBoxRunState={state:'SAND_BOX_RUN_STATE_RUNNING'};
+ extras.EnsureSandBox={toJSON(){store.clear();return {gatewayUrl:'https://gateway.test',gatewayToken:'old-secret'};}};
+ const runtime=grok.createRuntime();await assert.rejects(runtime.command('1','computerStatus'),SignedOutError);runtime.close();
 });

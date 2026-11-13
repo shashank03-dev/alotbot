@@ -1,5 +1,6 @@
 // Direct access to the account's Grok-connected apps. No connector credentials leave the backend.
 import crypto from 'node:crypto';
+import { connectionProblem } from './connection-status.ts';
 import { argumentError } from './validation.ts';
 import type { HarnessTool } from './grokbot.ts';
 
@@ -27,6 +28,7 @@ interface App {
   name: string;
   status: string;
   account?: string;
+  problem?: string;
   permissionIds: string[];
   tools: any[];
 }
@@ -96,7 +98,6 @@ export class ConnectedApps {
         const credential = account.userHasAccessToken ?? s.userHasAccessToken;
         const supported = ['http', 'sse'].includes(text(s.type).toLowerCase());
         const status = s.enabled === false ? 'disabled' : !supported ? 'unavailable'
-          : credential === false && !s.hasStaticCredentialHeaders ? 'needsAuth'
           : credential === true || s.hasStaticCredentialHeaders ? 'connected' : 'available';
         const label = text(account.displayName) || text(account.accountKey);
         return {
@@ -117,7 +118,10 @@ export class ConnectedApps {
     const a = matches[0];
     const reused = tools === 'reuse' ? this.recent(a.id) : undefined;
     const found = a.id === guess && early ? await early : reused ? reused.row : await this.toolList(a.id);
-    a.status = text(found?.status) || 'unavailable';
+    if (found?.error) {
+      const problem = connectionProblem(found.error);
+      a.status = problem.status; a.problem = problem.message;
+    } else a.status = text(found?.status) || 'unavailable';
     a.tools = Array.isArray(found?.tools) ? found.tools : [];
     return apps;
   }
@@ -138,7 +142,7 @@ export class ConnectedApps {
     const matches = exact ? [exact] : apps.filter((a) => a.name.toLowerCase() === wanted);
     if (matches.length !== 1) return { error: 'Choose an exact app id from list_connected_apps.', apps: apps.map((a) => ({ id: a.id, name: a.name })) };
     const a = matches[0];
-    if (a.status !== 'connected') return { error: `${a.name} is ${a.status}. Check its connection in Grok.`, status: a.status };
+    if (a.status !== 'connected') return { error: a.problem ?? `${a.name} is ${a.status}. Check its connection in Grok.`, status: a.status };
     if (name === 'find_app_tools') {
       const offset = input.offset ?? 0;
       if (!Number.isSafeInteger(offset) || (offset as number) < 0) return { error: 'offset must be a nonnegative whole number.' };

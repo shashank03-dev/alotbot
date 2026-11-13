@@ -1,6 +1,8 @@
 import type { Approval } from './actions.ts';
 import crypto from 'node:crypto';
 import type { Auth, AuthStore } from './auth.ts';
+import { BotRuntime, type RuntimeOptions } from './bot-runtime.ts';
+import { ConnectionsManager } from './connections.ts';
 import { APP_TOOLS, ConnectedApps } from './apps.ts';
 
 /** Endpoints and client identity used by the Grok Bot desktop app (v0.79.4). */
@@ -14,6 +16,7 @@ const AGENT_KIND = 'GROK_BOT_AGENT_KIND_AGENT';
 export class SignedOutError extends Error {
   constructor() {
     super('Signed out. Sign in with your Grok Bot account.');
+    this.name = 'SignedOutError';
   }
 }
 
@@ -139,16 +142,17 @@ export const LANDED_TEXT_MAX = 1500;
 export function landedText(message: any): string | null {
   const type = str(message?.type);
   if (type === 'text') return str(message.content).trim() || null;
-  if (type === 'auto-review-approval') return `It is waiting for approval in the Grok Bot app: ${str(message.approval?.summary).trim() || 'an action it wants to take'}.`;
+  if (type === 'auto-review-approval') return `It is waiting for approval in Grok Call’s Activity: ${str(message.approval?.summary).trim() || 'an action it wants to take'}.`;
   if (type === 'connector') {
     const app = str(message.connector).trim() || 'an app';
-    return `It needs ${app} ${message.variant === 'connect' ? 'connected' : 'signed in again'} in the Grok Bot app first.`;
+    return `It needs ${app} ${message.variant === 'connect' ? 'connected' : 'signed in again'} in Grok Call’s Connections first.`;
   }
   if (type === 'widget') {
     const options = Array.isArray(message.widget?.options) ? message.widget.options.map((o: any) => str(o?.label).trim()).filter(Boolean) : [];
     const prompt = str(message.widget?.prompt).trim() || 'It asks a question';
     return options.length ? `${prompt} Options: ${options.join(', ')}.` : prompt;
   }
+  if (['user-form', 'secret-request', 'email-draft', 'slack-draft', 'imessage-draft', 'meeting-chat-draft'].includes(type)) return `It sent a ${type} request. Review it in this bot’s Activity in Grok Call; do not read or speak secret values.`;
   return type ? `It sent a ${type} card, which only shows in the Grok Bot app chat.` : null;
 }
 
@@ -436,18 +440,43 @@ export class GrokBotClient {
     }
   }
 
-  private call(method: string, body: object, auth: Auth, timeoutMs: number, service = SERVICE): Promise<Response> {
+  createRuntime(options: Pick<RuntimeOptions,'loadActivity'|'saveActivity'|'onChanged'> = {}) {
+    return new BotRuntime({
+      ...options,
+      submitRoutine:async(bot,operation,spec,id)=>{
+        const text=`${operation==='create'?'Create a new routine':'Update only the existing routine identified by '+id} using your routine-management tool. Apply this exact specification, preserving fields not named here. Do not run the routine, execute its prompt, contact anyone, or perform other work. If this cannot be done, report the refusal. Specification: ${JSON.stringify(spec)}`;
+        const result=await this.rpc('SendGrokBotUserMessage',{agentId:bot.agentId,messageId:crypto.randomUUID(),text,sentAtMs:String(this.now()),sessionId:''},20000);
+        if(result.refusal||result.dispatched!==true)throw new Error('The bot did not accept the routine change. Check its permissions and Activity.');
+        return {accepted:true,queued:true};
+      },
+      accessToken:()=>{const auth=this.opts.store.read();if(!auth)throw new SignedOutError();return auth.accessToken;},
+      rpc: (method, body, service) => this.rpc(method, body, method === 'EnsureSandBox' ? 120000 : 20000, service),
+      identity: async (id) => {
+        const bots = await this.listBots();
+        const bot = bots.find((b) => b.id === id);
+        const agentId = bot && this.botMeta(id).uuid;
+        if (!bot || !agentId) throw new NotFoundError('This bot is not available in your account.');
+        return { id, agentId, name: bot.name };
+      }, fetch: this.fetch, now: this.now, siteOrigin: SITE_URL,
+    });
+  }
+
+  createConnections() {
+    return new ConnectionsManager((service, method, body, headers) => this.rpc(method, body, 20_000, service, headers));
+  }
+
+  private call(method: string, body: object, auth: Auth, timeoutMs: number, service = SERVICE, headers: Record<string, string> = {}): Promise<Response> {
     return this.fetch(`${this.apiUrl}/${service}/${method}`, {
       method: 'POST',
-      headers: clientHeaders(auth),
+      headers: { ...clientHeaders(auth), ...headers },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(timeoutMs),
     });
   }
 
-  protected async rpc(method: string, body: object, timeoutMs: number = this.opts.setupTimeoutMs ?? VOICE_SETUP_TIMEOUT_MS, service = SERVICE): Promise<any> {
+  protected async rpc(method: string, body: object, timeoutMs: number = this.opts.setupTimeoutMs ?? VOICE_SETUP_TIMEOUT_MS, service = SERVICE, headers: Record<string, string> = {}): Promise<any> {
     try {
-      return await this.rpcOnce(method, body, timeoutMs, service);
+      return await this.rpcOnce(method, body, timeoutMs, service, headers);
     } catch (err) {
       if ((err as Error)?.name === 'TimeoutError') throw new Error(`Grok Bot ${method} did not answer within ${timeoutMs! / 1000} s`);
       // Node's fetch says only "fetch failed" when the server can't be reached: say whose server, and why.
@@ -459,13 +488,13 @@ export class GrokBotClient {
     }
   }
 
-  private async rpcOnce(method: string, body: object, timeoutMs: number, service: string): Promise<any> {
+  private async rpcOnce(method: string, body: object, timeoutMs: number, service: string, headers: Record<string, string>): Promise<any> {
     let auth = this.opts.store.read();
     if (!auth) throw new SignedOutError();
-    let res = await this.call(method, body, auth, timeoutMs, service);
+    let res = await this.call(method, body, auth, timeoutMs, service, headers);
     if (res.status === 401) {
       auth = await this.refresh(auth);
-      if (auth) res = await this.call(method, body, auth, timeoutMs, service);
+      if (auth) res = await this.call(method, body, auth, timeoutMs, service, headers);
       if (!auth || res.status === 401) {
         this.opts.store.clear();
         throw new SignedOutError();

@@ -311,7 +311,8 @@ test('join opens one voice session per chosen bot with its own voice and the gro
   assert.match(update.session.instructions, /other Grok bots in the call: Bot B\./);
   ws('b').onopen!();
   assert.equal(ws('b').sent[0].session.voice, undefined, 'default voice when none is set');
-  assert.equal(ws('b').sent[0].session.audio.input.transcription.language_hint, undefined);
+  assert.equal(ws('b').sent[0].session.audio.input.transcription.language_hint, 'en', 'auto language is heard as English');
+  assert.deepEqual(update.session.audio.input.transcription.keyterms, ['Shashank', 'Bot A', 'Bot B']);
   assert.deepEqual(call.view().bots.map((b: any) => b.status), ['connecting', 'connecting']);
   ws('a').emit('session.updated');
   ws('a').emit('session.updated'); // repeat is ignored
@@ -1381,6 +1382,34 @@ test('isDirection: a correction of at least three words', () => {
   assert.equal(isDirection('focus on pricing now'), false);
 });
 
+test('isDirection: a question or a "no" in the middle of a line is not a direction', () => {
+  assert.equal(isDirection("No, no. Shashank's what?"), false);
+  assert.equal(isDirection('You, no, I, I sent a support request. They said they would be reviewing.'), false);
+  assert.equal(isDirection('Uh, no, focus on pricing'), true);
+  assert.equal(isDirection('No, no, consider the first guy.'), true);
+});
+
+test('a new bot on the account: bots already talking expect its name, without resending other settings', async () => {
+  const { call, ws, ready } = setup();
+  call.join([bot('a')]);
+  await ready('a');
+  const before = ws('a').sent.length;
+  call.setAvailable([bot('a'), bot('n')]);
+  const update = ws('a').sent.slice(before).find((m: any) => m.session?.audio);
+  assert.deepEqual(update.session, { audio: { input: { transcription: { model: 'grok-transcribe', language_hint: 'en', keyterms: ['Shashank', 'Bot A', 'Bot N'] } } } });
+  assert.match(ws('a').sent.at(-1).session.instructions, /Bot N/);
+});
+
+test('speech-to-text is biased toward every bot name, short names included, and the host', async () => {
+  const { call, ws, ready } = setup();
+  const x = { ...bot('x'), name: "Shashank's X bot" };
+  const m = { ...bot('m'), name: 'My Bot' };
+  const o = { ...bot('o'), name: 'Research Desk' };
+  call.join([x], [x, m, o]);
+  await ready('x');
+  assert.deepEqual(ws('x').sent[0].session.audio.input.transcription.keyterms, ['Shashank', "Shashank's X bot", 'X bot', 'My Bot', 'Research Desk']);
+});
+
 test('directionText lists the pinned corrections, newest last, or nothing', () => {
   assert.equal(directionText([]), '');
   assert.equal(
@@ -1684,6 +1713,32 @@ test('Leave: one bot saves the summary silently, then the export is ready', asyn
   call.leave();
   assert.equal(call.view().phase, 'idle');
   assert.equal(await call.wrapUp(), null, 'not in a call');
+});
+
+test('Leave: every summary request comes with a new message, so a bot that spoke last still has a turn to answer', async () => {
+  // Calls of 2026-11-11 12:57 and 13:28, 2026-11-12 09:48 and 2026-11-13 18:42: the bot had the last word, so a bare
+  // response.create gave the voice model nothing new. It repeated its last line, the retry never started, and the
+  // call was saved without a summary. Every call where something new came last saved one.
+  const { call, ws, ready } = setup();
+  call.join([bot('a')]);
+  await ready('a');
+  speak(ws('a'), 'Same wall as before.');
+  const pending = call.wrapUp();
+  const requestsBeforeEachAsk = () => {
+    const sent = ws('a').sent;
+    return sent.flatMap((m: any, i: number) => (m.type === 'response.create' && m.response?.instructions ? [sent[i - 1]] : []));
+  };
+  let before = requestsBeforeEachAsk();
+  assert.equal(before.length, 1);
+  assert.equal(before[0].type, 'conversation.item.create');
+  assert.equal(before[0].item.role, 'user');
+  assert.match(before[0].item.content[0].text, /ending the call[\s\S]*save_summary/);
+  speak(ws('a'), 'Same wall as before.'); // it talks instead of saving: asked once more, again with a new message
+  before = requestsBeforeEachAsk();
+  assert.equal(before.length, 2);
+  assert.equal(before[1].type, 'conversation.item.create');
+  useTool(ws('a'), 'save_summary', { summary: 'Blocked on Full Disk Access.' });
+  assert.equal((await pending).summary, 'Blocked on Full Disk Access.');
 });
 
 test('Leave: a summary request the voice server never starts goes to the next bot, or ends the call at once', async () => {
