@@ -2,31 +2,57 @@ import AVFoundation
 import Foundation
 import GrokCallCore
 
-/// Where the backend lives and how to run it. Set by the build script in Info.plist; GROK_CALL_REPO and
-/// GROK_CALL_NODE override it (for `swift run`).
+/// Where the backend lives and how to run it. A downloaded app carries its own backend and Node inside
+/// (Contents/Resources/backend, Contents/MacOS/node). A developer build points at this repo through Info.plist.
+/// GROK_CALL_REPO and GROK_CALL_NODE override both (for `swift run`).
 struct BackendPaths {
     let repo: URL
     let node: URL
     let dataDir: URL
 
     static func resolve() throws -> BackendPaths {
-        let env = ProcessInfo.processInfo.environment
-        let info = Bundle.main.infoDictionary ?? [:]
-        guard let repo = env["GROK_CALL_REPO"] ?? info["GCRepoPath"] as? String else {
-            throw BackendError.setup("The app doesn't know where the Grok Call folder is. Rebuild it with mac/build-app.sh.")
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("GrokCall", isDirectory: true)
+        let paths = try resolve(env: ProcessInfo.processInfo.environment, info: Bundle.main.infoDictionary ?? [:], bundle: Bundle.main.bundleURL, dataDir: support,
+                                exists: { FileManager.default.fileExists(atPath: $0) }, executable: { FileManager.default.isExecutableFile(atPath: $0) })
+        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        return paths
+    }
+
+    static func resolve(env: [String: String], info: [String: Any], bundle: URL, dataDir: URL,
+                        exists: (String) -> Bool, executable: (String) -> Bool) throws -> BackendPaths {
+        let bundled = bundle.appendingPathComponent("Contents/Resources/backend").path
+        let entry = "src/overlay/main.ts"
+        let repo = env["GROK_CALL_REPO"] ?? (exists("\(bundled)/\(entry)") ? bundled : info["GCRepoPath"] as? String)
+        guard let repo else {
+            throw BackendError.setup("This copy of Grok Call is incomplete. Download it again from github.com/shashank03-dev/grok-call.")
         }
-        let main = URL(fileURLWithPath: repo).appendingPathComponent("src/overlay/main.ts")
-        guard FileManager.default.fileExists(atPath: main.path) else {
-            throw BackendError.setup("The Grok Call folder moved: \(repo) has no src/overlay/main.ts. Rebuild the app from its new place.")
+        guard exists(URL(fileURLWithPath: repo).appendingPathComponent(entry).path) else {
+            throw BackendError.setup("The Grok Call folder moved: \(repo) has no \(entry). Rebuild the app from its new place.")
         }
-        let candidates = [env["GROK_CALL_NODE"], info["GCNodePath"] as? String, "/opt/homebrew/bin/node", "/usr/local/bin/node"].compactMap { $0 }
-        guard let node = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
+        let candidates = [env["GROK_CALL_NODE"], bundle.appendingPathComponent("Contents/MacOS/node").path, info["GCNodePath"] as? String, "/opt/homebrew/bin/node", "/usr/local/bin/node"].compactMap { $0 }
+        guard let node = candidates.first(where: executable) else {
             throw BackendError.setup("Node.js was not found. Install Node 22.18 or newer, then reopen Grok Call.")
         }
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("GrokCall", isDirectory: true)
-        try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        return BackendPaths(repo: URL(fileURLWithPath: repo), node: URL(fileURLWithPath: node), dataDir: support)
+        return BackendPaths(repo: URL(fileURLWithPath: repo), node: URL(fileURLWithPath: node), dataDir: dataDir)
     }
+}
+
+/// What the bots call you: the first word of your macOS account's full name ("Priya Shah" -> "Priya"),
+/// or the account name when there is no full name.
+enum HostName {
+    static var current: String { from(fullName: NSFullUserName(), account: NSUserName()) }
+    static func from(fullName: String, account: String) -> String {
+        if let first = fullName.split(whereSeparator: \.isWhitespace).first { return String(first) }
+        return account.prefix(1).uppercased() + account.dropFirst()
+    }
+}
+
+/// Text shared between a pipe's queue and the main thread.
+final class LockedText: @unchecked Sendable {
+    private let lock = NSLock()
+    private var text = ""
+    func append(_ s: String, keep: Int) { lock.lock(); text = String((text + s).suffix(keep)); lock.unlock() }
+    var value: String { lock.lock(); defer { lock.unlock() }; return text }
 }
 
 enum BackendError: LocalizedError, Equatable {
@@ -93,21 +119,27 @@ final class Backend: NSObject, URLSessionWebSocketDelegate {
         env["OVERLAY_TOKEN"] = token
         env["OVERLAY_PORT"] = "0"
         env["OVERLAY_DATA_DIR"] = p.dataDir.path
+        if env["GROK_CALL_USER"]?.isEmpty ?? true { env["GROK_CALL_USER"] = HostName.current }
         proc.environment = env
         let input = Pipe(), output = Pipe(), errors = Pipe()
         proc.standardInput = input // closing it (or this app dying) stops the backend
         proc.standardOutput = output
         proc.standardError = errors
-        var errText = ""
+        // The last stderr lines, written on the pipe's queue and read on main when the backend exits.
+        let errText = LockedText()
         errors.fileHandleForReading.readabilityHandler = { h in
-            if let s = String(data: h.availableData, encoding: .utf8), !s.isEmpty {
-                errText = String((errText + s).suffix(2000))
+            let data = h.availableData
+            guard !data.isEmpty else { h.readabilityHandler = nil; return } // end of file: stop listening
+            if let s = String(data: data, encoding: .utf8), !s.isEmpty {
+                errText.append(s, keep: 2000)
                 AppLog.write("backend stderr: \(s.trimmingCharacters(in: .whitespacesAndNewlines))")
             }
         }
         var started = false
         output.fileHandleForReading.readabilityHandler = { [weak self, weak proc] h in
-            guard let self, let proc, self.process === proc, let s = String(data: h.availableData, encoding: .utf8) else { return }
+            let data = h.availableData
+            guard !data.isEmpty else { h.readabilityHandler = nil; return }
+            guard let self, let proc, self.process === proc, let s = String(data: data, encoding: .utf8) else { return }
             if !started, let r = s.range(of: #"READY (\d+)"#, options: .regularExpression), let port = Int(s[r].dropFirst(6)) {
                 started = true
                 DispatchQueue.main.async { guard self.process === proc else { return }; self.connect(port: port, token: token) }
@@ -116,7 +148,7 @@ final class Backend: NSObject, URLSessionWebSocketDelegate {
         proc.terminationHandler = { [weak self] pr in
             DispatchQueue.main.async {
                 guard let self, !self.stopping, self.process === pr else { return }
-                let last = errText.split(separator: "\n").last.map(String.init) ?? ""
+                let last = errText.value.split(separator: "\n").last.map(String.init) ?? ""
                 self.fail("The backend stopped (exit \(pr.terminationStatus))\(last.isEmpty ? "." : ": \(last)")")
             }
         }

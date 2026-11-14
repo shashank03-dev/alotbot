@@ -42,3 +42,24 @@ test('closing the browser tab does not leave the next command using a dead page'
     assert.equal(next.url, 'about:blank');
   } finally { await browser.close(); fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('the dedicated browser falls back to Chrome, then Edge, and says what to install when neither is there', async () => {
+  const tried: (string | undefined)[] = [];
+  const missing = (channel?: string) => new Error(channel ? `Chromium distribution '${channel}' is not found at /x` : "Executable doesn't exist at /ms-playwright/chromium");
+  const fake = (works: string | null) => async (_dir: string, o: { channel?: string }) => {
+    tried.push(o.channel);
+    if (o.channel === works) return { pages: () => [{ setDefaultTimeout() {}, title: async () => 'T', url: () => 'about:blank', locator: () => ({ ariaSnapshot: async () => 'snap' }) }], close: async () => {} } as any;
+    throw missing(o.channel);
+  };
+  const edge = new LocalBrowser('/tmp/none', true, fake('msedge'));
+  edge.enabled = true;
+  assert.equal((await edge.run({ operation: 'inspect' })).snapshot, 'snap');
+  assert.deepEqual(tried, [undefined, 'chrome', 'msedge']);
+  await edge.close();
+  const none = new LocalBrowser('/tmp/none', true, fake(null));
+  none.enabled = true;
+  await assert.rejects(none.run({ operation: 'inspect' }), /needs Google Chrome or Microsoft Edge/);
+  const broken = new LocalBrowser('/tmp/none', true, async () => { throw new Error('profile is locked'); });
+  broken.enabled = true;
+  await assert.rejects(broken.run({ operation: 'inspect' }), /profile is locked/);
+});

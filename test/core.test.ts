@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  hostName,
   BARGE_IN_LEVEL,
   Call,
   ACTION_ITEMS_MAX,
@@ -4117,4 +4118,22 @@ test('native local tools override the old local-task instructions with an explic
   t.call.join([bot('a')]); await t.ready('a');
   assert.match(t.call.links.get('a').instructions(), /These execute on This Mac independently/);
   assert.match(t.call.links.get('a').instructions(), /Do not silently send the same task to another computer/);
+});
+
+test('hostName keeps a name safe for prompts and name matching', () => {
+  assert.equal(hostName('Shashank'), 'Shashank');
+  assert.equal(hostName('  Anne-Marie   O\'Neil '), "Anne-Marie O'Neil");
+  assert.equal(hostName('José'), 'José');
+  assert.equal(hostName('a.*+?(b)[c]{d}|e\\'), 'abcde');
+  assert.equal(hostName('x'.repeat(60)), 'x'.repeat(40));
+  for (const empty of [undefined, null, '', '   ', '***']) assert.equal(hostName(empty), 'Host');
+});
+
+test('USER comes from GROK_CALL_USER, and falls back to Host', async () => {
+  assert.equal(USER, 'Shashank'); // npm test sets it
+  const { execFileSync } = await import('node:child_process');
+  const read = (env: Record<string, string>) =>
+    execFileSync(process.execPath, ['--input-type=module', '-e', "console.log((await import('./public/core.js')).USER)"], { env: { PATH: process.env.PATH!, ...env } }).toString().trim();
+  assert.equal(read({}), 'Host');
+  assert.equal(read({ GROK_CALL_USER: 'Priya' }), 'Priya');
 });

@@ -102,8 +102,7 @@ final class AudioIO {
         guard running else { return }
         AppLog.write("audio: device changed (engine running=\(engine.isRunning)); restarting audio")
         tearDown()
-        lock.lock(); chunks.removeAll(); stopped.removeAll(); lock.unlock()
-        micBuffer.removeAll()
+        lock.lock(); chunks.removeAll(); stopped.removeAll(); micBuffer.removeAll(); lock.unlock()
         do {
             try setUp()
         } catch {
@@ -128,8 +127,7 @@ final class AudioIO {
         guard running else { return }
         running = false
         tearDown()
-        lock.lock(); chunks.removeAll(); stopped.removeAll(); lock.unlock()
-        micBuffer.removeAll()
+        lock.lock(); chunks.removeAll(); stopped.removeAll(); micBuffer.removeAll(); lock.unlock()
         micLevel = 0
     }
 
@@ -150,10 +148,16 @@ final class AudioIO {
             return one
         }
         guard err == nil, let ch = out.floatChannelData?[0] else { return }
+        // The tap runs on the audio thread; stop() clears the buffer on main. Both go through the lock.
+        var frames: [[Float]] = []
+        lock.lock()
         micBuffer.append(contentsOf: UnsafeBufferPointer(start: ch, count: Int(out.frameLength)))
         while micBuffer.count >= frameSize {
-            let frame = Array(micBuffer.prefix(frameSize))
+            frames.append(Array(micBuffer.prefix(frameSize)))
             micBuffer.removeFirst(frameSize)
+        }
+        lock.unlock()
+        for frame in frames {
             let level = AudioFrames.rms(frame)
             micLevel = micLevel * 0.7 + level * 0.3
             if !muted { onMic?(level, AudioFrames.toPCM16(frame)) }

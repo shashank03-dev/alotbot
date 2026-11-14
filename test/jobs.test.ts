@@ -126,7 +126,7 @@ test('approval cards and Mac tool asks put the job on hold, with what is waiting
   let got = t.store.get(a.id)!;
   assert.equal(got.status, 'waiting_approval');
   assert.deepEqual(got.approval, { kind: 'local_tool', requestId: 'ask-1', entryId: 't5s', summary: 'gh pr comment 1249', status: 'pending' });
-  assert.deepEqual(t.store.events(a.id).map((e) => [e.kind, e.text]), [['approval', "It is waiting for Shashank's OK to run this on his Mac: gh pr comment 1249. He can allow it in Grok Call or the Grok Bot app."]]);
+  assert.deepEqual(t.store.events(a.id).map((e) => [e.kind, e.text]), [['approval', "It is waiting for Shashank's OK to run this on their Mac: gh pr comment 1249. They can allow it in Grok Call or the Grok Bot app."]]);
   t.set([reply(6, 'Posted.', { requestId: 'req-1' }, t.now)]);
   await t.tick();
   got = t.store.get(a.id)!;
@@ -154,7 +154,7 @@ test('approvalOf reads every kind of ask, and approvalText says what to do', () 
   assert.equal(askTarget({ action: 'use-app', target: 'x' }), 'x');
   assert.equal(askTarget({ description: ' Read a file ' }), 'Read a file');
   assert.equal(askTarget(undefined), 'an action on this Mac');
-  assert.match(approvalText({ kind: 'auto_review', requestId: 'r', entryId: null, summary: 'Post it', status: 'pending' }), /approval: Post it\. He can approve it in Grok Call/);
+  assert.match(approvalText({ kind: 'auto_review', requestId: 'r', entryId: null, summary: 'Post it', status: 'pending' }), /approval: Post it\. They can approve it in Grok Call/);
   assert.equal(approvalText({ kind: 'connector', requestId: 'r', entryId: null, summary: 'X connected', status: 'pending' }), 'It needs X connected in Grok Call’s Connections first.');
 });
 

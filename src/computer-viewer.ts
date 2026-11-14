@@ -2,6 +2,9 @@ import crypto from 'node:crypto';
 import type http from 'node:http';
 import type {Duplex} from 'node:stream';
 import {WebSocket, WebSocketServer} from 'ws';
+
+/** Constant-time string compare, so a viewer key can't be guessed from timing. */
+const same=(a:string,b:string)=>{const x=Buffer.from(a),y=Buffer.from(b);return x.length===y.length&&crypto.timingSafeEqual(x,y);};
 import type {BotRuntime} from './bot-runtime.ts';
 
 const loopback = new Set(['127.0.0.1','localhost','[::1]']);
@@ -105,8 +108,8 @@ export class ComputerViewer {
   }
   private get(id:string){const v=this.views.get(id);if(!v||v.until<=this.now()){this.close(id);throw new Error('This computer viewer is closed. Connect again.');}return v;}
   private authenticate(req:http.IncomingMessage,v:Viewer){
-    const bearer=req.headers.authorization===`Bearer ${v.token}`;
-    const cookie=(req.headers.cookie??'').split(';').map(s=>s.trim()).includes(`gc_view_${v.id}=${v.token}`);
+    const bearer=same(String(req.headers.authorization??''),`Bearer ${v.token}`);
+    const cookie=(req.headers.cookie??'').split(';').map(s=>s.trim()).some(c=>same(c,`gc_view_${v.id}=${v.token}`));
     return req.headers.host===new URL(this.o.origin()).host&&(bearer||cookie);
   }
   async control(id:string,enabled:boolean,botId?:string){

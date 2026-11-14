@@ -37,7 +37,7 @@ import ScreenCaptureKit
          requestScreen: @escaping () -> Void = { _ = CGRequestScreenCaptureAccess() },
          accessibilityAllowed: @escaping () -> Bool = { AXIsProcessTrusted() },
          requestAccessibility: @escaping () -> Void = { _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary) },
-         requestFileConsent: @escaping () -> Bool = MacTools.showFileConsent,
+         requestFileConsent: @escaping () -> Bool = { MainActor.assumeIsolated { MacTools.showFileConsent() } },
          micStatus: @escaping () -> AVAuthorizationStatus = { AVCaptureDevice.authorizationStatus(for: .audio) },
          requestMic: @escaping () async -> Bool = { await AVCaptureDevice.requestAccess(for: .audio) },
          openSettings: @escaping (URL) -> Void = { NSWorkspace.shared.open($0) },
@@ -63,7 +63,8 @@ import ScreenCaptureKit
     }
 
     func prepareForCall() {
-        let state = permissionSetup.prepare(screenAllowed: screenAllowed, requestScreen: requestScreen, accessibilityAllowed: accessibilityAllowed, requestAccessibility: requestAccessibility)
+        let state = permissionSetup.prepare(screenAllowed: screenAllowed, requestScreen: requestScreen, accessibilityAllowed: accessibilityAllowed, requestAccessibility: requestAccessibility,
+                                            accessibilityUsable: MacTools.windowToolsAvailable)
         observationEnabled = state.viewingEnabled
         error = state.viewingEnabled && !state.screenAvailable ? "macOS has not granted Screen Recording to this running Grok Call build. Allow it in System Settings → Privacy & Security → Screen & System Audio Recording. If already enabled, quit and reopen Grok Call after changing access." : nil
         AppLog.write("permissions: viewing=\(state.viewingEnabled), screen=\(state.screenAvailable), accessibility=\(state.accessibilityAvailable)")
@@ -178,6 +179,9 @@ import ScreenCaptureKit
         folder?.stopAccessingSecurityScopedResource(); folder = nil
         preferences.removeObject(forKey: "fileFolderBookmark")
     }
+
+    /// The window tools (and so Accessibility) need macOS 15.2 or newer.
+    static var windowToolsAvailable: Bool { if #available(macOS 15.2, *) { true } else { false } }
 
     func chooseWindow() {
         guard #available(macOS 15.2, *) else { error = "Window controls need macOS 15.2 or newer."; return }

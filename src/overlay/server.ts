@@ -491,10 +491,14 @@ export function createOverlayServer(opts: OverlayOptions) {
       await this.ending;
       const data = call.overlayExport();
       let file: string | null = null;
-      if (data.saveWorthy) file = calls.saveCall(data.memory, overlayMarkdown(data, (ms) => new Date(ms).toLocaleString()));
-      this.log?.write('saved', { file, logFile: data.logFile });
-      this.stopCall();
-      this.send({ t: 'ended' });
+      try {
+        if (data.saveWorthy) file = calls.saveCall(data.memory, overlayMarkdown(data, (ms) => new Date(ms).toLocaleString()));
+        this.log?.write('saved', { file, logFile: data.logFile });
+      } finally {
+        // Even if saving fails, the call ends: the bots hang up and a new call can start.
+        this.stopCall();
+        this.send({ t: 'ended' });
+      }
       return { file, summary: data.summary, actionItems: data.actionItems };
     }
 

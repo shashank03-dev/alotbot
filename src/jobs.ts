@@ -3,6 +3,7 @@
 // It runs in the backend, apart from the voice sockets, so a job finishes in the history even after the call ends.
 import { type Action, type ActionStore, type Approval } from './actions.ts';
 import { LANDED_TEXT_MAX, landedText, type TranscriptEntry } from './grokbot.ts';
+import { USER } from '../public/core.js';
 
 /** Checks this often while a bot has a job younger than JOB_FAST_MS, or is in a live call. */
 export const JOB_POLL_MS = 3000;
@@ -60,8 +61,8 @@ export function approvalOf(entry: TranscriptEntry): Approval | null {
 
 /** What the bot is told about an approval. */
 export function approvalText(a: Approval): string {
-  if (a.kind === 'local_tool') return `It is waiting for Shashank's OK to run this on his Mac: ${a.summary}. He can allow it in Grok Call or the Grok Bot app.`;
-  if (a.kind === 'auto_review') return `It is waiting for Shashank's approval: ${a.summary}. He can approve it in Grok Call or the Grok Bot app.`;
+  if (a.kind === 'local_tool') return `It is waiting for ${USER}'s OK to run this on their Mac: ${a.summary}. They can allow it in Grok Call or the Grok Bot app.`;
+  if (a.kind === 'auto_review') return `It is waiting for ${USER}'s approval: ${a.summary}. They can approve it in Grok Call or the Grok Bot app.`;
   return `It needs ${a.summary} in Grok Call’s Connections first.`;
 }
 

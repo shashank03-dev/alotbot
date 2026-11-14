@@ -1,6 +1,14 @@
 import path from 'node:path';
 import { chromium, type BrowserContext } from 'playwright-core';
 
+type Launch = (dir: string, options: { headless: boolean; acceptDownloads: false; timeout: number; channel?: string }) => Promise<BrowserContext>;
+
+/**
+ * Browsers tried in order: Playwright's own Chromium (only if it was downloaded), then Google Chrome, then
+ * Microsoft Edge. Each still runs on Grok Call's own profile, never your everyday one.
+ */
+const CHANNELS: (string | undefined)[] = [undefined, 'chrome', 'msedge'];
+
 /** One dedicated profile, never the user's active Chrome session. Requests run in order. */
 export class LocalBrowser {
   enabled = false;
@@ -8,7 +16,8 @@ export class LocalBrowser {
   private queue: Promise<unknown> = Promise.resolve();
   private readonly dir: string;
   private readonly headless: boolean;
-  constructor(dir: string, headless = false) { this.dir = dir; this.headless = headless; }
+  private readonly launch: Launch;
+  constructor(dir: string, headless = false, launch: Launch = (d, o) => chromium.launchPersistentContext(d, o)) { this.dir = dir; this.headless = headless; this.launch = launch; }
   run(input: Record<string, unknown>): Promise<{ title: string; url: string; snapshot: string }> {
     const run = this.queue.then(() => this.execute(input));
     this.queue = run.catch(() => {});
@@ -22,7 +31,7 @@ export class LocalBrowser {
       const url = new URL(String(input.url));
       if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Only http and https URLs are supported.');
     }
-    if (!this.context) this.context = await chromium.launchPersistentContext(path.join(this.dir, 'browser-profile'), { headless: this.headless, acceptDownloads: false, timeout: 15_000 });
+    if (!this.context) this.context = await this.open();
     const page = this.context.pages()[0] ?? await this.context.newPage();
     page.setDefaultTimeout(3000);
     if (op === 'navigate') await page.goto(String(input.url), { waitUntil: 'domcontentloaded', timeout: 15_000 });
@@ -36,6 +45,17 @@ export class LocalBrowser {
       }
     }
     return { title: await page.title(), url: page.url(), snapshot: (await page.locator('body').ariaSnapshot()).slice(0, 30_000) };
+  }
+  private async open(): Promise<BrowserContext> {
+    for (const channel of CHANNELS) {
+      try {
+        return await this.launch(path.join(this.dir, 'browser-profile'), { headless: this.headless, acceptDownloads: false, timeout: 15_000, ...(channel ? { channel } : {}) });
+      } catch (err) {
+        // Only "this browser isn't installed" moves on to the next one; anything else is a real failure.
+        if (!/Executable doesn't exist|Chromium distribution '[^']*' is not found/.test((err as Error).message)) throw err;
+      }
+    }
+    throw new Error('The dedicated browser needs Google Chrome or Microsoft Edge. Install one, then try again.');
   }
   async close() {
     this.enabled = false;

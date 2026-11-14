@@ -11,8 +11,10 @@ enum AppLog {
         return f
     }()
 
+    /// GROK_CALL_APP_LOG moves it (the tests use this so they never write into your real log).
     static var url: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        if let path = ProcessInfo.processInfo.environment["GROK_CALL_APP_LOG"], !path.isEmpty { return URL(fileURLWithPath: path) }
+        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("GrokCall/logs/app.log")
     }
 

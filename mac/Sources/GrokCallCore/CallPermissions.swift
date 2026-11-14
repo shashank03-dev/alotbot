@@ -14,14 +14,15 @@ public struct CallPermissionState: Equatable, Sendable {
 
     public init(defaults: UserDefaults = .standard) { self.defaults = defaults }
 
-    public func prepare(screenAllowed: () -> Bool, requestScreen: () -> Void, accessibilityAllowed: () -> Bool, requestAccessibility: () -> Void) -> CallPermissionState {
+    /// `accessibilityUsable` is false where the window tools can't run (before macOS 15.2): Accessibility is then never asked for.
+    public func prepare(screenAllowed: () -> Bool, requestScreen: () -> Void, accessibilityAllowed: () -> Bool, requestAccessibility: () -> Void, accessibilityUsable: Bool = true) -> CallPermissionState {
         if defaults.object(forKey: "backgroundAppViewing") == nil { defaults.set(true, forKey: "backgroundAppViewing") }
         let viewing = defaults.bool(forKey: "backgroundAppViewing")
         if viewing && !defaults.bool(forKey: Self.screenRequested) {
             defaults.set(true, forKey: Self.screenRequested)
             if !screenAllowed() { requestScreen() }
         }
-        if !defaults.bool(forKey: Self.accessibilityRequested) {
+        if accessibilityUsable && !defaults.bool(forKey: Self.accessibilityRequested) {
             defaults.set(true, forKey: Self.accessibilityRequested)
             if !accessibilityAllowed() { requestAccessibility() }
         }

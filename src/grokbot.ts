@@ -4,6 +4,7 @@ import type { Auth, AuthStore } from './auth.ts';
 import { BotRuntime, type RuntimeOptions } from './bot-runtime.ts';
 import { ConnectionsManager } from './connections.ts';
 import { APP_TOOLS, ConnectedApps } from './apps.ts';
+import { USER } from '../public/core.js';
 
 /** Endpoints and client identity used by the Grok Bot desktop app (v0.79.4). */
 export const API_URL = 'https://api2.cursor.sh';
@@ -276,7 +277,7 @@ export class GrokBotClient {
     this.apps = new ConnectedApps((service, method, body) => this.rpc(method, body, opts.toolTimeoutMs ?? HARNESS_TOOL_TIMEOUT_MS, service), opts.now);
     this.apiUrl = opts.apiUrl ?? API_URL;
     this.fetch = opts.fetch ?? fetch;
-    this.userName = opts.userName ?? 'Shashank';
+    this.userName = opts.userName ?? USER;
   }
 
   /** Your Grok Bots (agents only, not group chats). */
@@ -519,19 +520,25 @@ export class GrokBotClient {
 
   private async refreshOnce(auth: Auth): Promise<Auth | null> {
     if (!auth.refreshToken) return null;
+    let res: Response;
     try {
-      const res = await this.fetch(`${this.apiUrl}/oauth/token`, {
+      res = await this.fetch(`${this.apiUrl}/oauth/token`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ client_id: CLIENT_ID, grant_type: 'refresh_token', refresh_token: auth.refreshToken }),
       });
-      const j: any = res.ok ? await res.json() : null;
-      if (j?.shouldLogout === true || !str(j?.access_token)) return null;
-      const next: Auth = { ...auth, accessToken: j.access_token, refreshToken: str(j.refresh_token) || auth.refreshToken };
-      this.opts.store.write(next);
-      return next;
     } catch {
-      return null;
+      // A dropped connection is not a sign-out: keep the sign-in and let the next request try again.
+      throw new Error('Could not reach Grok to renew your sign-in. Check your connection and try again.');
     }
+    if (res.status >= 500 || res.status === 429) throw new Error(`Grok could not renew your sign-in right now (HTTP ${res.status}). Try again in a moment.`);
+    const j: any = res.ok ? await res.json().catch(() => null) : null;
+    if (j?.shouldLogout === true || !str(j?.access_token)) return null;
+    // Signed out (or in again) while this was running: never bring the old sign-in back.
+    const now = this.opts.store.read();
+    if (now?.refreshToken !== auth.refreshToken) return now;
+    const next: Auth = { ...auth, accessToken: j.access_token, refreshToken: str(j.refresh_token) || auth.refreshToken };
+    this.opts.store.write(next);
+    return next;
   }
 }

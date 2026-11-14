@@ -101,4 +101,16 @@ import Testing
         #expect(Date().timeIntervalSince(start) >= 0.5)
         #expect(FileManager.default.fileExists(atPath: marker.path))
     }
+
+    @Test @MainActor func accessibilityIsNeverAskedWhereTheWindowToolsCannotRun() throws {
+        let name = "permissions-\(UUID())"
+        let prefs = try #require(UserDefaults(suiteName: name))
+        defer { prefs.removePersistentDomain(forName: name) }
+        var screenRequests = 0, accessRequests = 0
+        let setup = CallPermissionSetup(defaults: prefs)
+        for _ in 0..<2 {
+            _ = setup.prepare(screenAllowed: { false }, requestScreen: { screenRequests += 1 }, accessibilityAllowed: { false }, requestAccessibility: { accessRequests += 1 }, accessibilityUsable: false)
+        }
+        #expect(screenRequests == 1 && accessRequests == 0)
+    }
 }

@@ -153,6 +153,32 @@ final class HotKey {
     }
 }
 
+/// The app icon's four tiles as a menu bar template: outlined when idle, filled during a call.
+enum MenuBarIcon {
+    static func image(inCall: Bool) -> NSImage {
+        let img = NSImage(size: NSSize(width: 18, height: 18), flipped: true) { _ in
+            let cg = NSGraphicsContext.current!.cgContext
+            for (x, y) in [(1.5, 1.5), (9.5, 1.5), (1.5, 9.5), (9.5, 9.5)] {
+                let r = CGRect(x: x, y: y, width: 7, height: 7)
+                cg.setFillColor(.black); cg.setStrokeColor(.black)
+                if inCall {
+                    cg.addPath(CGPath(roundedRect: r, cornerWidth: 2.3, cornerHeight: 2.3, transform: nil)); cg.fillPath()
+                    cg.setBlendMode(.clear)
+                } else {
+                    cg.setLineWidth(1.2)
+                    cg.addPath(CGPath(roundedRect: r.insetBy(dx: 0.6, dy: 0.6), cornerWidth: 2, cornerHeight: 2, transform: nil)); cg.strokePath()
+                }
+                for ex in [x + 2, x + 4.1] { cg.fill(CGRect(x: ex, y: y + 2.2, width: 0.9, height: 2.3)) }
+                cg.setBlendMode(.normal)
+            }
+            return true
+        }
+        img.isTemplate = true
+        img.accessibilityDescription = inCall ? "Grok Call, in a call" : "Grok Call"
+        return img
+    }
+}
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Set by "Reopen". Acted on only once quitting really happens, so a cancelled quit doesn't reopen later.
@@ -177,11 +203,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotKey = HotKey { [weak self] in DispatchQueue.main.async { self?.model.stopAll() } }
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        statusItem.button?.image = NSImage(systemSymbolName: "waveform.circle", accessibilityDescription: "Grok Call")
+        statusItem.button?.image = MenuBarIcon.image(inCall: false)
         statusItem.button?.action = #selector(togglePopover)
         statusItem.button?.target = self
         model.$view.map { $0 != nil }.removeDuplicates().sink { [weak self] inCall in
-            self?.statusItem.button?.image = NSImage(systemSymbolName: inCall ? "waveform.circle.fill" : "waveform.circle", accessibilityDescription: inCall ? "Grok Call, in a call" : "Grok Call")
+            self?.statusItem.button?.image = MenuBarIcon.image(inCall: inCall)
         }.store(in: &subs)
 
         popover = NSPopover()
@@ -189,7 +215,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popover.animates = true
         model.macTools.refreshPermissions()
         AppLog.write("permissions on at launch: \(MacPermission.allCases.filter(model.macTools.granted.contains).map(\.rawValue))")
-        DispatchQueue.main.async { [weak self] in
+        Opening.show { [weak self] in
             guard let self else { return }
             if model.macTools.needsSetup { showSetup() } else { model.macTools.requestFileAccessIfNeeded() }
         }

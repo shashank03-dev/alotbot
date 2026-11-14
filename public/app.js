@@ -22,9 +22,21 @@ const state = {
 
 class SignedOut extends Error {}
 
+/** This run's key, from the link the server printed (#t=...). Kept for this tab only, and taken out of the address bar. */
+const TOKEN = (() => {
+  const fromLink = new URLSearchParams(location.hash.slice(1)).get('t');
+  if (fromLink) {
+    try { sessionStorage.setItem('grok-call-token', fromLink); } catch {}
+    history.replaceState(null, '', location.pathname);
+    return fromLink;
+  }
+  try { return sessionStorage.getItem('grok-call-token') ?? ''; } catch { return ''; }
+})();
+
 async function api(path, method = 'GET', payload = undefined, timeoutMs = 0) {
   let res;
-  const opts = payload === undefined ? { method } : { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) };
+  const headers = { 'x-grok-call-token': TOKEN };
+  const opts = payload === undefined ? { method, headers } : { method, headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify(payload) };
   if (timeoutMs) opts.signal = AbortSignal.timeout(timeoutMs);
   try {
     res = await fetch(path, opts);

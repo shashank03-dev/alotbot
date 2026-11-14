@@ -1,3 +1,5 @@
+<img src="mac/Resources/AppIcon.png" width="112" alt="Grok Call icon">
+
 # Grok Call
 
 A group voice call with your own Grok Bots, as a native Mac app.
@@ -29,15 +31,32 @@ A group voice call with your own Grok Bots, as a native Mac app.
 
 It uses your Grok Bot sign-in and plan. No API key, no extra account.
 
-## Requirements
+## Install
+
+Grok Call is one app. Nothing else to install: Node and the backend are inside it, and it runs on Apple Silicon and Intel Macs.
+
+**One line** (downloads the latest release, checks its signature, puts it in Applications and opens it; run it again to update):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/shashank03-dev/grok-call/main/scripts/install.sh | bash
+```
+
+**Or by hand:** download `Grok-Call-macOS.zip` from the [latest release](https://github.com/shashank03-dev/grok-call/releases/latest), unzip it and move `Grok Call.app` to Applications. The app is not signed with an Apple Developer ID, so the first time macOS says it can't check it. Click **Done**, then open **System Settings › Privacy & Security**, scroll down to "Grok Call was blocked" and click **Open Anyway**. You do this once. The one-line install doesn't need it.
+
+Grok Call lives in the menu bar. Sign in with your Grok account the first time (a browser tab opens the Grok sign-in page). The first Join asks for Microphone, Screen Recording and Accessibility, once each. Updates are signed with the same certificate, so macOS keeps those permissions.
+
+The bots call you by the first name of your macOS account.
+
+### Requirements
 
 - macOS 14 or newer (the window-reading tools need macOS 15.2 or newer).
-- Xcode command line tools with Swift 6 (`xcode-select --install`).
-- Node.js 22.18 or newer (tested on 26.11.1). Node runs the TypeScript files directly, so there is no build step for the backend.
 - A Grok account with Grok Bots. You make and set up the bots (name, voice, look) in the Grok Bot app. Some setup steps, such as Messages, 1Password and notification permission, still hand off to the Grok Bot app.
 - A microphone. Headphones are best; see [Echo](#echo).
+- For the dedicated browser tool only: Google Chrome or Microsoft Edge. It runs on its own profile, not your everyday one.
 
-## Setup and run
+## Build from source
+
+Needs the Xcode command line tools with Swift 6 (`xcode-select --install`) and Node.js 22.18 or newer (tested on 26.11.1). Node runs the TypeScript files directly, so there is no build step for the backend.
 
 ```bash
 git clone https://github.com/shashank03-dev/grok-call.git
@@ -47,11 +66,15 @@ bash mac/build-app.sh
 open "mac/build/Grok Call.app"
 ```
 
-`mac/build-app.sh` checks Node, runs `swift build -c release`, and puts `Grok Call.app` in `mac/build/`. The app runs this folder's backend (`src/overlay/main.ts`) with the Node it found at build time, so keep the folder where it is, or rebuild after moving it. Set `GROK_CALL_NODE=/path/to/node` to pick a different Node.
+`mac/build-app.sh` checks Node, runs `swift build -c release`, and puts `Grok Call.app` in `mac/build/`. This developer build runs this folder's backend (`src/overlay/main.ts`) with the Node it found at build time, so keep the folder where it is, or rebuild after moving it. Set `GROK_CALL_NODE=/path/to/node` to pick a different Node.
 
-The first build creates a self-signed certificate named "Grok Call Local Signing" in your login keychain and signs the app with it, so macOS keeps the app's Microphone, Screen Recording and Accessibility permissions across rebuilds. The `grokcall` password in the script only protects the temporary file used to import that certificate; it is not a secret. The app is signed for your Mac only. To run it on another Mac, sign it with your own Developer ID.
+`bash mac/build-app.sh --release` makes the download instead: one universal app with Node (checked against nodejs.org's checksums) and the backend's runtime packages inside, zipped to `mac/build/Grok-Call-macOS.zip`.
 
-Grok Call lives in the menu bar. Sign in with your Grok account the first time (a browser tab opens the Grok sign-in page). The first Join asks for Microphone, Screen Recording and Accessibility.
+The first build creates a self-signed certificate named "Grok Call Local Signing" in your login keychain and signs the app with it, so macOS keeps the app's Microphone, Screen Recording and Accessibility permissions across rebuilds. The `grokcall` password in the script only protects the temporary file used to import that certificate; it is not a secret.
+
+### Releasing
+
+There is no CI. `bash mac/release.sh notes.md` runs every check (`npm test`, `npm run typecheck`, `bash mac/test.sh`), builds the download, pushes, and creates or updates the GitHub release `v<version from package.json>` with `Grok-Call-macOS.zip`. Bump `version` in `package.json` for a new release. Releases must be signed with the same certificate, so updates keep their permissions and `scripts/install.sh` accepts them.
 
 ### Browser version
 
@@ -61,7 +84,7 @@ There is also a browser version of the call, without the Mac app features:
 npm start
 ```
 
-Open **http://127.0.0.1:8787**.
+Open the link it prints (`http://127.0.0.1:8787/#t=...`). The `#t=` part is a key made for each run: without it the page can't reach your account, so other programs and other users on this Mac can't either.
 
 1. **Sign in.** The first time, click *Sign in*. A tab opens with the same sign-in page the Grok Bot app uses. Log in with your Grok Bot account. The page updates by itself.
 2. **Pick bots.** Tick the bots you want, then *Join call*. Allow the microphone.
@@ -74,7 +97,7 @@ Set `PORT=9000` (or `HOST=localhost`) in the environment or a `.env` file to cha
 
 - On join, each picked bot gets its own live voice session (Grok voice, `grok-voice-3.0`), with that bot's own voice-call instructions from Grok Bot plus a note that it's in a group call and who else is there.
 - When Grok provides greeting directions, the first bot gives you 15 seconds to speak first, then opens with its greeting. Older sessions without greeting directions open immediately.
-- **Your mic** goes to one bot at a time: the last bot that spoke, or the bot you named. Grok voice sessions always reply to audio they hear, so sending your voice to every bot would make them all answer at once. The other bots get your words as text: `[Shashank (host)]: ...`. Every bot is told that what the host says comes before the current topic.
+- **Your mic** goes to one bot at a time: the last bot that spoke, or the bot you named. Grok voice sessions always reply to audio they hear, so sending your voice to every bot would make them all answer at once. The other bots get your words as text: `[<your name> (host)]: ...`. Every bot is told that what the host says comes before the current topic.
 - **Bot to bot**: when a bot finishes, the others get its words as `[Bot name]: ...`. Then the bot it named answers, or the next bot in line. There is no fixed turn limit; the bots manage turns with tools:
   - `hand_to`: give the next turn to one bot.
   - `pass`: skip a turn without speaking. If every bot passes in a row, they wait for you. After a bot speaks, if every other bot passes, they wait for you too: the turn does not go back to that bot to say it again in new words.
@@ -82,7 +105,7 @@ Set `PORT=9000` (or `HOST=localhost`) in the environment or a `.env` file to cha
   - `leave_call`: the bot says goodbye and leaves once its voice has finished.
 - **Interrupting**: start talking and every bot goes quiet at once. A bot you cut off is told how much of its answer you actually heard, and the other bots get only that part, tagged `(cut off by the host)`.
 - **Current direction**: when you correct the bots (a line of 3+ words with "no", "wait", "stop", "actually" or "wrong"), your words are pinned in every bot's instructions as the current direction, newest last, up to 5. Bots that join or reconnect later get it too.
-- **Typing**: a typed message counts as you speaking. Whoever is talking is cut off, every bot gets it as `[Shashank (host)]: ...`, a correction is pinned, and the bot you name (or the listening bot) answers. Messages are cut to 1,000 characters.
+- **Typing**: a typed message counts as you speaking. Whoever is talking is cut off, every bot gets it as `[<your name> (host)]: ...`, a correction is pinned, and the bot you name (or the listening bot) answers. Messages are cut to 1,000 characters.
 - **Stop hotkey**: **Esc** silences every bot, drops any queued turn, and the bots wait for you. If your focus is inside a side panel, Esc closes the panel instead.
 - **One-on-one**: name one bot ("My Bot, what's the plan?") and only that bot talks with you. Follow-ups without a name go to it too. The other bots keep listening, so they know what was said, but stay silent; their tiles say *Staying quiet*. It ends when:
   - you wrap up ("thanks", "got it", "that's all", "perfect", up to 6 words), or you say nothing for 20 seconds after the bot's reply. Then each other bot, in turn, may add one short suggestion, but only if it has a specific one it fully understands; otherwise it passes silently. After that the call waits for you.
@@ -150,7 +173,7 @@ Whether the loopback actually removes the echo on your machine depends on Chrome
 ## Tests
 
 ```bash
-npm test          # fails below 100% line/branch/function coverage of src/ and public/core.js
+npm test          # fails below 100% line/branch/function coverage of src/ and public/core.js (runs with GROK_CALL_USER=Shashank as the host's name)
 npm run typecheck
 ```
 
@@ -180,13 +203,14 @@ public/
   core.js             call engine: voice sessions, turn-taking, interrupting, tasks, summary, timeline
   app.js, index.html  the browser version's page
 mac/
-  Sources/GrokCall/     the Mac app (SwiftUI): menu bar, call window, workspaces, cloud computer, Connections, settings
+  Sources/GrokCall/     the Mac app (SwiftUI): menu bar, call window, opening animation, workspaces, cloud computer, Connections, settings
   Sources/GrokCallCore/ code tested without a screen: avatar, backend protocol, layout, permissions
   Tests/                Swift tests
-  build-app.sh, test.sh build and test the app
-  tools/                scripts that made the avatar data file
+  Resources/            the app icon (made by tools/make-icon.swift)
+  build-app.sh, test.sh build and test the app; release.sh publishes a release from this Mac
+  tools/                scripts that made the avatar data file and the app icon
 test/                 Node tests with fake backends
-scripts/              live checks against a real account (see below)
+scripts/              install.sh (the one-line install), and live checks against a real account (see below)
 docs/                 design notes, research and test results
 ```
 

@@ -207,7 +207,7 @@ test('signed out for good: clears the sign-in in every failure path', async () =
   }
 });
 
-test('refresh network failure counts as signed out', async () => {
+test('a refresh that cannot reach Grok keeps the sign-in and can be tried again', async () => {
   const store = new AuthStore(path.join(tmp, `d${dirN++}`));
   store.write({ accessToken: 'old', refreshToken: 'r', machineId: 'm' });
   const dead = await deadUrl();
@@ -217,7 +217,31 @@ test('refresh network failure counts as signed out', async () => {
     apiUrl: up.url,
     fetch: (url, init) => fetch(String(url).endsWith('/oauth/token') ? `${dead}/oauth/token` : url, init),
   });
+  await assert.rejects(grok.listBots(), /Could not reach Grok to renew your sign-in/);
+  assert.deepEqual(store.read(), { accessToken: 'old', refreshToken: 'r', machineId: 'm' });
+});
+
+test('a refresh that Grok fails on its side keeps the sign-in', async () => {
+  for (const status of [500, 503, 429]) {
+    b.refresh = () => [status, { error: 'busy' }];
+    const { store, grok } = client({ accessToken: 'old', refreshToken: 'r', machineId: 'm' });
+    await assert.rejects(grok.listBots(), new RegExp(`renew your sign-in right now \\(HTTP ${status}\\)`));
+    assert.equal(store.read()!.refreshToken, 'r');
+  }
+});
+
+test('signing out while a refresh is running is not undone by it', async () => {
+  const { store, grok } = client({ accessToken: 'old', refreshToken: 'r', machineId: 'm' });
+  b.refresh = () => { store.clear(); return [200, { access_token: 'good', refresh_token: 'r2' }]; };
   await assert.rejects(grok.listBots(), SignedOutError);
+  assert.equal(store.read(), null);
+});
+
+test('signing in again while a refresh is running keeps the new sign-in', async () => {
+  const { store, grok } = client({ accessToken: 'old', refreshToken: 'r', machineId: 'm' });
+  b.refresh = () => { store.write({ accessToken: 'good', refreshToken: 'fresh', machineId: 'm' }); return [200, { access_token: 'other', refresh_token: 'r2' }]; };
+  await grok.listBots();
+  assert.deepEqual(store.read(), { accessToken: 'good', refreshToken: 'fresh', machineId: 'm' });
 });
 
 test('backend errors carry the reason', async () => {

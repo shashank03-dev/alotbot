@@ -9,7 +9,7 @@
   },
   "scripts": {
     "start": "node --env-file-if-exists=.env src/main.ts",
-    "test": "node --test --experimental-test-coverage --test-coverage-include=src/**/*.ts --test-coverage-include=public/core.js --test-coverage-exclude=src/main.ts --test-coverage-exclude=src/overlay/main.ts --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100 \"test/*.test.ts\"",
+    "test": "GROK_CALL_USER=Shashank node --test --experimental-test-coverage --test-coverage-include=src/**/*.ts --test-coverage-include=public/core.js --test-coverage-exclude=src/main.ts --test-coverage-exclude=src/overlay/main.ts --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100 \"test/*.test.ts\"",
     "typecheck": "tsc --noEmit",
     "start:overlay": "node --env-file-if-exists=.env src/overlay/main.ts"
   },

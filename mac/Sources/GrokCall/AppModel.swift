@@ -78,7 +78,7 @@ final class AppModel: ObservableObject {
 
     @Published var connection: Connection = .starting
     @Published var login = LoginState(state: "signed-out", error: nil)
-    @Published var hostName = "Shashank"
+    @Published var hostName = HostName.current
     @Published var choices: Choices?
     @Published var bots: [Bot] = []
     @Published var botsError: String?
@@ -259,6 +259,7 @@ final class AppModel: ObservableObject {
         do {
             let r: R = try await backend.request("bots")
             bots = r.bots
+            OpeningBots.save(r.bots)
             botsError = nil
             picked = picked.filter { id in r.bots.contains { $0.id == id } }
         } catch {

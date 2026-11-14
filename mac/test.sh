@@ -4,6 +4,10 @@ here="$(cd "$(dirname "$0")" && pwd)"
 swift_bin="$(xcrun --find swiftc)"
 # The UI rendering test uses the existing offline demo mode; it must not start a real account backend.
 export GROK_CALL_DEMO=1
+# Tests log to a throwaway file, never to your real ~/Library/Application Support/GrokCall/logs/app.log.
+logs="$(mktemp -d)"
+trap 'rm -rf "$logs"' EXIT
+export GROK_CALL_APP_LOG="$logs/app.log"
 # CLT's new build driver does not always discover the bundled Swift Testing macro plugin.
 plugin="$(dirname "$swift_bin")/../lib/swift/host/plugins/testing/libTestingMacros.dylib"
 if [[ -f "$plugin" ]]; then

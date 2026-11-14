@@ -1,4 +1,6 @@
+import crypto from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { USER } from '../public/core.js';
 import http from 'node:http';
 import { AuthStore, Login } from './auth.ts';
 import { API_URL, GrokBotClient, NotFoundError, SignedOutError, SITE_URL, ToolRefusedError, type ToolCall } from './grokbot.ts';
@@ -18,6 +20,8 @@ class HttpError extends Error {
 export interface AppOptions {
   /** Where the sign-in is kept (auth.json). */
   dataDir: string;
+  /** This run's key: every /api request must send it as x-grok-call-token. Random when left out. */
+  token?: string;
   apiUrl?: string;
   siteUrl?: string;
   fetch?: typeof fetch;
@@ -106,7 +110,15 @@ function json(res: http.ServerResponse, status: number, body: unknown) {
   res.end(JSON.stringify(body));
 }
 
+/** True if the request carries this run's key (compared in constant time). */
+export function hasToken(req: http.IncomingMessage, token: string): boolean {
+  const got = Buffer.from(String(req.headers['x-grok-call-token'] ?? ''));
+  const want = Buffer.from(token);
+  return got.length === want.length && crypto.timingSafeEqual(got, want);
+}
+
 export function createApp(opts: AppOptions) {
+  const token = opts.token ?? crypto.randomBytes(24).toString('hex');
   const store = new AuthStore(opts.dataDir);
   const apiUrl = opts.apiUrl ?? API_URL;
   const login = new Login({
@@ -127,6 +139,8 @@ export function createApp(opts: AppOptions) {
   const files = Object.fromEntries(
     Object.entries(STATIC).map(([path, f]) => [path, readFileSync(new URL(`../public/${f.file}`, import.meta.url))]),
   );
+  // The page has no environment: give its copy of the call engine the host's name.
+  files['/core.js'] = Buffer.from(String(files['/core.js']).replace(/^export const USER = .*$/m, `export const USER = ${JSON.stringify(USER)};`));
 
   type Handler = (res: http.ServerResponse, match: RegExpExecArray, req: http.IncomingMessage) => Promise<void> | void;
   const routes: { pattern: RegExp; method: string; handler: Handler }[] = [
@@ -201,6 +215,8 @@ export function createApp(opts: AppOptions) {
         });
         return void res.end(files[path]);
       }
+      // Another program or user on this Mac can reach the port, but not without the key in the link.
+      if (path.startsWith('/api/') && !hasToken(req, token)) throw new HttpError(403, 'Open Grok Call with the link printed in the terminal: it carries this run’s key.');
       const matches = routes
         .map((r) => ({ r, m: r.pattern.exec(path) }))
         .filter((x): x is { r: (typeof routes)[number]; m: RegExpExecArray } => x.m !== null);
@@ -222,5 +238,5 @@ export function createApp(opts: AppOptions) {
     watcher.stop();
     actionStore.close();
   });
-  return server;
+  return Object.assign(server, { token });
 }

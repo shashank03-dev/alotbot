@@ -533,6 +533,27 @@ test('leave without anything said ends the call and saves nothing', async () => 
   assert.deepEqual((await c.ok('calls')).calls, []);
 });
 
+test('leave still ends the call when saving it fails, so a new call can start', async () => {
+  const h = await start();
+  const c = await connect(h);
+  await inCall(h, c, ['a']);
+  const a = h.sockets.get('a')!;
+  hostSays(a, 'Bot A, let us plan the launch.');
+  await flush();
+  fs.writeFileSync(path.join(h.dir, 'calls'), 'x'); // calls/ can't be made, so saving throws
+  const leaving = c.op('leave');
+  await askedForSummary(a);
+  reply(a, '', [['save_summary', { summary: 'S', action_items: [] }]]);
+  const r = await leaving;
+  assert.equal(r.ok, false);
+  await c.next((m) => m.t === 'ended');
+  assert.ok(a.closed);
+  await c.fails('leave', {}, /not in a call/);
+  fs.rmSync(path.join(h.dir, 'calls'));
+  h.sockets.clear();
+  await inCall(h, c, ['a']);
+});
+
 test('leave waits for the summary, saves the call and the tasks, and the next call starts from them', async () => {
   const h = await start();
   const c = await connect(h);
