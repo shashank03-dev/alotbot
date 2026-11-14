@@ -1,7 +1,7 @@
 #!/bin/bash
 # Installs (or updates) Grok Call from the latest GitHub release:
 #   curl -fsSL https://raw.githubusercontent.com/shashank03-dev/grok-call/main/scripts/install.sh | bash
-# Puts "Grok Call.app" in /Applications (or ~/Applications if that isn't writable) and opens it.
+# Updates an installed copy in place, or puts "Grok Call.app" in /Applications (~/Applications if not writable), and opens it.
 set -euo pipefail
 
 url="https://github.com/shashank03-dev/grok-call/releases/latest/download/Grok-Call-macOS.zip"
@@ -21,8 +21,11 @@ app="$tmp/Grok Call.app"
 codesign --verify --strict "$app"
 if ! codesign -d -r- "$app" 2>&1 | grep -qF "$leaf"; then echo "The download is not signed by Grok Call's release certificate. Not installed." >&2; exit 1; fi
 
-dest="/Applications"
-[[ -w "$dest" ]] || { dest="$HOME/Applications"; mkdir -p "$dest"; }
+# Update a copy that is already installed; otherwise /Applications, or ~/Applications if that isn't writable.
+dest=""
+for d in "/Applications" "$HOME/Applications"; do [[ -d "$d/Grok Call.app" ]] && { dest="$d"; break; }; done
+if [[ -z "$dest" ]]; then dest="/Applications"; [[ -w "$dest" ]] || dest="$HOME/Applications"; fi
+mkdir -p "$dest"
 if pgrep -xq GrokCall; then
   echo "Quitting the running Grok Call..."
   osascript -e 'quit app "Grok Call"' >/dev/null 2>&1 || true
