@@ -62,3 +62,6 @@ Status: **pass**, **fail**, **fixed** (with the commit), or **not possible** (wi
 | More than 20 standing calls refused | pass | Backend: `incoming.ts:624` "You can have at most 20 standing calls.", tested in `test/overlay-incoming.test.ts:449` (passing). Not tried by hand. |
 | Standing call saved with an agenda | pass | `incoming.json` `schedules[0]`: bot `25839786` (Satya), agenda "Check if the beta is ready for Friday", timezone `Asia/Kolkata` |
 | Quiet hours are on by default | observation | `incoming.ts:152`: 22:00 to 08:00, on. My first schedule (Wednesday 00:00, set at 23:58 Wednesday, so it pointed at the past) would not have rung tonight in any case. |
+| The ring (app in the background) | pass | Standing call set for Thursday 00:07. `app.log`: `2026-11-18T18:37:00.029Z ringing: schedule hbh` (00:07:00 local, on the minute). You saw the top-right card, heard the sound and saw the notification. |
+| Answer: the bot says why it called | pass | `app.log`: `answer ring a8317693-…`; `logs/call-2026-11-18T18-37-22Z.jsonl` joins `["Satya"]`, whose first line is "Agenda tonight: check if the beta is ready for Friday. Where do you want to start?" |
+| `incoming.json` after answering | pass | `rings[0]`: source `schedule`, reason "Standing call. Agenda: Check if the beta is ready for Friday", state `answered`, `scheduleId` = the standing call's id |
