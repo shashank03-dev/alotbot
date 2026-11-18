@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { CallLibrary, callIdOf, fileTime } from '../src/overlay/library.ts';
-import { type PastCalls, RECALL_OUTPUT_MAX, RECALL_TOOLS, PAST_LINES } from '../src/overlay/call.ts';
+import { type CallBacks, type CallOpening, CALLBACK_TOOL, type PastCalls, RECALL_OUTPUT_MAX, RECALL_TOOLS, PAST_LINES } from '../src/overlay/call.ts';
 
 const A = bot('a');
 const B = bot('b');
@@ -531,3 +531,113 @@ test('overlayExport carries the decisions and the kind of call', async () => {
   assert.deepEqual(d.decisions, ['Price is $10', '5']);
   assert.equal(d.kind, 'call');
 });
+
+// ---------- incoming calls: call_back_later, and the caller opening an answered call ----------
+
+const said = (s: any) => s.said() as string[];
+const lastSaid = (s: any) => said(s).at(-1)!;
+const responses = (s: any) => s.sent.filter((m: any) => m.type === 'response.create');
+
+async function answered(opening: CallOpening | null, bots = [A, B], ready = ['a', 'b']) {
+  const h = setup();
+  h.call.joinWith(bots, [A, B, C], null, { opening });
+  await h.ready(...ready);
+  return h;
+}
+
+test('call_back_later is offered when call backs are available, and its answer or refusal goes to the bot', async () => {
+  const asked: any[] = [];
+  const backs: CallBacks = {
+    callBack: (botId, botName, args) => {
+      asked.push([botId, botName, args]);
+      if (args.reason === 'fail') throw new Error('Give exactly one of in_minutes, at or when_job_done.');
+      return 'Call back set: Grok Call rings Shashank at Wed 3:30 PM, and you open that call.';
+    },
+  };
+  const h = setup();
+  h.call.callBacks = backs;
+  h.call.joinWith([A], [A], null);
+  await h.ready('a');
+  assert.ok(h.ws('a').lastSession().tools.some((t: any) => t.name === CALLBACK_TOOL.name));
+  reply(h.ws('a'), 'I will call you back at half three.', [['call_back_later', { reason: 'The draft', at: '15:30' }]]);
+  assert.deepEqual(asked[0], ['a', 'Bot A', { reason: 'The draft', at: '15:30' }]);
+  assert.match(h.ws('a').outputs().at(-1)!, /^Call back set/);
+  assert.ok(h.call.timeline.some((e: any) => e.text.startsWith('Bot A set a call back: Call back set')));
+  assert.notEqual(h.ws('a').sent.at(-1).type, 'response.create', 'it already said so: no extra reply');
+  reply(h.ws('a'), '', [['call_back_later', { reason: 'fail' }]]);
+  assert.equal(h.ws('a').outputs().at(-1), 'Not done: Give exactly one of in_minutes, at or when_job_done.');
+  assert.equal(h.ws('a').sent.at(-1).type, 'response.create', 'a refusal is told');
+  // Without call backs the tool is not offered; asked anyway, the bot is told.
+  const off = await twoBots();
+  assert.ok(!off.ws('a').lastSession().tools.some((t: any) => t.name === CALLBACK_TOOL.name));
+  reply(off.ws('a'), '', [['call_back_later', { reason: 'x', in_minutes: 5 }]]);
+  assert.match(off.ws('a').outputs().at(-1)!, /^Call backs are not available right now/);
+});
+
+test('an answered callback: the bot that called opens at once with why, and the others join quietly', async () => {
+  const opening: CallOpening = { source: 'callback', botId: 'b', callerName: 'Bot B', title: 'Bot B is calling back', reason: 'The posts are live.', agenda: '' };
+  const h = setup();
+  h.call.joinWith([A, B], [A, B, C], null, { opening });
+  await h.ready('a'); // A is in first, but B called
+  assert.equal(responses(h.ws('a')).length, 0, 'A does not open the call');
+  assert.ok(!said(h.ws('a')).some((t) => /just joined/.test(t)));
+  await h.ready('b');
+  assert.match(lastSaid(h.ws('b')), /answered your call\. Open it now: in one or two short spoken sentences, say why you called/);
+  assert.equal(responses(h.ws('b')).length, 1);
+  assert.equal(h.call.ear, h.call.links.get('b'), 'the mic goes to the caller');
+  const ins = h.ws('a').lastSession().instructions;
+  assert.match(ins, /# Why this call\nBot B called Shashank, and he answered\. It is the call back that was promised: The posts are live\./);
+  assert.ok(h.call.timeline.filter((e: any) => e.kind === 'join').length === 2);
+  // A greeting is never scheduled for an answered call.
+  assert.ok(!h.timers.some((t: any) => !t.done && t.fn.toString().includes('greeting')));
+});
+
+test('job and approval rings tell the bots what happened; a standing call is opened by the first bot in, with its agenda', async () => {
+  const job = await answered({ source: 'job', botId: 'a', callerName: 'Bot A', title: 'Bot A has results', reason: 'Posted 3 threads.', agenda: '' });
+  assert.match(job.ws('b').lastSession().instructions, /Bot A called Shashank, and he answered\. A background job finished: Posted 3 threads\./);
+  const ok = await answered({ source: 'approval', botId: 'a', callerName: null, title: 'Bot A needs your OK', reason: 'Send the email.', agenda: '' });
+  assert.match(ok.ws('a').lastSession().instructions, /A bot called Shashank, and he answered\. Work is waiting for his approval: Send the email\./);
+  const standing = await answered({ source: 'schedule', botId: null, callerName: null, title: 'Standup', reason: 'Standing call.', agenda: '1. Yesterday\n2. Today' }, [A, B], ['b', 'a']);
+  assert.match(lastSaid(standing.ws('b')), /answered the standing call "Standup"\. Open it now in one or two short spoken sentences, starting with the agenda\./);
+  assert.equal(responses(standing.ws('a')).length, 0);
+  assert.match(standing.ws('a').lastSession().instructions, /# This is the standing call "Standup"\nShashank answered the scheduled call\. Agenda:\n1\. Yesterday\n2\. Today/);
+  const bare = await answered({ source: 'schedule', botId: null, callerName: null, title: 'Sync', reason: 'Standing call.', agenda: '' }, [A], ['a']);
+  assert.match(lastSaid(bare.ws('a')), /standing call "Sync"\. Open it now in one or two short spoken sentences\.$/);
+  assert.match(bare.ws('a').lastSession().instructions, /It has no agenda: ask what he wants to cover\./);
+});
+
+test('if the bot that called cannot join, the first bot in opens the call instead', async () => {
+  const opening: CallOpening = { source: 'callback', botId: 'b', callerName: 'Bot B', title: 'Bot B is calling back', reason: 'Results.', agenda: '' };
+  const h = setup();
+  h.call.joinWith([A, B], [A, B, C], null, { opening });
+  await h.ready('a');
+  h.call.links.get('b').fail(new Error('Voice setup was refused: usage limit'));
+  assert.equal(lastSaid(h.ws('a')), "[Call]: Shashank answered Bot B's call, but it could not join. Open the call in its place: in one or two short spoken sentences, say why it called.");
+  assert.equal(responses(h.ws('a')).length, 1);
+  assert.match(h.ws('a').lastSession().instructions, /Bot B called Shashank, and he answered/);
+  const nameless = setup();
+  nameless.call.joinWith([A, B], [A, B, C], null, { opening: { ...opening, callerName: null } });
+  await nameless.ready('a');
+  nameless.call.links.get('b').fail(new Error('x'));
+  assert.match(lastSaid(nameless.ws('a')), /answered a bot's call/);
+  // Nobody up yet when the caller fails: the first bot to be ready opens.
+  const later = setup();
+  later.call.joinWith([A, B], [A, B, C], null, { opening });
+  await flushAll();
+  later.call.links.get('b').fail(new Error('Timed out connecting.'));
+  await later.ready('a');
+  assert.equal(responses(later.ws('a')).length, 1);
+  // Another bot failing changes nothing; neither does a failure after the call was opened.
+  const other = setup();
+  other.call.joinWith([A, B, C], [A, B, C], null, { opening });
+  await other.ready('b');
+  other.call.links.get('c').fail(new Error('x'));
+  other.call.links.get('a').fail(new Error('x'));
+  assert.equal(responses(other.ws('b')).length, 1);
+  // A plain call (no opening): a failure follows the shared engine.
+  const plain = await twoBots();
+  plain.call.links.get('b').fail(new Error('x'));
+  assert.ok(plain.call.timeline.some((e: any) => e.kind === 'error'));
+});
+
+const flushAll = () => new Promise((r) => setImmediate(r));

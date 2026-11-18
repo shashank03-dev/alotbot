@@ -17,6 +17,9 @@ import { CallLog, loggedSocket, MicStats } from './log.ts';
 import { BadSetting, COLORS, LANGUAGES, OverlayGrokClient, parseNewBot, parseVoiceSettings, PICKER_SHAPES, SHAPES, SPEEDS, VOICES } from './grok.ts';
 import { OverlayStore } from './store.ts';
 import { CALL_KINDS, CallLibrary, type CallKind, callIdOf, LibraryError } from './library.ts';
+import { type ActionView, callbackWhen, IncomingCalls, IncomingError, type Ring } from './incoming.ts';
+import type { CallOpening } from './call.ts';
+import type { Action } from '../actions.ts';
 import { ActionStore } from '../actions.ts';
 import { CallActions } from '../dispatch.ts';
 import { JobWatcher } from '../jobs.ts';
@@ -49,6 +52,18 @@ export interface OverlayOptions {
   viewMs?: number;
   /** Opens the call library (tests use this to make it fail). */
   openLibrary?: (dataDir: string) => CallLibrary;
+  /** Wall clock and timers for incoming calls (default: Date.now and setTimeout). */
+  incomingClock?: { now: () => number; setTimer: (fn: () => void, ms: number) => unknown; clearTimer: (t: unknown) => void };
+  /** The Mac's time zone (default: the system's). */
+  zone?: () => string;
+}
+
+/** What incoming calls need to know about an action. */
+export function actionView(a: Action): ActionView {
+  return {
+    id: a.id, botId: a.botId, botName: a.botName, callId: a.callId, target: a.target, tool: a.tool, status: a.status, summary: a.summary, error: a.error,
+    approvalSummary: a.approval?.status === 'pending' ? a.approval.summary : null,
+  };
 }
 
 class ClientError extends Error {}
@@ -128,9 +143,30 @@ export function createOverlayServer(opts: OverlayOptions) {
   actionStore.recoverInterrupted();
   const watcher = new JobWatcher({
     grok, store: actionStore, setTimer: (fn, ms) => setTimeout(fn, ms).unref(), clearTimer: (t) => clearTimeout(t), now: Date.now,
-    onChange: (botId) => client?.actionsChanged(botId),
+    onChange: (botId) => {
+      observeBot(botId);
+      client?.actionsChanged(botId);
+    },
     log: (kind, data) => client?.log?.write(kind, data as Record<string, unknown>),
   });
+  const zone = opts.zone ?? (() => Intl.DateTimeFormat().resolvedOptions().timeZone);
+  const iclock = opts.incomingClock ?? { now: Date.now, setTimer: (fn: () => void, ms: number) => setTimeout(fn, ms).unref(), clearTimer: (t: unknown) => clearTimeout(t as NodeJS.Timeout) };
+  // Standing calls, bot call backs and rings when bot work finishes after its call.
+  const incoming = new IncomingCalls({
+    dir: opts.dataDir,
+    now: iclock.now,
+    setTimer: iclock.setTimer,
+    clearTimer: iclock.clearTimer,
+    busy: () => client?.call != null,
+    zone,
+    changed: () => client?.send({ t: 'incoming', state: incoming.state() }),
+  });
+  incoming.seed(actionStore.list({ limit: 2000 }).map(actionView));
+  /** A bot's agent sent something: maybe a ring. The live call's own actions reach the call instead. */
+  function observeBot(botId: string) {
+    incoming.observe(actionStore.list({ limit: 500 }).filter((a) => a.botId === botId).map(actionView), client?.call?.callId ?? null);
+  }
+  incoming.start();
   watcher.resume();
   const actions: CallActions = new CallActions({ harnessTool: (id, call) => localTarget(call.name)
     ? client!.localTool(id, call.name, call.input)
@@ -423,6 +459,30 @@ export function createOverlayServer(opts: OverlayOptions) {
         }
         case 'libraryDelete':
           return this.libraryDelete(str(m.id, 'id'));
+        case 'incoming':
+          return incoming.state();
+        case 'scheduleSave': {
+          const known = new Set((await this.refreshBots()).map((b) => b.id));
+          let schedule: unknown = null;
+          const state = this.incomingDo(() => (schedule = incoming.saveSchedule(m.schedule, known)));
+          return { schedule, ...state };
+        }
+        case 'scheduleDelete':
+          return this.incomingDo(() => incoming.deleteSchedule(str(m.id, 'id')));
+        case 'scheduleRingNow':
+          return this.incomingDo(() => incoming.ringNow(str(m.id, 'id')));
+        case 'incomingSettings':
+          return this.incomingDo(() => incoming.setSettings(m.settings));
+        case 'ringAnswer':
+          return this.answer(str(m.id, 'id'));
+        case 'ringDecline':
+          return this.incomingDo(() => incoming.decline(str(m.id, 'id')));
+        case 'ringSnooze':
+          return this.incomingDo(() => incoming.snooze(str(m.id, 'id'), m.minutes));
+        case 'callbackCancel':
+          return this.incomingDo(() => incoming.cancelCallback(str(m.id, 'id')));
+        case 'missedClear':
+          return this.incomingDo(() => incoming.clearMissed());
         case 'callFile':
           return { markdown: calls.readCall(str(m.file, 'file')) };
         default:
@@ -434,12 +494,54 @@ export function createOverlayServer(opts: OverlayOptions) {
     async refreshBots(): Promise<Bot[]> {
       this.bots = await grok.listBots();
       this.call?.setAvailable(this.bots);
+      // Bots deleted in Grok Bot no longer call or are called (an empty list may be a hiccup, so it changes nothing).
+      if (this.bots.length) incoming.forgetBots(new Set(this.bots.map((b) => b.id)));
       return this.bots;
     }
 
     async freshBots(): Promise<Bot[]> {
       if (!this.bots.length) this.bots = await grok.listBots();
       return this.bots;
+    }
+
+    /** Runs an incoming-call change; its refusals are the app's mistakes. Replies with the new state. */
+    incomingDo(fn: () => unknown) {
+      try {
+        fn();
+      } catch (err) {
+        if (err instanceof IncomingError) throw new ClientError(err.message);
+        throw err;
+      }
+      return incoming.state();
+    }
+
+    /** You picked up a ring (or called back a missed one): its bots join, and the one that called opens. */
+    async answer(id: string) {
+      if (this.call) throw new ClientError('Leave the current call first.');
+      let ring: Ring;
+      try {
+        ring = incoming.answer(id);
+      } catch (err) {
+        throw err instanceof IncomingError ? new ClientError(err.message) : err;
+      }
+      try {
+        const all = await grok.listBots();
+        const ids = ring.botIds.filter((b) => all.some((x) => x.id === b));
+        if (!ids.length) throw new ClientError('The bots in that call are not on this account any more.');
+        const opening: CallOpening = {
+          source: ring.source,
+          // A bot's own ring has just that bot, and it is still on the account (ids is not empty).
+          botId: ring.source === 'schedule' ? null : ring.botIds[0],
+          callerName: ring.source === 'schedule' ? null : all.find((b) => b.id === ring.botIds[0])!.name,
+          title: ring.title,
+          reason: ring.reason,
+          agenda: ring.agenda,
+        };
+        return { ...(await this.join(ids, null, opening)), ring: ring.id };
+      } catch (err) {
+        incoming.answerFailed(id, (err as Error).message);
+        throw err;
+      }
     }
 
     /** A saved call by id; a bad or unknown id is the app's mistake. */
@@ -463,7 +565,7 @@ export function createOverlayServer(opts: OverlayOptions) {
       return { deleted: c.id };
     }
 
-    async join(raw: unknown, continueFrom: unknown = undefined) {
+    async join(raw: unknown, continueFrom: unknown = undefined, opening: CallOpening | null = null) {
       if (this.call) throw new ClientError('already in a call');
       if (!Array.isArray(raw) || !raw.length || !raw.every((x) => typeof x === 'string')) throw new ClientError('botIds must be a list of bot ids');
       const continued = continueFrom === undefined || continueFrom === null ? null : this.libraryGet(str(continueFrom, 'continueFrom')).call;
@@ -511,9 +613,22 @@ export function createOverlayServer(opts: OverlayOptions) {
       });
       call.log = log;
       call.pastCalls = library;
+      call.callBacks = {
+        callBack: (botId, botName, args) => {
+          const when = callbackWhen(args, iclock.now(), zone());
+          // when_job_done waits for this bot's jobs from this call that are still under way.
+          const waitsFor = when.jobs
+            ? actionStore.list({ callId: `${call.callId}-${botId}` }).filter((a) => a.target === 'agent' && (a.status === 'running' || a.status === 'waiting_approval')).sort((x, y) => x.createdAt - y.createdAt).map((a) => a.id)
+            : [];
+          const c = incoming.addCallback(botId, botName, typeof args.reason === 'string' ? args.reason : '', { at: when.at, waitsFor });
+          if (c.at === null) return `Call back set: Grok Call rings ${USER} once your ${c.waitsFor.length === 1 ? 'job finishes' : `${c.waitsFor.length} jobs finish`}, and you open that call with the result.`;
+          const at = new Date(c.at).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit', timeZone: zone() });
+          return `Call back set: Grok Call rings ${USER} at ${at}, and you open that call. Tell him in a few words.`;
+        },
+      };
       this.log = log;
       this.mic = new MicStats(Date.now());
-      call.joinWith(picked, all, calls.readMemory(), { continued });
+      call.joinWith(picked, all, calls.readMemory(), { continued, opening });
       this.call = call;
       this.linesSent = 0;
       this.tasksSent = -1;
@@ -582,7 +697,12 @@ export function createOverlayServer(opts: OverlayOptions) {
     }
 
     stopCall() {
-      for (const id of this.call?.links.keys() ?? []) actions.callEnded(id);
+      const ended = this.call;
+      for (const id of ended?.links.keys() ?? []) {
+        actions.callEnded(id);
+        // Its jobs still under way are remembered, so finishing after the call can ring.
+        incoming.observe(actionStore.list({ callId: `${ended!.callId}-${id}` }).map(actionView), ended!.callId);
+      }
       if (this.timer) clearInterval(this.timer);
       this.timer = null;
       this.call?.leave(); // closing the bots' sockets is logged too, so the log ends after it
@@ -591,6 +711,7 @@ export function createOverlayServer(opts: OverlayOptions) {
       this.log?.write('end');
       this.log?.close();
       this.log = null;
+      if (ended) incoming.freed();
     }
 
     /** Once a second during a call: how loud the mic was, who heard it, and whether a bot was playing. */
@@ -692,6 +813,7 @@ export function createOverlayServer(opts: OverlayOptions) {
       actionStore.recoverInterrupted();
       actionStore.close();
       library?.close();
+      incoming.stop();
     },
   };
 }
