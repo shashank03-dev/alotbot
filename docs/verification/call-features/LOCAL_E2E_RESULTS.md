@@ -67,3 +67,6 @@ Status: **pass**, **fail**, **fixed** (with the commit), or **not possible** (wi
 | `incoming.json` after answering | pass | `rings[0]`: source `schedule`, reason "Standing call. Agenda: Check if the beta is ready for Friday", state `answered`, `scheduleId` = the standing call's id |
 | Ring now, then Decline | pass | `app.log` `18:38:21 ringing: schedule hbh`; `incoming.json` ring `f00c7a95` state `declined` |
 | Later → 5 minutes rings again | pass | Ring `f7d32e77` (00:08:29) state `declined`, note "Snoozed for 5 min."; `app.log` `18:43:33 ringing: callback hbh is calling back`, about 5 minutes after you snoozed. Note: `app.log` records rings and answers but not declines or snoozes. |
+| Notification Answer button, another app in front | pass | `app.log` `18:45:17 ringing`, `18:45:33 answer ring 8fbb4fdf-…`, call started, left at once (`saved nothing`). Ring `8fbb4fdf` state `answered`. You used the notification's Answer; the log does not say which button was used. |
+| Notification Decline button | pass | `app.log` `18:45:40 ringing`; ring `22195cc6` state `declined` |
+| A ring nobody answers becomes missed | pass | Ring `2058d439` (00:14:22) rang its 45 seconds and is state `missed` |
