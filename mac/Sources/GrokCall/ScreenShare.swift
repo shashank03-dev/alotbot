@@ -18,6 +18,10 @@ struct ShareTarget: Identifiable, Hashable {
     /// Password managers are never offered (the backend refuses them too).
     static let privateApps = try! NSRegularExpression(pattern: "(1password|keychain|passwords|bitwarden|lastpass|dashlane|keeper|enpass|proton pass)", options: .caseInsensitive)
     static func isPrivate(_ s: String) -> Bool { privateApps.firstMatch(in: s, range: NSRange(s.startIndex..., in: s)) != nil }
+    /// Apps a whole-display share leaves out: this app (the call, its trays) and every password manager, by name or bundle id.
+    static func hiddenFromDisplay(pid: pid_t, name: String, bundleId: String, me: pid_t) -> Bool {
+        pid == me || isPrivate(name) || isPrivate(bundleId)
+    }
 
     /// Windows you could share (other apps' content windows, on screen), then each display.
     static func available() async throws -> [ShareTarget] {
@@ -114,9 +118,9 @@ final class ScreenShareSession {
             let k = min(1, 2048 / Double(max(d.width, d.height, 1)))
             config.width = max(1, Int(Double(d.width) * k))
             config.height = max(1, Int(Double(d.height) * k))
-            // Never this app's own windows (the call, its trays).
-            let mine = content.applications.filter { $0.processID == ProcessInfo.processInfo.processIdentifier }
-            filter = SCContentFilter(display: d, excludingApplications: mine, exceptingWindows: [])
+            let me = ProcessInfo.processInfo.processIdentifier
+            let hidden = content.applications.filter { ShareTarget.hiddenFromDisplay(pid: $0.processID, name: $0.applicationName, bundleId: $0.bundleIdentifier, me: me) }
+            filter = SCContentFilter(display: d, excludingApplications: hidden, exceptingWindows: [])
         }
         let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
         let text = try await Task.detached(priority: .utility) {
