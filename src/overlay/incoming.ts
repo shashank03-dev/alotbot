@@ -455,8 +455,9 @@ export class IncomingCalls {
   private holdReason(ring: Ring, now: number): string | null {
     if (this.d.busy()) return 'You were in a call.';
     if (this.s.rings.some((r) => r.state === 'ringing' && r !== ring)) return 'Another call was ringing.';
-    if (ring.source === 'schedule') return null; // a time you chose yourself rings through quiet hours
+    // Do not disturb holds everything, Ring now included (a standing call that comes due during it is missed in tick).
     if (this.dndActive(now)) return 'Do not disturb was on.';
+    if (ring.source === 'schedule') return null; // a time you chose yourself rings through quiet hours
     if (quietUntil(this.s.settings.quietHours, now) !== null) return 'It was during your quiet hours.';
     return null;
   }

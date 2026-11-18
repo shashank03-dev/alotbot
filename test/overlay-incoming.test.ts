@@ -378,6 +378,23 @@ test('standing calls ring through quiet hours, but are missed during do-not-dist
   assert.deepEqual([h.inc.state().missed[0].title, h.inc.state().missed[0].note], ['Daily', 'Do not disturb was on.']);
 });
 
+// Local run of 2026-11-19: with do not disturb on until 08:00, three presses of Ring now rang at once.
+test('Ring now waits for do-not-disturb and rings the moment it is turned off; quiet hours do not stop it', () => {
+  const h = harness(newDir(), Date.parse('2026-11-18T22:30:00Z'));
+  h.inc.start();
+  const s = h.inc.saveSchedule(weekly(), KNOWN);
+  assert.ok(h.inc.state().quietUntil, 'in quiet hours');
+  h.inc.setSettings({ doNotDisturbUntil: h.now + 8 * 60 * MIN });
+  const ring = h.inc.ringNow(s.id);
+  assert.equal(h.inc.state().ringing, null);
+  assert.deepEqual(h.inc.state().held.map((r) => [r.id, r.note]), [[ring.id, 'Do not disturb was on.']]);
+  h.advance(MIN);
+  assert.equal(h.inc.state().ringing, null, 'still held');
+  h.inc.setSettings({ doNotDisturbUntil: null });
+  assert.equal(h.inc.state().ringing!.id, ring.id, 'rings straight away, through quiet hours');
+  assert.deepEqual(h.inc.state().held, []);
+});
+
 test('in a call nothing rings: rings wait, ring when the call ends, and are missed after an hour', () => {
   const h = harness();
   h.inc.start();
