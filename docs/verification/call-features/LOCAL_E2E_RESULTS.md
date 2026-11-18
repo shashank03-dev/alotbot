@@ -70,3 +70,4 @@ Status: **pass**, **fail**, **fixed** (with the commit), or **not possible** (wi
 | Notification Answer button, another app in front | pass | `app.log` `18:45:17 ringing`, `18:45:33 answer ring 8fbb4fdf-…`, call started, left at once (`saved nothing`). Ring `8fbb4fdf` state `answered`. You used the notification's Answer; the log does not say which button was used. |
 | Notification Decline button | pass | `app.log` `18:45:40 ringing`; ring `22195cc6` state `declined` |
 | A ring nobody answers becomes missed | pass | Ring `2058d439` (00:14:22) rang its 45 seconds and is state `missed` |
+| Missed: Call back | pass | Missed ring `2058d439` listed; Call back → `app.log` `18:46:15 answer ring 2058d439-…`, call saved as `call-2026-11-18T18-46-26Z.md`; the ring is now `answered` |
