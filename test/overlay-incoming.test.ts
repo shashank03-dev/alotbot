@@ -420,6 +420,21 @@ test('Ring now waits for do-not-disturb and rings the moment it is turned off; q
   assert.notEqual(h.inc.ringNow(other.id).id, ring.id, 'a different standing call is its own ring');
 });
 
+test('Ring now just before its time does not ring the same standing call twice', () => {
+  const h = harness();
+  h.inc.start();
+  const s = h.inc.saveSchedule(weekly(), KNOWN); // 13:05
+  h.advance(4 * MIN + 40_000);
+  const ring = h.inc.ringNow(s.id);
+  h.advance(30_000);
+  assert.equal(h.inc.state().ringing!.id, ring.id);
+  assert.deepEqual(h.inc.state().held, [], 'its time came while it rang: no second ring waits');
+  h.inc.answer(ring.id);
+  assert.equal(h.inc.state().ringing, null);
+  assert.deepEqual(h.inc.state().held, []);
+  assert.equal(h.inc.state().schedules[0].nextAt, Date.parse('2026-11-25T13:05:00Z'));
+});
+
 test('in a call nothing rings: rings wait, ring when the call ends, and are missed after an hour', () => {
   const h = harness();
   h.inc.start();
@@ -507,6 +522,18 @@ test('bots that left the account are taken out of standing calls and callbacks',
   const bOnly = st.schedules.find((x) => x.id === b.id)!;
   assert.deepEqual([bOnly.botIds, bOnly.enabled, bOnly.nextAt], [[], false, null]);
   assert.deepEqual(st.callbacks.map((c) => c.botId), ['a']);
+});
+
+test('a standing call paused because its bots left is still there after a restart', () => {
+  const h = harness();
+  h.inc.start();
+  const b = h.inc.saveSchedule(weekly({ botIds: ['b'] }), KNOWN);
+  h.inc.forgetBots(new Set(['a']));
+  h.inc.stop();
+  const again = h.make().state().schedules;
+  assert.deepEqual(again.map((x) => [x.id, x.botIds, x.enabled, x.nextAt]), [[b.id, [], false, null]]);
+  // Only a paused one may have no bots.
+  assert.deepEqual(parseSaved({ schedules: [{ ...weekly({ botIds: [] }), id: 's', createdAt: 1 }] }, 'UTC', WED_1300).schedules, []);
 });
 
 // ---------- answering ----------

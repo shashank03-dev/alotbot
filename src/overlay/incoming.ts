@@ -155,13 +155,17 @@ export function defaultSettings(zone: string): IncomingSettings {
   };
 }
 
-/** Checks a standing call from the app. `known` is every bot id on the account. */
-export function parseSchedule(raw: unknown, known: ReadonlySet<string>): Omit<Schedule, 'id' | 'createdAt'> {
+/**
+ * Checks a standing call from the app. `known` is every bot id on the account. `pausedNoBots` lets a paused call have
+ * no bots (one whose bots all left the account, when it is read back from disk).
+ */
+export function parseSchedule(raw: unknown, known: ReadonlySet<string>, pausedNoBots = false): Omit<Schedule, 'id' | 'createdAt'> {
   if (!isRecord(raw)) throw new IncomingError('schedule must be an object');
   const title = oneLine(raw.title, TITLE_MAX + 1);
   if (!title) throw new IncomingError('title is required');
   if (title.length > TITLE_MAX) throw new IncomingError(`title is longer than ${TITLE_MAX} characters`);
-  if (!Array.isArray(raw.botIds) || !raw.botIds.length || !raw.botIds.every((b) => typeof b === 'string')) throw new IncomingError('botIds must be a list of bot ids');
+  const noBotsOk = pausedNoBots && raw.enabled === false;
+  if (!Array.isArray(raw.botIds) || (!raw.botIds.length && !noBotsOk) || !raw.botIds.every((b) => typeof b === 'string')) throw new IncomingError('botIds must be a list of bot ids');
   const botIds = [...new Set(raw.botIds as string[])];
   if (botIds.length > BOTS_PER_CALL_MAX) throw new IncomingError(`a standing call can have at most ${BOTS_PER_CALL_MAX} bots`);
   const unknown = botIds.filter((b) => !known.has(b));
@@ -251,7 +255,7 @@ export function parseSaved(raw: unknown, zone: string, now: number): Saved {
   for (const s of Array.isArray(r.schedules) ? r.schedules : []) {
     if (!isRecord(s) || typeof s.id !== 'string' || !Number.isSafeInteger(s.createdAt)) continue;
     try {
-      const p = parseSchedule(s, new Set(Array.isArray(s.botIds) ? (s.botIds as string[]) : []));
+      const p = parseSchedule(s, new Set(Array.isArray(s.botIds) ? (s.botIds as string[]) : []), true);
       schedules.push({ ...p, id: s.id, createdAt: s.createdAt as number });
     } catch {
       // dropped
@@ -406,6 +410,8 @@ export class IncomingCalls {
     for (const s of this.s.schedules) {
       const due = nextRun(s, from);
       if (due === null || due > now) continue;
+      // Already ringing or waiting (Ring now just before its time): that ring is this one.
+      if (this.s.rings.some((r) => r.scheduleId === s.id && (r.state === 'held' || r.state === 'ringing'))) continue;
       dirty = true;
       const ring = this.newRing('schedule', s.title, s.agenda ? `Standing call. Agenda: ${s.agenda}` : 'Standing call.', s.botIds, s.agenda, s.id);
       if (now - due > LATE_GRACE_MS) this.miss(ring, 'It was due while Grok Call was closed or the Mac was asleep.');
