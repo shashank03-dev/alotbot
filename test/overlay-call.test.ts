@@ -288,13 +288,14 @@ test('overlayMarkdown writes summary, action items, tasks under parents, the tra
       '## Transcript', '', '**Shashank (host):** Hi  ', '**Bot A (cut off by the host):** Hello  ', '',
       '## Timeline', '', '- 0:00 join: Bot A joined', '- 1:15 tool: Bot A searched its past chats for "x"', '',
       'Full log: `logs/call-1970-01-01T00-00-00Z.jsonl`', '',
+      '<!-- started: 1970-01-01T00:00:00.000Z -->', '',
     ].join('\n'),
   );
   const empty = overlayMarkdown({ ...d, bots: [], lines: [], summary: '', actionItems: [], tasks: [], endedAt: -5, timeline: [], logFile: null });
   assert.match(empty, /^# Grok Call, 1970-01-01T00:00:00\.000Z/);
   assert.match(empty, /Bots: none {2}\nLength: 0 min/);
   assert.match(empty, /_No summary was saved\._\n\n## Transcript\n\n_Nothing was said\._/);
-  assert.match(empty, /## Timeline\n\n_Nothing happened\._\n$/);
+  assert.match(empty, /## Timeline\n\n_Nothing happened\._\n\n<!-- started: 1970-01-01T00:00:00\.000Z -->\n$/);
   assert.doesNotMatch(empty, /Full log/);
   const meeting = overlayMarkdown({ ...d, kind: 'meeting', decisions: ['Ship in May', 'Price at $10'] }, () => 'T');
   assert.match(meeting, /^# Grok Meeting, T\n\nBots: Bot A  \nKind: meeting  \nLength: 2 min\n\n## Summary\n\nWe met\.\n\n## Decisions\n\n- Ship in May\n- Price at \$10\n\n## Action items/);

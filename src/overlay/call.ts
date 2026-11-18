@@ -820,5 +820,7 @@ export function overlayMarkdown(d: ReturnType<OverlayCall['overlayExport']>, for
   const clock = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`;
   out.push('## Timeline', '', ...(d.timeline.length ? d.timeline.map((e) => `- ${clock(e.at)} ${e.kind}: ${e.text}`) : ['_Nothing happened._']), '');
   if (d.logFile) out.push(`Full log: \`logs/${d.logFile}\``, '');
+  // When the call started, for rebuilding the call library (the file's name is when it was saved). Hidden when read.
+  out.push(`<!-- started: ${new Date(d.startedAt).toISOString()} -->`, '');
   return out.join('\n');
 }

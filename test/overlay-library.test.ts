@@ -20,6 +20,7 @@ import {
   parseCallMarkdown,
   QUERY_WORDS,
 } from '../src/overlay/library.ts';
+import { overlayMarkdown } from '../src/overlay/call.ts';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'grok-call-lib-'));
 after(() => fs.rmSync(tmp, { recursive: true, force: true }));
@@ -103,6 +104,27 @@ test('parseCallMarkdown reads back what overlayMarkdown writes, and tolerates ol
   assert.deepEqual(bare.lines, []);
   const nothing = parseCallMarkdown(F2, 'garbage');
   assert.deepEqual([nothing.summary, nothing.bots, nothing.decisions, nothing.lines], ['', [], [], []]);
+});
+
+// A rebuilt index took each call's start time from its file name, which is when it was saved, not when it started.
+test('a rebuilt index gives a call the same start time as the live index', () => {
+  const startedAt = Date.parse('2026-11-10T13:20:00.500Z');
+  const endedAt = startedAt + 45 * 60_000; // saved at 14:05:09, the file's name
+  const d = { kind: 'call', startedAt, endedAt, bots: ['Bot A'], summary: 'Pricing.', decisions: [], actionItems: [], tasks: [], lines: [], timeline: [], logFile: null } as unknown as Parameters<typeof overlayMarkdown>[0];
+  const md = overlayMarkdown(d);
+  const live = new CallLibrary(dir());
+  live.index(rec(F1, { startedAt, endedAt, summary: 'Pricing.' }));
+  const d2 = dir();
+  fs.mkdirSync(path.join(d2, 'calls'));
+  fs.writeFileSync(path.join(d2, 'calls', F1), md);
+  const rebuilt = new CallLibrary(d2);
+  assert.equal(rebuilt.backfill(path.join(d2, 'calls')).added, 1);
+  const [a, b] = [live.get(callIdOf(F1))!.call, rebuilt.get(callIdOf(F1))!.call];
+  assert.deepEqual([b.startedAt, b.endedAt], [a.startedAt, a.endedAt]);
+  live.close();
+  rebuilt.close();
+  // A start time that can't be read falls back to the file's time.
+  assert.equal(parseCallMarkdown(F1, md.replace(/started: \S+/, 'started: soon')).startedAt, fileTime(F1));
 });
 
 test('index, get, latest and count; re-indexing replaces a call; bad records are refused', () => {

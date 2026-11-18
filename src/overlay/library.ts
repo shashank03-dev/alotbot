@@ -106,7 +106,9 @@ export function parseCallMarkdown(file: string, markdown: string): NewCallRecord
     if (!sections.has(title)) sections.set(title, nl < 0 ? '' : p.slice(nl + 1));
   }
   const head = parts[0];
-  const startedAt = fileTime(file);
+  // The start time overlayMarkdown writes; an older file has none, and its save time stands in.
+  const started = Date.parse([...markdown.matchAll(/^<!-- started: (\S+) -->$/gm)].at(-1)?.[1] ?? '');
+  const startedAt = Number.isFinite(started) ? started : fileTime(file);
   const minutes = Number(/^Length: (\d+) min/m.exec(head)?.[1] ?? 0);
   const bots = (/^Bots: (.*?)\s*$/m.exec(head)?.[1] ?? '').split(',').map((b) => b.trim()).filter((b) => b && b !== 'none');
   const kind: CallKind = /^Kind: meeting\s*$/m.test(head) ? 'meeting' : 'call';
