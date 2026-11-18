@@ -690,7 +690,7 @@ export class IncomingCalls {
     const r = oneLine(reason, REASON_MAX);
     if (!r) throw new IncomingError('Give reason: what you will call about.');
     const now = this.d.now();
-    if (when.at !== null && (when.at <= now || when.at > now + CALLBACK_MAX_MS)) throw new IncomingError('A callback must be in the future and within 7 days.');
+    if (when.at !== null && (!Number.isFinite(when.at) || when.at <= now || when.at > now + CALLBACK_MAX_MS)) throw new IncomingError('A callback must be in the future and within 7 days.');
     if (when.at === null && !when.waitsFor.length) throw new IncomingError('You have no job under way to wait for. Give in_minutes or at instead.');
     if (this.s.callbacks.filter((c) => c.botId === botId).length >= CALLBACKS_PER_BOT) {
       throw new IncomingError(`You already have ${CALLBACKS_PER_BOT} callbacks waiting. One of them has to happen first.`);
@@ -828,5 +828,7 @@ export function callbackWhen(args: Record<string, unknown>, now: number, zone: s
   const day = new Date(Date.UTC(y, mo - 1, d));
   if (mo < 1 || mo > 12 || day.getUTCMonth() !== mo - 1 || day.getUTCDate() !== d || h > 23 || mi > 59) throw new IncomingError('at must be a real date and time.');
   const at = offset ? Date.parse(text.replace(' ', 'T').replace(/([+-]\d{2})(\d{2})$/, '$1:$2')) : zonedTime(y, mo, d, h, mi, zone);
+  // An offset that does not exist, such as +24:00, reads as no time at all.
+  if (!Number.isFinite(at)) throw new IncomingError('at must be a real date and time.');
   return { at, jobs: false };
 }

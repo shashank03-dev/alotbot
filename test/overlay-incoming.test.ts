@@ -279,6 +279,21 @@ test('callbackWhen reads minutes, clock times, ISO times and job waits, and refu
 
 // ---------- standing calls ----------
 
+// A bot gave an offset that does not exist: Date.parse gave NaN, which passed every check, rang at once and told the
+// bot "rings Shashank at Invalid Date".
+test('a call back at an impossible offset is refused, and a time that is not a number never rings', () => {
+  for (const at of ['2026-11-20T15:30+24:00', '2026-11-20T15:30-9959']) {
+    assert.throws(() => callbackWhen({ at }, WED_1300, 'UTC'), (e: unknown) => e instanceof IncomingError && /real date and time/.test((e as Error).message), at);
+  }
+  const h = harness();
+  h.inc.start();
+  for (const at of [Number.NaN, Number.POSITIVE_INFINITY]) {
+    assert.throws(() => h.inc.addCallback('a', 'Bot A', 'Check in', { at, waitsFor: [] }), /in the future and within 7 days/);
+  }
+  assert.deepEqual(h.inc.state().callbacks, []);
+  assert.equal(h.inc.state().ringing, null);
+});
+
 test('a standing call rings at its time, is missed if nobody answers, and rings again next week', () => {
   const h = harness();
   h.inc.start();
