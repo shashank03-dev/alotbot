@@ -633,7 +633,8 @@ final class AppModel: ObservableObject {
     func refreshLibrary(query: String = "", kind: String? = nil, more: Bool = false) async {
         var args: [String: Any] = ["query": query, "limit": 40]
         if let kind { args["kind"] = kind }
-        if more, let last = library?.calls.last { args["before"] = Int(last.startedAt) }
+        // The last call shown, by start time and id: calls that started in the same second are not skipped.
+        if more, let last = library?.calls.last { args["before"] = Int(last.startedAt); args["beforeId"] = last.id }
         do {
             let page: LibraryPage = try await backend.request("library", args)
             if more, var current = library {

@@ -371,19 +371,21 @@ export class CallLibrary {
   }
 
   /**
-   * Calls newest first, `before` (a startedAt) pages back. With a query, only calls that match, each with its best
-   * passage, newest first.
+   * Calls newest first. `before` and `beforeId` (the last call shown) page back; calls that started in the same
+   * millisecond are told apart by id. With a query, only calls that match, each with its best passage, newest first.
    */
-  list(opts: { query?: string; limit?: number; before?: number; kind?: CallKind } = {}): { calls: ListedCall[]; hasMore: boolean } {
+  list(opts: { query?: string; limit?: number; before?: number; beforeId?: string; kind?: CallKind } = {}): { calls: ListedCall[]; hasMore: boolean } {
     const limit = Math.max(1, Math.min(LIST_MAX, Math.trunc(opts.limit ?? 30) || 1));
     const before = opts.before ?? Number.MAX_SAFE_INTEGER;
+    // No id: every call that started at `before` is after the page ('' sorts before every id).
+    const beforeId = opts.beforeId ?? '';
     const kind = opts.kind ?? null;
     const query = opts.query?.trim() ? opts.query : '';
     let rows: (CallRow & { field?: string; who?: string | null; snippet?: string })[];
     if (!query) {
       rows = this.db
-        .prepare('SELECT * FROM calls WHERE started_at < ? AND (? IS NULL OR kind = ?) ORDER BY started_at DESC, id DESC LIMIT ?')
-        .all(before, kind, kind, limit + 1) as unknown as CallRow[];
+        .prepare('SELECT * FROM calls WHERE (started_at < ? OR (started_at = ? AND id < ?)) AND (? IS NULL OR kind = ?) ORDER BY started_at DESC, id DESC LIMIT ?')
+        .all(before, before, beforeId, kind, kind, limit + 1) as unknown as CallRow[];
     } else {
       rows = [];
       for (const any of [false, true]) {
@@ -395,10 +397,10 @@ export class CallLibrary {
              hits AS (SELECT m.*, row_number() OVER (PARTITION BY call_id ORDER BY rank) AS r FROM m)
              SELECT c.*, h.field AS field, h.who AS who, h.snippet AS snippet
              FROM hits h JOIN calls c ON c.id = h.call_id
-             WHERE h.r = 1 AND c.started_at < ? AND (? IS NULL OR c.kind = ?)
+             WHERE h.r = 1 AND (c.started_at < ? OR (c.started_at = ? AND c.id < ?)) AND (? IS NULL OR c.kind = ?)
              ORDER BY c.started_at DESC, c.id DESC LIMIT ?`,
           )
-          .all(q, before, kind, kind, limit + 1) as unknown as typeof rows;
+          .all(q, before, before, beforeId, kind, kind, limit + 1) as unknown as typeof rows;
         if (rows.length) break;
       }
     }

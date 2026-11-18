@@ -945,6 +945,8 @@ test('library requests check their arguments', async () => {
   const c = await connect(h);
   await c.fails('library', { query: 5 }, /query must be text/);
   await c.fails('library', { kind: 'party' }, /kind must be call or meeting/);
+  await c.fails('library', { before: 1, beforeId: 5 }, /beforeId/);
+  assert.deepEqual((await c.ok('library', { before: Date.now(), beforeId: 'call-x' })).calls, []);
   await c.fails('library', { limit: 'ten' }, /limit must be a whole number/);
   await c.fails('library', { before: 1.5 }, /before must be a whole number/);
   await c.fails('libraryCall', {}, /id is required/);

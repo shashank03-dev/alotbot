@@ -236,6 +236,24 @@ test('list: newest first, paged, by kind, and searched with the best match of ea
   lib.close();
 });
 
+// "Show more" sent the last call's start time only, so a call that started in the same second was skipped.
+test('paging one call at a time reaches every call once, even two that started in the same second', () => {
+  const lib = new CallLibrary(dir());
+  for (const f of [F1, F2, F3]) lib.index(rec(f, { summary: 'Pricing.' }));
+  for (const query of [undefined, 'pricing']) {
+    const seen: string[] = [];
+    let page = lib.list({ limit: 1, query });
+    for (;;) {
+      seen.push(...page.calls.map((c) => c.id));
+      if (!page.hasMore) break;
+      const last = page.calls.at(-1)!;
+      page = lib.list({ limit: 1, query, before: last.startedAt, beforeId: last.id });
+    }
+    assert.deepEqual(seen, [callIdOf(F3), callIdOf(F2), callIdOf(F1)], String(query));
+  }
+  lib.close();
+});
+
 test('remove, and backfill from the calls folder: adds new files, drops gone ones, skips unreadable ones', () => {
   const d = dir();
   const callsDir = path.join(d, 'calls');

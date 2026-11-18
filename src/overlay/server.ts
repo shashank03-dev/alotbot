@@ -529,7 +529,8 @@ export function createOverlayServer(opts: OverlayOptions) {
           if (m.kind !== undefined && m.kind !== null && !CALL_KINDS.includes(m.kind as CallKind)) throw new ClientError('kind must be call or meeting');
           const limit = m.limit === undefined || m.limit === null ? undefined : int(m.limit, 'limit');
           const before = m.before === undefined || m.before === null ? undefined : int(m.before, 'before');
-          return { ...needLibrary().list({ query: (m.query as string | null) ?? '', limit, before, kind: (m.kind as CallKind | null) ?? undefined }), total: needLibrary().count() };
+          const beforeId = m.beforeId === undefined || m.beforeId === null ? undefined : str(m.beforeId, 'beforeId');
+          return { ...needLibrary().list({ query: (m.query as string | null) ?? '', limit, before, beforeId, kind: (m.kind as CallKind | null) ?? undefined }), total: needLibrary().count() };
         }
         case 'libraryCall': {
           const found = this.libraryGet(str(m.id, 'id'));
