@@ -1009,7 +1009,8 @@ export class BotLink {
     // the bot's own last line gave the voice model nothing new: it repeated that line, and a retry never started.
     if (instructions && this.call.phase === 'wrapping') this.say(`${USER} is ending the call. Call save_summary now.`);
     // Asked for text only, but the voice server may still send audio, so wrap-up audio is dropped where it arrives.
-    const response = { ...(instructions ? { instructions } : {}), ...(this.call.phase === 'wrapping' ? { modalities: ['text'] } : {}) };
+    // Text only while the call ends, and while the call's bots only whisper (a meeting heard through speakers).
+    const response = { ...(instructions ? { instructions } : {}), ...(this.call.phase === 'wrapping' || this.call.textOnly ? { modalities: ['text'] } : {}) };
     this.send({ type: 'response.create', event_id: this.pendingEventId, ...(Object.keys(response).length ? { response } : {}) });
     this.watch(RESPONSE_START_MS);
   }
@@ -1192,22 +1193,28 @@ export class BotLink {
         if (this.active) this.watch(RESPONSE_STALL_MS);
         const pcm = fromBase64(e.delta);
         this.audioMs += (pcm.length / SAMPLE_RATE) * 1000;
-        if (this.discard || this.call.phase === 'wrapping') return;
+        // Text-only replies may still come with audio: it is dropped here, so nothing is played.
+        if (this.discard || this.call.phase === 'wrapping' || this.call.textOnly) return;
         if (this.holding) this.held.push([this.itemKey(), pcm16ToFloat(pcm)]);
         else this.call.player.enqueue(this.bot.id, this.itemKey(), pcm16ToFloat(pcm));
         return;
       }
+      // A text-only reply's words come as output text; a spoken one's as its audio transcript. Both read the same.
+      case 'response.output_text.delta':
       case 'response.output_audio_transcript.delta':
         if (typeof e.delta !== 'string') return;
         if (this.active) this.watch(RESPONSE_STALL_MS);
         this.text += e.delta;
         if (this.holding && hasRealWords(this.text, this.call.roster())) this.release();
         return;
-      case 'response.output_audio_transcript.done':
-        if (typeof e.transcript !== 'string') return;
-        this.text = e.transcript;
+      case 'response.output_text.done':
+      case 'response.output_audio_transcript.done': {
+        const full = e.type === 'response.output_text.done' ? e.text : e.transcript;
+        if (typeof full !== 'string') return;
+        this.text = full;
         if (this.holding && hasRealWords(this.text, this.call.roster())) this.release();
         return;
+      }
       case 'response.function_call_arguments.done':
         if (this.active) this.watch(RESPONSE_STALL_MS);
         if (typeof e.call_id === 'string' && typeof e.name === 'string') {
@@ -1552,6 +1559,7 @@ export class Call {
     this.opened = false;
     this.greetTimer = null;
     this.muted = false;
+    this.textOnly = false; // bots reply in text, never aloud (whispers in a meeting)
     this.userSpeaking = false;
     this.waitingForHost = false; // a bot used wait_for_host (or every bot passed): no bot turns until Shashank speaks
     this.passes = 0; // passes in a row

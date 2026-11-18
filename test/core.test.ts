@@ -4144,3 +4144,37 @@ test('USER comes from GROK_CALL_USER, and falls back to Host', async () => {
   assert.equal(read({}), 'Host');
   assert.equal(read({ GROK_CALL_USER: 'Priya' }), 'Priya');
 });
+
+test('text-only calls: replies are asked for as text, any audio is dropped, and the words still count', async () => {
+  const { call, audio, ws, ready } = setup();
+  call.join([bot('a'), bot('b')]);
+  await ready('a');
+  await ready('b');
+  call.textOnly = true;
+  call.sendText('Bot A, what is the revenue figure?');
+  const ask = ws('a').sent.filter((m: any) => m.type === 'response.create').at(-1);
+  assert.deepEqual(ask.response.modalities, ['text']);
+  const played = audio.played.length;
+  // Words as output text (the server honoured text only).
+  ws('a').emit('response.created', { response: { id: 'r' } });
+  ws('a').emit('response.output_item.added', { item: { id: 'i1' } });
+  ws('a').emit('response.output_text.delta', { delta: 'It was ' });
+  assert.equal(call.links.get('a').text, 'It was ');
+  ws('a').emit('response.output_text.delta', { delta: 7 });
+  ws('a').emit('response.output_text.done', { text: 'It was 4.2 million.' });
+  ws('a').emit('response.output_text.done', { text: null });
+  ws('a').emit('response.done', { response: { status: 'completed' } });
+  assert.equal(call.lines.at(-1).text, 'It was 4.2 million.');
+  // Audio anyway (the server spoke): none of it plays, and its transcript still counts.
+  call.sendText('Bot A, and margin?');
+  speak(ws('a'), 'Margin was 12 percent.');
+  assert.equal(audio.played.length, played, 'nothing was played');
+  assert.equal(call.lines.at(-1).text, 'Margin was 12 percent.');
+  assert.match(ws('b').said().at(-1)!, /\[Bot A\]: Margin was 12 percent\./);
+  // Back to voice: audio plays, and replies are no longer text only.
+  call.textOnly = false;
+  call.sendText('Bot A, say it aloud.');
+  assert.equal(ws('a').sent.filter((m: any) => m.type === 'response.create').at(-1).response, undefined);
+  speak(ws('a'), 'Twelve percent.');
+  assert.ok(audio.played.length > played);
+});

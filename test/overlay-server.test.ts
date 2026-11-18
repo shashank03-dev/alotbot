@@ -8,7 +8,7 @@ import { after, afterEach, test } from 'node:test';
 import { WebSocket, WebSocketServer } from 'ws';
 import { USER } from '../public/core.js';
 import { AuthStore } from '../src/auth.ts';
-import { actionView, AUDIO_LEAD_S, createOverlayServer, decodeMic, defaultOpenSocket, encodeBotAudio, MSG, upgradeAllowed } from '../src/overlay/server.ts';
+import { actionView, AUDIO_LEAD_S, createOverlayServer, parseMeeting, decodeMic, defaultOpenSocket, encodeBotAudio, MSG, upgradeAllowed } from '../src/overlay/server.ts';
 import { OverlayStore } from '../src/overlay/store.ts';
 import { FakeSocket, flush, hostSays, reply } from './overlay-fakes.ts';
 import { mock, sendJson, type Mock } from './helpers.ts';
@@ -1227,4 +1227,55 @@ test('a disk failure while saving incoming calls is reported as it is, not as a 
   fs.mkdirSync(path.join(file, 'blocked'), { recursive: true }); // a folder where the file goes: every save fails
   await c.fails('incomingSettings', { settings: { approvals: false } }, /EISDIR|ENOTEMPTY|EEXIST|directory/i);
   await c.fails('ringAnswer', { id: ring.id }, /EISDIR|ENOTEMPTY|EEXIST|directory/i);
+});
+
+// ---------- meetings ----------
+
+test('parseMeeting needs the app and the host\'s confirmation that the meeting knows it is transcribed', () => {
+  assert.equal(parseMeeting(undefined), null);
+  assert.equal(parseMeeting(null), null);
+  assert.deepEqual(parseMeeting({ app: '  zoom.us ', consent: true }), { app: 'zoom.us' });
+  for (const [raw, why] of [
+    ['zoom', /meeting must be an object/],
+    [['zoom'], /meeting must be an object/],
+    [{ consent: true }, /meeting.app must name the meeting app/],
+    [{ app: 'x'.repeat(101), consent: true }, /meeting.app must name/],
+    [{ app: 'zoom.us' }, /Confirm that the people in the meeting know/],
+    [{ app: 'zoom.us', consent: 'yes' }, /Confirm that/],
+  ] as [unknown, RegExp][]) assert.throws(() => parseMeeting(raw), why);
+});
+
+test('a meeting call: lines from the Mac reach the bots, whispers switch, and it is saved and searchable as a meeting', async () => {
+  const h = await start();
+  const c = await connect(h);
+  await c.fails('join', { botIds: ['a'], meeting: { app: 'zoom.us' } }, /Confirm that the people in the meeting know/);
+  await c.fails('meetingLine', { who: 'meeting', text: 'x' }, /not in a call/);
+  (h as any).expect(['a', 'b']);
+  await c.ok('join', { botIds: ['a', 'b'], meeting: { app: 'zoom.us', consent: true } });
+  await readyBots(h, ['a', 'b']);
+  const view = await c.next((m) => m.t === 'view' && m.view.meeting !== null, true);
+  assert.deepEqual(view.view.meeting, { app: 'zoom.us', whisper: 'text' });
+  assert.deepEqual(await c.ok('meetingLine', { who: 'meeting', text: 'The renewal is 40 thousand' }), { kept: true });
+  assert.deepEqual(await c.ok('meetingLine', { who: 'host', text: 'the renewal is 40 thousand' }), { kept: false });
+  await c.fails('meetingLine', { who: 'boss', text: 'x' }, /who must be meeting or host/);
+  await c.fails('meetingLine', { who: 'meeting', text: 5 }, /text must be text/);
+  assert.equal(h.sockets.get('b')!.said().at(-1), '[Meeting]: The renewal is 40 thousand');
+  await c.fails('setWhisper', { mode: 'loud' }, /mode must be text or voice/);
+  assert.deepEqual(await c.ok('setWhisper', { mode: 'voice' }), { whisper: 'voice' });
+  await c.next((m) => m.t === 'view' && m.view.meeting?.whisper === 'voice', true);
+  const a = h.sockets.get('a')!;
+  const leaving = c.op('leave');
+  await askedForSummary(a);
+  reply(a, '', [['save_summary', { summary: 'Renewal discussed.', action_items: [], decisions: ['Offer 40k'] }]]);
+  const left = (await leaving).result;
+  const md = await c.ok('callFile', { file: left.file });
+  assert.match(md.markdown, /^# Grok Meeting, .*\n\nBots: Bot A, Bot B  \nKind: meeting  \nLength: \d+ min\n/);
+  assert.match(md.markdown, /\*\*Meeting:\*\* The renewal is 40 thousand/);
+  const meetings = await c.ok('library', { kind: 'meeting' });
+  assert.deepEqual(meetings.calls.map((x: any) => [x.kind, x.decisions]), [['meeting', ['Offer 40k']]]);
+  // A normal call refuses meeting requests.
+  h.sockets.clear();
+  await inCall(h, c, ['a']);
+  await c.fails('meetingLine', { who: 'meeting', text: 'x' }, /not listening to a meeting/);
+  await c.fails('setWhisper', { mode: 'text' }, /not listening to a meeting/);
 });
