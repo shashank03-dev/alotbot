@@ -52,3 +52,13 @@ Status: **pass**, **fail**, **fixed** (with the commit), or **not possible** (wi
 | Check | Status | Evidence |
 | --- | --- | --- |
 | Launch animation plays in the middle of the screen | fixed in `2594917` | You saw the opening pill in a corner. Window list during launch: the opening panel was 580 x 300 at x 0, y 656 on a 1470 x 956 screen (bottom-left). `NSHostingView` resized the full-screen panel to the SwiftUI view's own size on its first pass. Fix: `sizingOptions = []` on the hosting view and the panel set to the screen frame. After: the panel is 1470 x 956 at 0, 0. New test `coversTheWholeScreenWithThePillInTheMiddle` fails before and passes after. Came in with `3550b7a`, not the new features. |
+
+## Phase 3: calls to you
+
+| Check | Status | Evidence |
+| --- | --- | --- |
+| Standing call form rejects no bots, no days | pass | You tried each; the form refused it |
+| Standing call form rejects a bad time | pass | The time can't be typed as free text in the form; the backend also refuses anything but `HH:MM` (`incoming.ts:175`, covered by `npm test`) |
+| More than 20 standing calls refused | pass | Backend: `incoming.ts:624` "You can have at most 20 standing calls.", tested in `test/overlay-incoming.test.ts:449` (passing). Not tried by hand. |
+| Standing call saved with an agenda | pass | `incoming.json` `schedules[0]`: bot `25839786` (Satya), agenda "Check if the beta is ready for Friday", timezone `Asia/Kolkata` |
+| Quiet hours are on by default | observation | `incoming.ts:152`: 22:00 to 08:00, on. My first schedule (Wednesday 00:00, set at 23:58 Wednesday, so it pointed at the past) would not have rung tonight in any case. |
