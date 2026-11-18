@@ -8,7 +8,7 @@ import { after, afterEach, test } from 'node:test';
 import { WebSocket, WebSocketServer } from 'ws';
 import { USER } from '../public/core.js';
 import { AuthStore } from '../src/auth.ts';
-import { actionView, AUDIO_LEAD_S, createOverlayServer, parseMeeting, decodeMic, defaultOpenSocket, encodeBotAudio, MSG, upgradeAllowed } from '../src/overlay/server.ts';
+import { actionView, AUDIO_LEAD_S, createOverlayServer, logArgs, parseMeeting, parseScreenSource, SCREEN_MIN_MS, SCREENSHOT_PATH, decodeMic, defaultOpenSocket, encodeBotAudio, MSG, upgradeAllowed } from '../src/overlay/server.ts';
 import { OverlayStore } from '../src/overlay/store.ts';
 import { FakeSocket, flush, hostSays, reply } from './overlay-fakes.ts';
 import { mock, sendJson, type Mock } from './helpers.ts';
@@ -1278,4 +1278,65 @@ test('a meeting call: lines from the Mac reach the bots, whispers switch, and it
   await inCall(h, c, ['a']);
   await c.fails('meetingLine', { who: 'meeting', text: 'x' }, /not listening to a meeting/);
   await c.fails('setWhisper', { mode: 'text' }, /not listening to a meeting/);
+});
+
+// ---------- sharing your screen ----------
+
+test('parseScreenSource and screenshot paths: what may be shared, and never a password manager', () => {
+  assert.deepEqual(parseScreenSource({ app: ' Safari ', title: ' Pricing  page ', kind: 'window' }), { app: 'Safari', title: 'Pricing page', kind: 'window' });
+  assert.deepEqual(parseScreenSource({ app: 'Display 1', kind: 'display' }), { app: 'Display 1', title: '', kind: 'display' });
+  for (const [m, why] of [
+    [{ kind: 'window' }, /app must name the shared app/],
+    [{ app: 'x'.repeat(101), kind: 'window' }, /app must name/],
+    [{ app: 'Safari', title: 't'.repeat(301), kind: 'window' }, /title is longer than 300/],
+    [{ app: 'Safari', kind: 'tab' }, /kind must be window or display/],
+    [{ app: '1Password 8', kind: 'window' }, /never shared with the bots: it holds passwords/],
+    [{ app: 'Keychain Access', kind: 'window' }, /never shared/],
+    [{ app: 'Safari', title: 'Bitwarden vault', kind: 'window' }, /never shared/],
+  ] as [Record<string, unknown>, RegExp][]) assert.throws(() => parseScreenSource(m), why);
+  assert.ok(SCREENSHOT_PATH.test('/Users/me/Library/Application Support/GrokCall/artifacts/screen-AB12-cd.png'));
+  for (const bad of ['relative/GrokCall/artifacts/screen-1.png', '/Users/me/GrokCall/artifacts/observation-1.png', '/Users/me/GrokCall/artifacts/screen-1.png.sh', '/etc/passwd']) assert.ok(!SCREENSHOT_PATH.test(bad), bad);
+});
+
+test('logArgs keeps only the size of screen text and meeting lines', () => {
+  assert.deepEqual(logArgs('screenUpdate', { text: 'secret numbers' }, { text: 'secret numbers' }), { chars: 14 });
+  assert.deepEqual(logArgs('meetingLine', { who: 'meeting', text: 'abc' }, {}), { who: 'meeting', chars: 3 });
+  assert.deepEqual(logArgs('screenUpdate', {}, {}), { chars: null });
+  assert.deepEqual(logArgs('workspace', { action: 'x', secret: 1 }, { secret: 1 }), { action: 'x' });
+  assert.deepEqual(logArgs('say', { text: 'hi' }, { text: 'hi' }), { text: 'hi' });
+});
+
+test('sharing a screen through the app: updates are checked, throttled, kept out of the log, and stop for password managers', async () => {
+  const h = await start();
+  const c = await connect(h);
+  await c.fails('screenShare', { app: 'Safari', kind: 'window' }, /not in a call/);
+  assert.equal(await c.ok('screenStop'), null, 'stopping outside a call is fine');
+  await inCall(h, c, ['a']);
+  await c.fails('screenUpdate', { text: 'x' }, /not sharing a screen/);
+  await c.fails('screenShare', { app: '1Password', kind: 'window' }, /holds passwords/);
+  assert.deepEqual(await c.ok('screenShare', { app: 'Safari', title: 'Pricing', kind: 'window' }), { sharing: true });
+  await c.next((m) => m.t === 'view' && m.view.screen?.app === 'Safari', true);
+  await c.fails('screenUpdate', { text: 5 }, /text must be text/);
+  await c.fails('screenUpdate', { text: 'x', screenshot: '/etc/passwd' }, /own screen captures/);
+  await c.fails('screenUpdate', { text: 'x', screenshot: '/a/GrokCall/artifacts/../artifacts/screen-1.png' }, /own screen captures/);
+  await c.fails('screenUpdate', { text: 'x', screenshot: 7 }, /own screen captures/);
+  await c.fails('screenUpdate', { text: 'x', title: 7 }, /title must be text/);
+  const shot = '/Users/me/Library/Application Support/GrokCall/artifacts/screen-1.png';
+  assert.deepEqual(await c.ok('screenUpdate', { text: 'TOTAL 4,200 secret', screenshot: shot, title: '  Pricing  ' }), { changed: true });
+  assert.deepEqual(await c.ok('screenUpdate', { text: 'TOTAL 9', title: null }), { changed: false, ignored: true }, 'too soon after the last one');
+  await new Promise((r) => setTimeout(r, SCREEN_MIN_MS + 50));
+  assert.deepEqual(await c.ok('screenUpdate', { text: 'TOTAL 4,200 secret' }), { changed: false });
+  const a = h.sockets.get('a')!;
+  await c.ok('say', { text: 'What is the total?' });
+  assert.ok(a.said().includes('[Screen]: Safari: "Pricing" shows:\nTOTAL 4,200 secret'));
+  // The window turns into a password manager: sharing stops.
+  await new Promise((r) => setTimeout(r, SCREEN_MIN_MS + 50));
+  await c.fails('screenUpdate', { text: 'vault', title: '1Password — Personal' }, /Sharing stopped: the shared window now shows a password manager/);
+  await c.next((m) => m.t === 'view' && m.view.screen === null, true);
+  assert.equal(await c.ok('screenStop'), null);
+  // The call log has sizes, not the screen's text.
+  const logs = fs.readdirSync(path.join(h.dir, 'logs')).filter((f) => f.startsWith('call-'));
+  const appLines = logs.flatMap((f) => fs.readFileSync(path.join(h.dir, 'logs', f), 'utf8').trim().split('\n')).map((l) => JSON.parse(l)).filter((e) => e.kind === 'app' && e.op === 'screenUpdate');
+  assert.ok(appLines.length >= 3);
+  assert.ok(appLines.every((e) => !JSON.stringify(e).includes('secret')));
 });

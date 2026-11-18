@@ -18,7 +18,7 @@ import { BadSetting, COLORS, LANGUAGES, OverlayGrokClient, parseNewBot, parseVoi
 import { OverlayStore } from './store.ts';
 import { CALL_KINDS, CallLibrary, type CallKind, callIdOf, LibraryError } from './library.ts';
 import { type ActionView, callbackWhen, IncomingCalls, IncomingError, type Ring } from './incoming.ts';
-import { type CallOpening, type MeetingInfo } from './call.ts';
+import { type CallOpening, type MeetingInfo, PRIVATE_APPS, SCREEN_TEXT_MAX, type ScreenSource } from './call.ts';
 import type { Action } from '../actions.ts';
 import { ActionStore } from '../actions.ts';
 import { CallActions } from '../dispatch.ts';
@@ -131,6 +131,33 @@ export function parseMeeting(raw: unknown): MeetingInfo | null {
   return { app };
 }
 
+/** The window or display shared with the bots, from the app. Password managers are never shared. */
+export function parseScreenSource(m: Record<string, unknown>): ScreenSource {
+  const clean = (v: unknown) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : '');
+  const app = clean(m.app);
+  const title = clean(m.title);
+  if (!app || app.length > 100) throw new ClientError('app must name the shared app (up to 100 characters)');
+  if (title.length > 300) throw new ClientError('title is longer than 300 characters');
+  if (m.kind !== 'window' && m.kind !== 'display') throw new ClientError('kind must be window or display');
+  if (PRIVATE_APPS.test(app) || PRIVATE_APPS.test(title)) throw new ClientError(`${app} is never shared with the bots: it holds passwords.`);
+  return { app, title, kind: m.kind };
+}
+
+/**
+ * What the call log keeps of an app request. Connection and workspace commands keep only their action; screen
+ * text and meeting lines only their size (the bots' sockets already log what they were told, once, not every read).
+ */
+export function logArgs(op: string, msg: Record<string, unknown>, args: Record<string, unknown>): Record<string, unknown> {
+  if (op === 'connections' || op === 'workspace') return { action: msg.action };
+  if (op === 'screenUpdate' || op === 'meetingLine') return { ...(op === 'meetingLine' ? { who: msg.who } : {}), chars: typeof msg.text === 'string' ? msg.text.length : null };
+  return args;
+}
+
+/** A screenshot the app saved of the shared screen: only its own artifacts folder's screen-*.png files. */
+export const SCREENSHOT_PATH = /^\/(?:[^/\0]+\/)*GrokCall\/artifacts\/screen-[A-Za-z0-9-]{1,64}\.png$/;
+/** The shared screen is read at most this often; faster updates are ignored. */
+export const SCREEN_MIN_MS = 900;
+
 export function createOverlayServer(opts: OverlayOptions) {
   const store = new AuthStore(opts.dataDir);
   const apiUrl = opts.apiUrl ?? API_URL;
@@ -220,6 +247,8 @@ export function createOverlayServer(opts: OverlayOptions) {
     timer: NodeJS.Timeout | null = null;
     audioId = 0;
     ending: Promise<unknown> | null = null;
+    /** When the shared screen was last taken in (ms). */
+    screenAt = 0;
     /** This call's log (logs/call-<time>.jsonl), open while the call is. */
     log: CallLog | null = null;
     mic = new MicStats(0);
@@ -306,7 +335,7 @@ export function createOverlayServer(opts: OverlayOptions) {
       const req = msg?.req ?? null;
       const op = String(msg?.op);
       const { op: _op, req: _req, ...args } = msg ?? {};
-      this.log?.write('app', { op, args: ['connections', 'workspace'].includes(op) ? { action: msg.action } : args });
+      this.log?.write('app', { op, args: logArgs(op, msg, args) });
       Promise.resolve()
         .then(() => this.run(op, msg ?? {}))
         .then(
@@ -400,6 +429,31 @@ export function createOverlayServer(opts: OverlayOptions) {
           if (typeof m.text !== 'string') throw new ClientError('text must be text');
           return { kept: call.meetingLine(m.who, m.text) };
         }
+        case 'screenShare': {
+          const call = this.inCall();
+          call.shareScreen(parseScreenSource(m));
+          this.screenAt = 0;
+          return { sharing: true };
+        }
+        case 'screenUpdate': {
+          const call = this.inCall();
+          if (!call.screen) throw new ClientError('not sharing a screen');
+          if (typeof m.text !== 'string') throw new ClientError('text must be text');
+          const shot = m.screenshot ?? null;
+          if (shot !== null && (typeof shot !== 'string' || !SCREENSHOT_PATH.test(shot) || shot.includes('/../'))) throw new ClientError('screenshot must be one of Grok Call\'s own screen captures');
+          if (m.title !== undefined && m.title !== null && typeof m.title !== 'string') throw new ClientError('title must be text');
+          const now = Date.now();
+          if (now - this.screenAt < SCREEN_MIN_MS) return { changed: false, ignored: true };
+          this.screenAt = now;
+          const title = typeof m.title === 'string' ? m.title.replace(/\s+/g, ' ').trim().slice(0, 300) : null;
+          if (title !== null && PRIVATE_APPS.test(title)) {
+            call.stopSharing();
+            throw new ClientError('Sharing stopped: the shared window now shows a password manager.');
+          }
+          return { changed: call.screenUpdate(m.text.slice(0, SCREEN_TEXT_MAX), shot as string | null, title) };
+        }
+        case 'screenStop':
+          return void (this.call?.phase === 'in-call' && this.call.stopSharing());
         case 'setWhisper': {
           const call = this.inCall();
           if (call.kind !== 'meeting') throw new ClientError('this call is not listening to a meeting');
