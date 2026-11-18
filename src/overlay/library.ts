@@ -156,6 +156,7 @@ CREATE TABLE lines (
   PRIMARY KEY (call_id, seq)
 );
 CREATE VIRTUAL TABLE docs USING fts5(call_id UNINDEXED, field UNINDEXED, who UNINDEXED, text, tokenize = 'unicode61 remove_diacritics 2');
+INSERT INTO docs(docs, rank) VALUES('secure-delete', 1);
 `;
 
 interface CallRow {
@@ -211,7 +212,9 @@ export class CallLibrary {
     const db = new DatabaseSync(this.file);
     try {
       if (!exists) fs.chmodSync(this.file, 0o600);
-      db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 2000;');
+      // A removed call's text is overwritten, not just unlinked: secure_delete for the tables, and the full-text
+      // index's own secure-delete (set in SCHEMA) for its words.
+      db.exec('PRAGMA secure_delete = ON; PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 2000;');
       const version = (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
       if (version !== LIBRARY_VERSION) {
         // An empty or older index: the calls are rebuilt from their Markdown files by backfill.
@@ -220,6 +223,11 @@ export class CallLibrary {
         db.exec(`PRAGMA user_version = ${LIBRARY_VERSION}`);
       }
       db.prepare('SELECT count(*) FROM docs').get();
+      // An index made before removed calls were overwritten: wipe what earlier removes left behind, once.
+      const secure = db.prepare("SELECT v FROM docs_config WHERE k = 'secure-delete'").get() as { v: number } | undefined;
+      if (secure?.v !== 1) {
+        db.exec("INSERT INTO docs(docs, rank) VALUES('secure-delete', 1); INSERT INTO docs(docs) VALUES('optimize'); VACUUM; PRAGMA wal_checkpoint(TRUNCATE);");
+      }
       return db;
     } catch (err) {
       db.close();
@@ -282,7 +290,10 @@ export class CallLibrary {
 
   remove(id: string): boolean {
     fileOfId(id);
-    return this.tx(() => this.removeRows(id));
+    const removed = this.tx(() => this.removeRows(id));
+    // The write-ahead log still holds the call's pages as they were: empty it now, not at the next close.
+    if (removed) this.db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+    return removed;
   }
 
   has(id: string): boolean {

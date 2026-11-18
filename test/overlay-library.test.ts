@@ -285,3 +285,41 @@ test('the index survives reopening, is rebuilt after a version change, and a dam
   assert.equal(fresh.count(), 1);
   fresh.close();
 });
+
+/** Whether `word` is anywhere in the library's files (the database, its WAL and shared memory). */
+const inFiles = (d: string, word: string) =>
+  fs.readdirSync(d).filter((f) => f.startsWith(LIBRARY_FILE)).some((f) => fs.readFileSync(path.join(d, f)).includes(word));
+
+test('a removed call leaves no trace of its words in the library files, and an older index is wiped once', () => {
+  const word = 'zanzibarquokka';
+  const d = dir();
+  const lib = new CallLibrary(d);
+  lib.index(rec(F1, { summary: `Talked about ${word}.`, lines: [{ who: 'Bot A', text: `the ${word} plan` }] }));
+  lib.index(rec(F2, { summary: 'Another call.', lines: [{ who: 'Bot A', text: 'pricing' }] }));
+  assert.equal(inFiles(d, word), true);
+  lib.remove(callIdOf(F1));
+  assert.equal(inFiles(d, word), false, 'gone while the library is open');
+  lib.close();
+  assert.equal(inFiles(d, word), false, 'gone after closing');
+  const kept = new CallLibrary(d);
+  assert.equal(kept.search('pricing').length, 1, 'the other call is still there');
+  kept.close();
+  // An index made before deleted calls were wiped: what an earlier delete left behind is wiped at the next open.
+  const old = dir();
+  new CallLibrary(old).close();
+  const raw = new DatabaseSync(path.join(old, LIBRARY_FILE));
+  raw.exec("PRAGMA secure_delete = OFF; INSERT INTO docs(docs, rank) VALUES('secure-delete', 0);");
+  raw.prepare('INSERT INTO calls VALUES (?,?,?,?,?,?,?,?,?,?)').run(callIdOf(F1), F1, 'call', 1, 2, '[]', word, '[]', '[]', 1);
+  raw.prepare('INSERT INTO lines VALUES (?,?,?,?,?)').run(callIdOf(F1), 1, 'Bot A', `the ${word} plan`, 0);
+  raw.prepare('INSERT INTO docs (call_id, field, who, text) VALUES (?,?,?,?)').run(callIdOf(F1), 'line', 'Bot A', `the ${word} plan`);
+  raw.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+  raw.exec(`DELETE FROM docs; DELETE FROM lines; DELETE FROM calls; PRAGMA wal_checkpoint(TRUNCATE);`);
+  raw.close();
+  assert.equal(inFiles(old, word), true, 'the old way left the words in the file');
+  const wiped = new CallLibrary(old);
+  wiped.close();
+  assert.equal(inFiles(old, word), false);
+  const check = new DatabaseSync(path.join(old, LIBRARY_FILE));
+  assert.deepEqual({ ...check.prepare("SELECT v FROM docs_config WHERE k = 'secure-delete'").get() }, { v: 1 }, 'marked, so it runs once');
+  check.close();
+});
