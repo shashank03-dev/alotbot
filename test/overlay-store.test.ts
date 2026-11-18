@@ -70,3 +70,13 @@ test('readCall only accepts call file names', () => {
   }
   assert.throws(() => s.readCall('call-2026-11-10T14-05-09Z.md'), /ENOENT/);
 });
+
+test('deleteCall removes one call file, accepts only call file names, and is fine when it is already gone', () => {
+  const s = fresh();
+  const name = s.saveCall({ summary: 'A', tasks: [] }, 'x', new Date('2026-11-10T14:05:09Z'));
+  for (const bad of ['../auth.json', 'overlay-memory.json', `${name}/../../a`]) assert.throws(() => s.deleteCall(bad), /not a call file name/);
+  s.deleteCall(name);
+  assert.deepEqual(s.listCalls(), []);
+  s.deleteCall(name);
+  assert.equal(s.readMemory()!.summary, 'A', 'memory is not the store\'s to change here');
+});

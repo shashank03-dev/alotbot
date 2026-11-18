@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  DECISIONS_MAX,
   hostName,
   BARGE_IN_LEVEL,
   Call,
@@ -1665,6 +1666,10 @@ test('exportMarkdown: summary, items, done tasks, notes, direction and transcrip
   assert.match(empty, /^# Grok Call, 1970-01-01T00:00:00\.000Z\n\nBots: none  \nLength: 0 min/);
   for (const t of ['_No summary was saved._', '## Action items\n\n_None._', '_Nothing was said._']) assert.ok(empty.includes(t), t);
   assert.ok(!empty.includes('## Notes') && !empty.includes('## Done during') && !empty.includes('## Current direction'));
+  assert.ok(!empty.includes('## Decisions'), 'old exports without decisions');
+  const decided = exportMarkdown({ ...data, decisions: ['Ship in May'] }, (ms) => `T${ms}`);
+  assert.match(decided, /## Summary\n\nTalked\.\n\n## Decisions\n\n- Ship in May\n\n## Action items/);
+  assert.ok(!exportMarkdown({ ...data, decisions: [] }).includes('## Decisions'));
 });
 
 test('joining with last call memory: bots are told, and the notepad starts with its notes and open items', async () => {
@@ -1702,12 +1707,14 @@ test('Leave: one bot saves the summary silently, then the export is ready', asyn
   ws('b').emit('conversation.item.input_audio_transcription.completed', { transcript: 'ignored now please' });
   assert.equal(call.view().userSpeaking, false);
   setClock(61_000);
-  useTool(ws('b'), 'save_summary', { summary: 'We chose May.', action_items: ['Email Sam', 'Book a venue', ''] });
+  useTool(ws('b'), 'save_summary', { summary: 'We chose May.', action_items: ['Email Sam', 'Book a venue', ''], decisions: ['Launch in May', ' ', ...Array.from({ length: DECISIONS_MAX + 3 }, (_, i) => `d${i}`)] });
   assert.equal(outputs(ws('b')).at(-1).output, 'Saved.');
   assert.notEqual(ws('b').types().at(-1), 'response.create', 'no follow-up while wrapping');
   const data = await pending;
   assert.equal(data.summary, 'We chose May.');
   assert.deepEqual(data.memory.actionItems, ['Email Sam', 'Book a venue']);
+  assert.equal(data.decisions.length, DECISIONS_MAX);
+  assert.equal(data.decisions[0], 'Launch in May');
   assert.deepEqual([data.startedAt, data.endedAt], [1_000, 61_000]);
   assert.deepEqual(data.bots, ['Bot A', 'Bot B']);
   assert.equal(data.lines.length, 3);

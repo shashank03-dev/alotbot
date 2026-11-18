@@ -4,6 +4,11 @@ import { BotLink, USER } from '../public/core.js';
 import { gaze, overlayMarkdown, TASK_TOOLS, tasksText } from '../src/overlay/call.ts';
 import { TaskBoard } from '../src/overlay/tasks.ts';
 import { bot, hostSays, reply, setup } from './overlay-fakes.ts';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { CallLibrary, callIdOf, fileTime } from '../src/overlay/library.ts';
+import { type PastCalls, RECALL_OUTPUT_MAX, RECALL_TOOLS, PAST_LINES } from '../src/overlay/call.ts';
 
 const A = bot('a');
 const B = bot('b');
@@ -270,6 +275,8 @@ test('overlayMarkdown writes summary, action items, tasks under parents, the tra
     timeline: [{ at: 0, kind: 'join', text: 'Bot A joined' }, { at: 75_400, kind: 'tool', text: 'Bot A searched its past chats for "x"' }],
     logFile: 'call-1970-01-01T00-00-00Z.jsonl' as string | null,
     saveWorthy: true,
+    decisions: [] as string[],
+    kind: 'call' as 'call' | 'meeting',
   };
   assert.equal(
     overlayMarkdown(d, () => 'T'),
@@ -289,6 +296,8 @@ test('overlayMarkdown writes summary, action items, tasks under parents, the tra
   assert.match(empty, /_No summary was saved\._\n\n## Transcript\n\n_Nothing was said\._/);
   assert.match(empty, /## Timeline\n\n_Nothing happened\._\n$/);
   assert.doesNotMatch(empty, /Full log/);
+  const meeting = overlayMarkdown({ ...d, kind: 'meeting', decisions: ['Ship in May', 'Price at $10'] }, () => 'T');
+  assert.match(meeting, /^# Grok Meeting, T\n\nBots: Bot A  \nKind: meeting  \nLength: 2 min\n\n## Summary\n\nWe met\.\n\n## Decisions\n\n- Ship in May\n- Price at \$10\n\n## Action items/);
 });
 
 test('a bot added mid-call gets the conversation so far; bad tool arguments count as none', async () => {
@@ -343,4 +352,182 @@ test('parent completion and newly added parts refresh every affected owner', asy
   call.addTask({ title: 'Review', owner: null, parent: 1, waitsOn: [] }, USER);
   assert.match(ws('a').lastSession().instructions, /#1 Launch · owner: Bot A · doing/);
   assert.match(ws('b').lastSession().instructions, /waiting on #1/);
+});
+
+// ---------- earlier calls: recall_calls, open_past_call, continuing a call ----------
+
+
+const PAST = 'call-2026-11-10T14-05-09Z.md';
+const pastRecord = (extra: object = {}) => ({
+  id: callIdOf(PAST), file: PAST, kind: 'call' as const, startedAt: fileTime(PAST), endedAt: fileTime(PAST) + 60_000,
+  bots: ['Bot A'], summary: 'We set the price.', decisions: ['Price is $10'], actionItems: ['Email Sam'], lineCount: 0, ...extra,
+});
+
+async function withPast(past: PastCalls | null, context = {}) {
+  const h = setup();
+  h.call.pastCalls = past;
+  h.call.formatTime = (ms: number) => `T${ms}`;
+  h.call.joinWith([A, B], [A, B, C], null, context);
+  await h.ready('a', 'b');
+  return h;
+}
+const lastOutput = (s: any) => s.outputs().at(-1) as string;
+
+test('with a call library, bots get the recall tools and are told how many earlier calls there are', async () => {
+  const fake = (n: number): PastCalls => ({ count: () => n, search: () => [], get: () => null });
+  const one = await withPast(fake(1));
+  const names = one.ws('a').lastSession().tools.map((t: any) => t.name);
+  for (const t of RECALL_TOOLS) assert.ok(names.includes(t.name));
+  assert.match(one.ws('a').lastSession().instructions, /# Earlier calls\nThere is 1 saved earlier call with Shashank\. .*use recall_calls/);
+  const many = await withPast(fake(12));
+  assert.match(many.ws('a').lastSession().instructions, /There are 12 saved earlier calls with Shashank\./);
+  const none = await withPast(fake(0));
+  assert.doesNotMatch(none.ws('a').lastSession().instructions, /# Earlier calls/);
+  const off = await withPast(null);
+  assert.ok(!off.ws('a').lastSession().tools.some((t: any) => t.name === 'recall_calls'));
+  assert.doesNotMatch(off.ws('a').lastSession().instructions, /# Earlier calls/);
+  // Asked anyway (an old session's tool list): told it is unavailable.
+  reply(off.ws('a'), '', [['recall_calls', { query: 'x' }]]);
+  assert.match(lastOutput(off.ws('a')), /Earlier calls are not available right now/);
+});
+
+test('continuing an earlier call: its summary, decisions and items are in every bot\'s instructions', async () => {
+  const fake: PastCalls = { count: () => 3, search: () => [], get: () => null };
+  const { ws } = await withPast(fake, { continued: pastRecord({ kind: 'meeting' }) });
+  const ins = ws('b').lastSession().instructions;
+  assert.match(ins, new RegExp(`# This call continues an earlier meeting \\(T${fileTime(PAST)}, id ${callIdOf(PAST)}\\)\\nSummary: We set the price\\.\\nDecisions:\\n- Price is \\$10\\nAction items:\\n- Email Sam\\nShashank picked it up again`));
+  const bare = await withPast(fake, { continued: pastRecord({ summary: '', decisions: [], actionItems: [] }) });
+  assert.match(bare.ws('a').lastSession().instructions, /# This call continues an earlier call \(T\d+, id call-[^)]+\)\nShashank picked it up again/);
+});
+
+test('recall_calls searches earlier calls, excluding the one being continued, and reports nothing found honestly', async () => {
+  const seen: any[] = [];
+  const fake: PastCalls = {
+    count: () => 2,
+    search: (q, limit, opts) => {
+      seen.push([q, limit, opts]);
+      if (q === 'zebra') return [];
+      return [
+        { callId: 'call-1', startedAt: 5, kind: 'meeting', field: 'line', who: 'Meeting', snippet: 'the «price» is ten' },
+        { callId: 'call-2', startedAt: 6, kind: 'call', field: 'decision', who: null, snippet: '«Price» is $10' },
+        { callId: 'call-3', startedAt: 7, kind: 'call', field: 'mystery', who: null, snippet: 'x' },
+      ];
+    },
+    get: () => null,
+  };
+  const h = await withPast(fake, { continued: pastRecord() });
+  const a = h.ws('a');
+  reply(a, '', [['recall_calls', { query: '  price  ', limit: 3 }]]);
+  assert.equal(
+    lastOutput(a),
+    'Earlier calls matching "price" (best first; «» marks the matched words):\n' +
+      '- meeting T5 [id call-1] said by Meeting: the «price» is ten\n' +
+      '- call T6 [id call-2] decision: «Price» is $10\n' +
+      '- call T7 [id call-3] mystery: x',
+  );
+  assert.deepEqual(seen[0], ['price', 3, { excludeId: callIdOf(PAST) }]);
+  reply(a, '', [['recall_calls', { query: 'price', limit: 99 }]]);
+  reply(a, '', [['recall_calls', { query: 'price', limit: 0 }]]);
+  reply(a, '', [['recall_calls', { query: 'price', limit: 'lots' }]]);
+  assert.deepEqual(seen.slice(1).map((s) => s[1]), [8, 1, 8]);
+  reply(a, '', [['recall_calls', { query: 'zebra' }]]);
+  assert.equal(lastOutput(a), 'Nothing in earlier calls matches "zebra". Say so; do not guess.');
+  reply(a, '', [['recall_calls', { query: '   ' }]]);
+  assert.match(lastOutput(a), /^Not done: give query/);
+  reply(a, '', [['recall_calls', { query: 42 }]]);
+  assert.match(lastOutput(a), /^Not done: give query/);
+  assert.ok(h.call.timeline.some((e: any) => e.text === 'Bot A searched earlier calls for "price" (3 found)'));
+  // The bot speaks from what it found.
+  assert.equal(a.sent.at(-1).type, 'response.create');
+  // Without a continued call, nothing is excluded.
+  const plain = await withPast(fake);
+  reply(plain.ws('a'), '', [['recall_calls', { query: 'price' }]]);
+  assert.deepEqual(seen.at(-1)[2], { excludeId: undefined });
+});
+
+test('open_past_call returns the call and the lines about a topic, capped, and refuses unknown ids', async () => {
+  const lines = [
+    { seq: 1, who: 'Shashank', text: 'Hi', cut: false },
+    { seq: 2, who: 'Bot A', text: 'Let us talk pricing', cut: false },
+    { seq: 3, who: 'Bot B', text: 'Ten dollars', cut: true },
+    { seq: 4, who: 'Shashank', text: 'ok', cut: false },
+    { seq: 5, who: 'Bot A', text: 'Anything else?', cut: false },
+  ];
+  let record: any = pastRecord();
+  let rows = lines;
+  const fake: PastCalls = {
+    count: () => 1,
+    search: () => [],
+    get: (id) => {
+      if (id === 'boom') throw new Error('not a saved call id');
+      if (id === 'disk') throw new TypeError('database is locked');
+      return id === record.id ? { call: record, lines: rows } : null;
+    },
+  };
+  const h = await withPast(fake);
+  const a = h.ws('a');
+  reply(a, '', [['open_past_call', { id: record.id, about: 'PRICING!' }]]);
+  assert.equal(
+    lastOutput(a),
+    `Call of T${fileTime(PAST)} with Bot A:\nSummary: We set the price.\nDecisions:\n- Price is $10\nAction items:\n- Email Sam\n` +
+      'Transcript lines about "PRICING!":\n[Shashank]: Hi\n[Bot A]: Let us talk pricing\n[Bot B (cut off)]: Ten dollars',
+  );
+  reply(a, '', [['open_past_call', { id: record.id }]]);
+  assert.match(lastOutput(a), /Transcript:\n\[Shashank\]: Hi[\s\S]*\[Bot A\]: Anything else\?$/);
+  reply(a, '', [['open_past_call', { id: record.id, about: 'zebra' }]]);
+  assert.match(lastOutput(a), /No transcript line mentions "zebra"\.$/);
+  reply(a, '', [['open_past_call', { id: record.id, about: '!! a b' }]]);
+  assert.match(lastOutput(a), /Transcript:\n\[Shashank\]: Hi/, 'no usable words: every line');
+  rows = Array.from({ length: PAST_LINES + 10 }, (_, i) => ({ seq: i + 1, who: 'Bot A', text: `line ${i + 1}`, cut: false }));
+  reply(a, '', [['open_past_call', { id: record.id }]]);
+  assert.match(lastOutput(a), new RegExp(`Transcript \\(last lines\\):\\n\\[Bot A\\]: line 11\\n[\\s\\S]*line ${PAST_LINES + 10}$`));
+  rows = [];
+  record = pastRecord({ kind: 'meeting', bots: [], summary: '', decisions: [], actionItems: [] });
+  reply(a, '', [['open_past_call', { id: record.id }]]);
+  assert.equal(lastOutput(a), `Meeting of T${fileTime(PAST)} with no bots:\nSummary: none saved\nDecisions: none recorded\nNothing was said.`);
+  rows = [{ seq: 1, who: 'Bot A', text: 'x'.repeat(RECALL_OUTPUT_MAX + 100), cut: false }];
+  reply(a, '', [['open_past_call', { id: record.id }]]);
+  assert.equal(lastOutput(a).length, RECALL_OUTPUT_MAX + '\n[cut: ask with narrower words for more]'.length);
+  for (const id of ['boom', 'nope', '', 7]) {
+    reply(a, '', [['open_past_call', { id }]]);
+    assert.match(lastOutput(a), /^There is no earlier call with id "(boom|nope|)"\. Use the id recall_calls gave\.$/);
+  }
+  // Anything else going wrong (a locked database) is told, not thrown.
+  const before = h.call.timeline.length;
+  fake.get = () => { throw new TypeError('database is locked'); };
+  // get throwing is treated as "not an id"; a search failure is the failure path.
+  fake.search = () => { throw new Error('database is locked'); };
+  reply(a, '', [['recall_calls', { query: 'price' }]]);
+  assert.equal(lastOutput(a), 'Not done: earlier calls could not be read right now. Tell the host in a few words.');
+  assert.ok(h.call.timeline.slice(before).some((e: any) => e.kind === 'error' && /could not be read \(database is locked\)/.test(e.text)));
+  assert.ok(h.call.timeline.some((e: any) => e.text === `Bot A opened the meeting of T${fileTime(PAST)}`));
+});
+
+test('recall against a real library: search, open, and the default time format', async () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'grok-call-recall-'));
+  try {
+    const lib = new CallLibrary(d);
+    lib.index({ ...pastRecord(), lines: [{ who: 'Bot A', text: 'We should launch in May' }] });
+    const h = setup();
+    h.call.pastCalls = lib;
+    h.call.joinWith([A], [A], null);
+    await h.ready('a');
+    reply(h.ws('a'), '', [['recall_calls', { query: 'launch' }]]);
+    assert.match(lastOutput(h.ws('a')), /- call [A-Z][a-z]{2} \d{1,2}, 2026, \d{1,2}:\d{2}\s?[AP]M \[id call-2026-11-10T14-05-09Z\] said by Bot A: We should «launch» in May/);
+    reply(h.ws('a'), '', [['open_past_call', { id: callIdOf(PAST), about: 'launch' }]]);
+    assert.match(lastOutput(h.ws('a')), /\[Bot A\]: We should launch in May$/);
+    lib.close();
+  } finally {
+    fs.rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test('overlayExport carries the decisions and the kind of call', async () => {
+  const { call, ws } = await twoBots();
+  hostSays(ws('a'), 'Bot A, what price?');
+  reply(ws('a'), 'Ten dollars.');
+  reply(ws('a'), '', [['save_summary', { summary: 'Priced.', action_items: [], decisions: ['Price is $10', '', 5] }]]);
+  const d = call.overlayExport();
+  assert.deepEqual(d.decisions, ['Price is $10', '5']);
+  assert.equal(d.kind, 'call');
 });
