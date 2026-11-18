@@ -862,6 +862,8 @@ export class BotLink {
     this.active = false; // a reply is being generated
     this.discard = false; // drop the current reply's audio
     this.suppressNext = false; // cancel the next reply as soon as it starts
+    this.speakingItem = null; // the item Shashank is speaking, until the server commits it: transcripts before that are partial
+    this.heardItem = null; // the last item whose final transcript was handled, so a repeat of it is not heard twice
     this.itemId = null;
     this.text = '';
     this.audioMs = 0; // audio generated so far for the current reply, played or not
@@ -1286,8 +1288,16 @@ export class BotLink {
         if (this.active && e.item?.type === 'function_call_output' && this.sentUpdates.has(e.item.call_id)) this.updateMissed = true;
         return;
       case 'input_audio_buffer.speech_started':
+        if (e.item_id) this.speakingItem = e.item_id;
         return this.call.onSpeechStart(this);
+      case 'input_audio_buffer.committed':
+        if (e.item_id === this.speakingItem) this.speakingItem = null;
+        return;
+      // Since 2026-11-18 the voice server sends this several times per item while he is still talking, each one
+      // longer (call-2026-11-18T18-10-32Z kept 5 lines for one sentence). Only the one after the commit is final.
       case 'conversation.item.input_audio_transcription.completed':
+        if (e.item_id && (e.item_id === this.speakingItem || e.item_id === this.heardItem)) return;
+        if (e.item_id) this.heardItem = e.item_id;
         return this.call.onTranscript(this, typeof e.transcript === 'string' ? e.transcript : '');
       case 'error': {
         const message = typeof e.error?.message === 'string' && e.error.message ? e.error.message : 'unknown error';

@@ -420,6 +420,36 @@ test('Shashank speaks: mic goes to the listening bot, others get his words as te
   runTimers();
 });
 
+// Voice server of 2026-11-18: "completed" arrives several times per item while he is still talking, each one longer;
+// only the one after the item is committed is final (call-2026-11-18T18-10-32Z: 5 lines for one sentence).
+test('transcripts sent before the item is committed are partial: one line per spoken item, passed on once', async () => {
+  const { call, ws, ready } = setup();
+  call.join([bot('a'), bot('b')]);
+  await ready('a');
+  await ready('b');
+  const item = { item_id: 'u1' };
+  ws('a').emit('input_audio_buffer.speech_started', item);
+  ws('a').emit('conversation.item.input_audio_transcription.completed', { ...item, transcript: 'Okay, let us decide' });
+  ws('a').emit('conversation.item.input_audio_transcription.completed', { ...item, transcript: 'Okay, let us decide to ship' });
+  assert.equal(call.view().userSpeaking, true, 'still talking');
+  assert.deepEqual(ws('b').said(), []);
+  ws('a').emit('input_audio_buffer.speech_started', item); // the server repeats it for the same item
+  ws('a').emit('input_audio_buffer.committed', item);
+  ws('a').emit('conversation.item.input_audio_transcription.completed', { ...item, transcript: 'Okay, let us decide to ship on Friday.' });
+  ws('a').emit('conversation.item.input_audio_transcription.completed', { ...item, transcript: 'Okay, let us decide to ship on Friday.' });
+  assert.equal(call.view().userSpeaking, false);
+  assert.deepEqual(ws('b').said(), ['[Shashank (host)]: Okay, let us decide to ship on Friday.']);
+  assert.deepEqual(call.lines.filter((l: { who: string }) => l.who === USER).map((l: { text: string }) => l.text), ['Okay, let us decide to ship on Friday.']);
+  // The next item is heard as usual; a commit for some other item does not end it early.
+  ws('a').emit('input_audio_buffer.speech_started', { item_id: 'u2' });
+  ws('a').emit('input_audio_buffer.committed', { item_id: 'other' });
+  ws('a').emit('conversation.item.input_audio_transcription.completed', { item_id: 'u2', transcript: 'And the code' });
+  assert.equal(ws('b').said().length, 1);
+  ws('a').emit('input_audio_buffer.committed', { item_id: 'u2' });
+  ws('a').emit('conversation.item.input_audio_transcription.completed', { item_id: 'u2', transcript: 'And the code word is pineapple.' });
+  assert.equal(ws('b').said().at(-1), '[Shashank (host)]: And the code word is pineapple.');
+});
+
 test('if the listening bot does not reply by itself, it is nudged', async () => {
   const { call, ws, ready, timers } = setup();
   call.join([bot('a')]);
