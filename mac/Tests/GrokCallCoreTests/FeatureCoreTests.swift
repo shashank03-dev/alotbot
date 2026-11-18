@@ -148,6 +148,19 @@ import Testing
         #expect(old.snoozed == nil && old.ringing?.at == nil, "an older backend sends neither")
     }
 
+    /// "Until tomorrow morning" pressed after midnight lasted until the next day's 08:00.
+    @Test func doNotDisturbUntilMorningIsTheNext8am() throws {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = try #require(TimeZone(identifier: "Europe/London"))
+        func at(_ d: Int, _ h: Int, _ m: Int) -> Date { cal.date(from: DateComponents(year: 2026, month: 11, day: d, hour: h, minute: m))! }
+        #expect(DoNotDisturb.morning(after: at(19, 23, 30), calendar: cal) == at(20, 8, 0), "evening: tomorrow")
+        #expect(DoNotDisturb.morning(after: at(20, 0, 0), calendar: cal) == at(20, 8, 0), "midnight: this morning")
+        #expect(DoNotDisturb.morning(after: at(20, 1, 15), calendar: cal) == at(20, 8, 0), "after midnight: this morning")
+        #expect(DoNotDisturb.morning(after: at(20, 7, 59), calendar: cal) == at(20, 8, 0))
+        #expect(DoNotDisturb.morning(after: at(20, 8, 0), calendar: cal) == at(21, 8, 0), "8:00 itself: tomorrow")
+        #expect(DoNotDisturb.morning(after: at(20, 13, 0), calendar: cal) == at(21, 8, 0))
+    }
+
     @Test func weekdaysInWords() {
         #expect(Weekdays.describe([1, 2, 3, 4, 5]) == "Weekdays")
         #expect(Weekdays.describe([0, 1, 2, 3, 4, 5, 6]) == "Every day")

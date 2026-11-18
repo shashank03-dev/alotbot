@@ -215,11 +215,9 @@ struct IncomingSettingsView: View {
         Task { await model.setIncomingSettings(["doNotDisturbUntil": until]) }
     }
 
-    /// Seconds until 8:00 tomorrow.
+    /// Seconds until the next 8:00 (this morning when pressed after midnight).
     private func untilMorning() -> Double {
-        let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date()
-        let eight = Calendar.current.date(bySettingHour: 8, minute: 0, second: 0, of: tomorrow) ?? tomorrow
-        return min(eight.timeIntervalSinceNow, 7 * 86_400 - 60)
+        min(DoNotDisturb.morning(after: Date()).timeIntervalSinceNow, 7 * 86_400 - 60)
     }
 
     // MARK: call backs

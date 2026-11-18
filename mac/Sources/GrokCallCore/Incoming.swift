@@ -169,3 +169,14 @@ public struct StandingCallDraft: Equatable, Sendable {
         return b
     }
 }
+
+/// Do not disturb's "Until tomorrow morning".
+public enum DoNotDisturb {
+    /// The next 08:00 after `now`: today's when it is not 08:00 yet (pressed after midnight), else tomorrow's.
+    public static func morning(after now: Date, calendar: Calendar = .current) -> Date {
+        let today = calendar.date(bySettingHour: 8, minute: 0, second: 0, of: now) ?? now
+        if today > now { return today }
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: now) ?? now
+        return calendar.date(bySettingHour: 8, minute: 0, second: 0, of: tomorrow) ?? tomorrow
+    }
+}
