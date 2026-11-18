@@ -1115,6 +1115,32 @@ test('standing calls: save, ring now, answer (the first bot opens with the agend
   await c.fails('scheduleDelete', { id: saved.schedule.id }, /no longer there/);
 });
 
+// Both requests passed the "already in a call" check before either set the call, so two calls started and the first
+// one's bot sockets and view timer were never closed.
+test('two join requests at once start one call; so do an answer and a join', async () => {
+  const settle = () => new Promise((r) => setTimeout(r, 40));
+  const h = await start(true, 5, [], {}, { zone: () => 'UTC' });
+  const c = await connect(h);
+  const first = await c.ok('scheduleSave', { schedule: { title: 'Sync', botIds: ['b'], days: [0, 1, 2, 3, 4, 5, 6], time: '09:00', timezone: 'UTC' } });
+  const rung = (await c.ok('scheduleRingNow', { id: first.schedule.id })).ringing;
+  (h as any).expect(['a']);
+  const [one, two, three] = await Promise.all([c.op('join', { botIds: ['a'] }), c.op('join', { botIds: ['a'] }), c.op('ringAnswer', { id: rung.id })]);
+  assert.deepEqual([one.ok, two.ok, two.error, three.ok, three.error], [true, false, 'already in a call', false, 'Leave the current call first.']);
+  await settle();
+  assert.equal(h.sockets.size, 1, 'one bot socket: one call');
+  const h2 = await start(true, 5, [], {}, { zone: () => 'UTC' });
+  const c2 = await connect(h2);
+  const saved = await c2.ok('scheduleSave', { schedule: { title: 'Standup', botIds: ['a', 'b'], days: [0, 1, 2, 3, 4, 5, 6], time: '09:00', timezone: 'UTC' } });
+  const ring = (await c2.ok('scheduleRingNow', { id: saved.schedule.id })).ringing;
+  (h2 as any).expect(['a', 'b']);
+  const [answered, joined] = await Promise.all([c2.op('ringAnswer', { id: ring.id }), c2.op('join', { botIds: ['c'] })]);
+  assert.deepEqual([answered.ok, joined.ok, joined.error], [true, false, 'already in a call']);
+  assert.deepEqual(answered.result.joined, ['a', 'b']);
+  await settle();
+  assert.equal(h2.sockets.size, 2, 'only the answered call\'s two bots');
+  await c2.fails('ringAnswer', { id: ring.id }, /Leave the current call first/);
+});
+
 test('a ring whose bots were deleted cannot be answered: it is listed as missed with why, and the bots leave its standing call', async () => {
   const h = await start(true, 5, [], {}, { zone: () => 'UTC' });
   const c = await connect(h);

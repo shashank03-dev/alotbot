@@ -247,6 +247,8 @@ export function createOverlayServer(opts: OverlayOptions) {
     timer: NodeJS.Timeout | null = null;
     audioId = 0;
     ending: Promise<unknown> | null = null;
+    /** True while a join or an answer is under way, before its call is set: a second one is refused. */
+    joining = false;
     /** When the shared screen was last taken in (ms). */
     screenAt = 0;
     /** This call's log (logs/call-<time>.jsonl), open while the call is. */
@@ -599,13 +601,14 @@ export function createOverlayServer(opts: OverlayOptions) {
 
     /** You picked up a ring (or called back a missed one): its bots join, and the one that called opens. */
     async answer(id: string) {
-      if (this.call) throw new ClientError('Leave the current call first.');
+      if (this.call || this.joining) throw new ClientError('Leave the current call first.');
       let ring: Ring;
       try {
         ring = incoming.answer(id);
       } catch (err) {
         throw err instanceof IncomingError ? new ClientError(err.message) : err;
       }
+      this.joining = true;
       try {
         const all = await grok.listBots();
         const ids = ring.botIds.filter((b) => all.some((x) => x.id === b));
@@ -619,8 +622,9 @@ export function createOverlayServer(opts: OverlayOptions) {
           reason: ring.reason,
           agenda: ring.agenda,
         };
-        return { ...(await this.join(ids, null, opening)), ring: ring.id };
+        return { ...(await this.join(ids, null, opening, null, true)), ring: ring.id };
       } catch (err) {
+        this.joining = false; // join clears it too; this covers a failure before join
         incoming.answerFailed(id, (err as Error).message);
         throw err;
       }
@@ -647,9 +651,19 @@ export function createOverlayServer(opts: OverlayOptions) {
       return { deleted: c.id };
     }
 
-    async join(raw: unknown, continueFrom: unknown = undefined, opening: CallOpening | null = null, meeting: MeetingInfo | null = null) {
-      if (this.call) throw new ClientError('already in a call');
+    /** `answering` is true when answer() already holds the joining flag for this join. */
+    async join(raw: unknown, continueFrom: unknown = undefined, opening: CallOpening | null = null, meeting: MeetingInfo | null = null, answering = false) {
+      if (this.call || (this.joining && !answering)) throw new ClientError('already in a call');
       if (!Array.isArray(raw) || !raw.length || !raw.every((x) => typeof x === 'string')) throw new ClientError('botIds must be a list of bot ids');
+      this.joining = true;
+      try {
+        return await this.startCall(raw as string[], continueFrom, opening, meeting);
+      } finally {
+        this.joining = false;
+      }
+    }
+
+    private async startCall(raw: string[], continueFrom: unknown, opening: CallOpening | null, meeting: MeetingInfo | null) {
       const continued = continueFrom === undefined || continueFrom === null ? null : this.libraryGet(str(continueFrom, 'continueFrom')).call;
       const all = await grok.listBots();
       this.bots = all;
