@@ -390,9 +390,19 @@ test('Ring now waits for do-not-disturb and rings the moment it is turned off; q
   assert.deepEqual(h.inc.state().held.map((r) => [r.id, r.note]), [[ring.id, 'Do not disturb was on.']]);
   h.advance(MIN);
   assert.equal(h.inc.state().ringing, null, 'still held');
+  // Pressing it again while it waits (14 presses on 2026-11-19 rang 14 times in a row) gives the same ring.
+  for (let i = 0; i < 3; i++) assert.equal(h.inc.ringNow(s.id).id, ring.id);
+  assert.equal(h.inc.state().held.length, 1);
   h.inc.setSettings({ doNotDisturbUntil: null });
   assert.equal(h.inc.state().ringing!.id, ring.id, 'rings straight away, through quiet hours');
   assert.deepEqual(h.inc.state().held, []);
+  assert.equal(h.inc.ringNow(s.id).id, ring.id, 'and while it rings');
+  assert.deepEqual(h.inc.state().held, []);
+  h.inc.decline(ring.id);
+  assert.equal(h.inc.state().ringing, null, 'one decline is enough');
+  assert.deepEqual(h.inc.state().held, []);
+  const other = h.inc.saveSchedule(weekly({ title: 'Other' }), KNOWN);
+  assert.notEqual(h.inc.ringNow(other.id).id, ring.id, 'a different standing call is its own ring');
 });
 
 test('in a call nothing rings: rings wait, ring when the call ends, and are missed after an hour', () => {

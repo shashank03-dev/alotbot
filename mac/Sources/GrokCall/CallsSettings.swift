@@ -15,6 +15,7 @@ struct IncomingSettingsView: View {
                 standing(state)
                 whoMayCall(state.settings)
                 quiet(state)
+                if !state.held.isEmpty { held(state.held) }
                 if !state.callbacks.isEmpty { callbacks(state.callbacks) }
                 if !state.missed.isEmpty { MissedCalls(model: model, missed: state.missed) }
             } else {
@@ -221,6 +222,22 @@ struct IncomingSettingsView: View {
     }
 
     // MARK: call backs
+
+    /// Rings held back (do not disturb, quiet hours, a call): shown so a press of Ring now never looks lost.
+    private func held(_ list: [IncomingRing]) -> some View {
+        SettingsGroup("Waiting to ring") {
+            ForEach(list) { r in
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(r.title).foregroundStyle(Theme.text).lineLimit(1)
+                        Text(r.waitingLabel).font(.system(size: 12)).foregroundStyle(Theme.secondary)
+                    }
+                    Spacer()
+                    Button("Don't ring") { Task { await model.decline(r.id) } }.buttonStyle(QuietButton(tint: Theme.danger))
+                }
+            }
+        }
+    }
 
     private func callbacks(_ list: [CallBack]) -> some View {
         SettingsGroup("Call backs waiting") {

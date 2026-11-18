@@ -646,6 +646,9 @@ export class IncomingCalls {
     const s = this.s.schedules.find((x) => x.id === id);
     if (!s) throw new IncomingError('That standing call is no longer there.');
     if (this.d.busy()) throw new IncomingError('Leave the current call first.');
+    // Already waiting or ringing: pressing again must not queue another ring to decline.
+    const pending = this.s.rings.find((r) => r.scheduleId === s.id && (r.state === 'held' || r.state === 'ringing'));
+    if (pending) return pending;
     const ring = this.newRing('schedule', s.title, s.agenda ? `Standing call. Agenda: ${s.agenda}` : 'Standing call.', s.botIds, s.agenda, s.id);
     this.offer(ring);
     this.commit();

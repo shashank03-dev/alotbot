@@ -369,7 +369,10 @@ final class AppModel: ObservableObject {
     func cancelCallback(_ id: String) async { await incomingOp("callbackCancel", ["id": id], "Couldn't cancel the call back") }
     func clearMissed() async { await incomingOp("missedClear", [:], "Couldn't clear missed calls") }
     func deleteStandingCall(_ id: String) async { await incomingOp("scheduleDelete", ["id": id], "Couldn't delete the standing call") }
-    func ringNow(_ id: String) async { await incomingOp("scheduleRingNow", ["id": id], "Couldn't ring it") }
+    func ringNow(_ id: String) async {
+        await incomingOp("scheduleRingNow", ["id": id], "Couldn't ring it")
+        if let r = incoming?.held.first(where: { $0.scheduleId == id }) { show("Not ringing yet. \(r.waitingLabel)") }
+    }
     func setIncomingSettings(_ settings: [String: Any]) async { await incomingOp("incomingSettings", ["settings": settings], "Couldn't save") }
 
     /// Saves a standing call (new or edited). Returns the problem in words, or nil when saved.

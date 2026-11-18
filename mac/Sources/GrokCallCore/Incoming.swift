@@ -79,6 +79,17 @@ public struct IncomingRing: Codable, Equatable, Identifiable, Sendable {
         default: "Calling"
         }
     }
+
+    /// When a held ring will sound, from the reason the backend gave for holding it (written for the missed list).
+    public var waitingLabel: String {
+        switch note {
+        case "You were in a call.": "Rings when your call ends."
+        case "Another call was ringing.": "Rings after the call that is ringing now."
+        case "Do not disturb was on.": "Rings when do not disturb ends."
+        case "It was during your quiet hours.": "Rings when your quiet hours end."
+        default: note.isEmpty ? "Waiting to ring." : note
+        }
+    }
 }
 
 public struct IncomingState: Codable, Equatable, Sendable {

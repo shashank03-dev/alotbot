@@ -126,6 +126,16 @@ import Testing
         #expect(["schedule", "callback", "job", "approval", "other"].map { ring($0).kindLabel } == ["Standing call", "Calling you back", "Has results for you", "Needs your OK", "Calling"])
     }
 
+    @Test func heldRingsSayWhenTheyWillRing() {
+        func held(_ note: String) -> String { IncomingRing(id: "x", source: "schedule", title: "t", reason: "r", botIds: [], agenda: "", createdAt: 0, state: "held", until: nil, note: note, scheduleId: "s").waitingLabel }
+        #expect(held("Do not disturb was on.") == "Rings when do not disturb ends.")
+        #expect(held("You were in a call.") == "Rings when your call ends.")
+        #expect(held("Another call was ringing.") == "Rings after the call that is ringing now.")
+        #expect(held("It was during your quiet hours.") == "Rings when your quiet hours end.")
+        #expect(held("Something new.") == "Something new.")
+        #expect(held("") == "Waiting to ring.")
+    }
+
     @Test func weekdaysInWords() {
         #expect(Weekdays.describe([1, 2, 3, 4, 5]) == "Weekdays")
         #expect(Weekdays.describe([0, 1, 2, 3, 4, 5, 6]) == "Every day")

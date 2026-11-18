@@ -86,3 +86,37 @@ extension BackendFlowTests {
         request.cancel()
     }
 }
+
+extension BackendFlowTests {
+    /// Local run of 2026-11-19: Ring now during do not disturb showed nothing, so it was pressed 14 times and then
+    /// rang 14 times in a row. It must say it is waiting, list the ring once, and let you drop it.
+    @Test @MainActor func ringNowDuringDoNotDisturbSaysItIsWaitingAndQueuesOneRing() async throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let entry = dir.appendingPathComponent("src/overlay")
+        try FileManager.default.createDirectory(at: entry, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let fixture = root.appendingPathComponent("mac/Tests/Fixtures/native-backend.ts")
+        let source = "import { start } from \(String(data: try JSONSerialization.data(withJSONObject: fixture.path, options: .fragmentsAllowed), encoding: .utf8)!); await start();"
+        try source.write(to: entry.appendingPathComponent("main.ts"), atomically: true, encoding: .utf8)
+        let paths = BackendPaths(repo: dir, node: URL(fileURLWithPath: "/opt/homebrew/bin/node"), dataDir: dir.appendingPathComponent("data"))
+        let backend = Backend(resolvePaths: { paths })
+        let model = AppModel(backend: backend, demo: false)
+        defer { backend.stop() }
+        for _ in 0..<200 where model.connection != .ready { try await Task.sleep(nanoseconds: 50_000_000) }
+        #expect(model.connection == .ready)
+        let draft = StandingCallDraft(title: "Standup", botIds: ["bot-test"], days: Set(0...6), hour: 9, minute: 30, timezone: "UTC")
+        #expect(await model.saveStandingCall(draft) == nil)
+        let id = try #require(model.incoming?.schedules.first?.id)
+        await model.setIncomingSettings(["doNotDisturbUntil": Int((Date().timeIntervalSince1970 + 3600) * 1000)])
+        for _ in 0..<3 { await model.ringNow(id) }
+        #expect(model.toast == "Not ringing yet. Rings when do not disturb ends.")
+        #expect(model.incoming?.ringing == nil)
+        let held = try #require(model.incoming?.held)
+        try #require(held.count == 1)
+        await model.decline(held[0].id)
+        #expect(model.incoming?.held.isEmpty == true)
+        await model.setIncomingSettings(["doNotDisturbUntil": NSNull()])
+        #expect(model.incoming?.ringing == nil, "a dropped ring does not ring later")
+    }
+}
