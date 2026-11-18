@@ -67,8 +67,9 @@ cat > "$app/Contents/Info.plist" <<PLIST
   <key>CFBundleVersion</key><string>$version</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
-  <key>NSScreenCaptureUsageDescription</key><string>Grok Call reads an app window when you ask your bots to look at it.</string>
+  <key>NSScreenCaptureUsageDescription</key><string>Grok Call reads an app window when you ask your bots to look at it or share your screen, and hears a meeting app you choose.</string>
   <key>NSMicrophoneUsageDescription</key><string>Grok Call sends your voice to the bots in your call.</string>
+  <key>NSSpeechRecognitionUsageDescription</key><string>Grok Call transcribes a meeting you choose on this Mac, so your bots can follow it. The audio never leaves this Mac.</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
 $dev_keys

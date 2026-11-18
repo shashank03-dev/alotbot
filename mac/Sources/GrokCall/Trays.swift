@@ -215,7 +215,80 @@ struct TrayView: View {
         case .add: AddTray(model: model)
         case .newBot: NewBotTray(model: model)
         case .chat: ChatTray(model: model, prefs: prefs)
+        case .share: ShareTray(model: model)
         }
+    }
+}
+
+/// Share a window (or your whole screen) with the bots: they get its text with your lines, and can look at all of it.
+struct ShareTray: View {
+    @ObservedObject var model: AppModel
+    @Local private var loading = true
+
+    var body: some View {
+        Panel {
+            SectionTitle(text: "Share with the bots")
+            if let sc = model.view?.screen {
+                HStack(spacing: 10) {
+                    Image(systemName: "rectangle.on.rectangle").foregroundStyle(Theme.accent)
+                    Text("Sharing \(sc.label)").font(.system(size: 13.5, weight: .medium)).foregroundStyle(Theme.text).lineLimit(2)
+                    Spacer()
+                    Button("Stop") { Task { await model.stopSharing() } }.buttonStyle(FilledButton(danger: true))
+                }
+                .padding(.bottom, 10)
+            }
+            Text("The bots read the text on it every few seconds. Password managers are never shared.").font(.system(size: 12)).foregroundStyle(Theme.secondary).padding(.bottom, 8)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    if loading { ProgressView().controlSize(.small).padding(8) }
+                    if !loading && model.shareTargets.isEmpty { Text("No windows to share. Allow Screen Recording for Grok Call in System Settings.").font(.system(size: 13)).foregroundStyle(Theme.secondary) }
+                    ForEach(model.shareTargets) { t in
+                        Button { Task { await model.share(t) } } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: t.kind == .display ? "display" : "macwindow").foregroundStyle(Theme.secondary).frame(width: 18)
+                                Text(t.label).font(.system(size: 13)).foregroundStyle(Theme.text).lineLimit(1)
+                                Spacer()
+                                if model.screenShare?.target.id == t.id { Image(systemName: "checkmark").foregroundStyle(Theme.accent) }
+                            }
+                            .padding(.vertical, 6).padding(.horizontal, 8).contentShape(Rectangle())
+                        }
+                        .buttonStyle(RowStyle())
+                    }
+                }
+            }
+            .frame(maxHeight: 260)
+        }
+        .task {
+            await model.refreshShareTargets()
+            loading = false
+        }
+    }
+}
+
+/// While the call listens to a meeting: how bots whisper, and hold to talk to them.
+struct MeetingControls: View {
+    @ObservedObject var model: AppModel
+    let meeting: MeetingState
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "person.3.fill").font(.system(size: 11)).foregroundStyle(Theme.secondary)
+            Text(meeting.app).font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.text).lineLimit(1)
+            PillMenu(title: "Whispers", options: [false, true], label: { $0 ? "Whisper aloud (headphones)" : "Whisper in text" }, selected: meeting.aloud) { aloud in
+                Task { await model.setWhisperAloud(aloud) }
+            }
+            Spacer(minLength: 4)
+            Text(model.talkHeld ? "Talking to bots" : "Hold to talk")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(model.talkHeld ? Color.black : Theme.text)
+                .padding(.horizontal, 12).padding(.vertical, 6)
+                .background(Capsule().fill(model.talkHeld ? Color.white : Theme.raised))
+                .gesture(DragGesture(minimumDistance: 0).onChanged { _ in model.setTalk(true) }.onEnded { _ in model.setTalk(false) })
+                .help(model.talkKeyAvailable ? "Or hold ⌥Space anywhere" : "Hold while you talk to your bots")
+                .accessibilityLabel("Hold to talk to your bots")
+                .accessibilityAddTraits(.isButton)
+        }
+        .padding(.horizontal, 14).padding(.vertical, 8)
+        .elevated(Capsule())
     }
 }
 
@@ -383,7 +456,8 @@ struct ChatTray: View {
 
     var body: some View {
         Panel {
-            SectionTitle(text: "Conversation")
+            if let m = model.view?.meeting { MeetingControls(model: model, meeting: m).padding(.bottom, 12) }
+            SectionTitle(text: model.view?.meeting == nil ? "Conversation" : "Meeting and whispers")
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
