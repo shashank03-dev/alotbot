@@ -8,7 +8,7 @@ import { after, afterEach, test } from 'node:test';
 import { WebSocket, WebSocketServer } from 'ws';
 import { USER } from '../public/core.js';
 import { AuthStore } from '../src/auth.ts';
-import { AUDIO_LEAD_S, createOverlayServer, decodeMic, defaultOpenSocket, encodeBotAudio, MSG, upgradeAllowed } from '../src/overlay/server.ts';
+import { actionView, AUDIO_LEAD_S, createOverlayServer, decodeMic, defaultOpenSocket, encodeBotAudio, MSG, upgradeAllowed } from '../src/overlay/server.ts';
 import { OverlayStore } from '../src/overlay/store.ts';
 import { FakeSocket, flush, hostSays, reply } from './overlay-fakes.ts';
 import { mock, sendJson, type Mock } from './helpers.ts';
@@ -88,6 +88,8 @@ afterEach(async () => {
 async function start(signedIn = true, viewMs: number | null = 5, workspaceEntries: {agentId:string;body:object}[] = [], workspaceReplies: Record<string,{status?:number;body:unknown}> = {}, extra: Partial<Parameters<typeof createOverlayServer>[0]> & { prepare?: (dir: string) => void } = {}): Promise<Harness> {
   const agents = [agent('a', 'Bot A'), agent('b', 'Bot B'), agent('c', 'Bot C')];
   const jobs: { agentId: string; callId: string; request: string; at: number }[] = [];
+  /** While true, agents have not answered their jobs yet. */
+  let holdJobs = false;
   let minted = 0;
   const up = await mock((r, res) => {
     const method = r.url.split('/').pop()!;
@@ -99,13 +101,15 @@ async function start(signedIn = true, viewMs: number | null = 5, workspaceEntrie
     if (method === 'VoiceCallHarnessSession') return sendJson(res, 200, { instructions: `I am ${r.body.agentName}.`, tools: [SEND_TASK] });
     if (method === 'VoiceCallHarnessTool' && r.body.input.request === 'break') return sendJson(res, 500, { message: 'tool broke' });
     if (method === 'VoiceCallHarnessTool') {
-      if (/^post /.test(String(r.body.input.request))) jobs.push({ agentId: r.body.agentId, callId: r.body.callId, request: r.body.input.request, at: Date.now() });
-      return sendJson(res, 200, { kind: 'VOICE_CALL_HARNESS_TOOL_OUTCOME_KIND_SERVED', output: { queued: r.body.input.request } });
+      if (/^(post|relay) /.test(String(r.body.input.request))) jobs.push({ agentId: r.body.agentId, callId: r.body.callId, request: r.body.input.request, at: Date.now() });
+      // "relay ..." jobs are accepted the way Grok Bot accepts background work, so they stay under way until answered.
+      const relay = /^relay /.test(String(r.body.input.request)) ? { relay: 'accepted' } : {};
+      return sendJson(res, 200, { kind: 'VOICE_CALL_HARNESS_TOOL_OUTCOME_KIND_SERVED', output: { queued: r.body.input.request, ...relay } });
     }
     if (method === 'ListGrokBotTranscriptEntries') {
       // The agent answers each job on the call's channel, as Grok Bot does.
       const b64 = (o: object) => Buffer.from(JSON.stringify(o)).toString('base64');
-      const entries = jobs.filter((j) => j.agentId === r.body.agentId).flatMap((j, i) => [
+      const entries = jobs.filter((j) => j.agentId === r.body.agentId && !holdJobs).flatMap((j, i) => [
         { seq: String(2 * i + 2), body: b64({ kind: 'send-message', requestId: `req-${i}`, message: { type: 'text', content: `Done: ${j.request}`, channel: `voice:${j.callId}` }, timestampMs: j.at }) },
         { seq: String(2 * i + 1), body: b64({ kind: 'message', role: 'user', content: j.request, channel: `voice:${j.callId}`, channelSender: 'the call', requestId: `req-${i}`, timestampMs: j.at }) },
       ]);
@@ -153,6 +157,7 @@ async function start(signedIn = true, viewMs: number | null = 5, workspaceEntrie
   const { port } = app.server.address() as AddressInfo;
   const h: Harness = { url: `ws://127.0.0.1:${port}/ws`, up, dir, sockets, app, agents, clockAt: (s) => (now = s) };
   (h as any).expect = (ids: string[]) => (mintFor = [...ids]);
+  (h as any).holdJobs = (v: boolean) => (holdJobs = v);
   open.push(h);
   return h;
 }
@@ -1051,4 +1056,175 @@ test('a library that opens but cannot be rebuilt is closed and reported unavaila
   const c = await connect(h);
   assert.equal(closed, true);
   await c.fails('library', {}, /unavailable: calls folder unreadable/);
+});
+
+// ---------- incoming calls ----------
+
+/** Waits for a pushed incoming-call state that matches. */
+const incomingWhere = async (c: Client, pred: (state: any) => boolean) => (await c.next((m) => m.t === 'incoming' && pred(m.state), true)).state;
+
+async function readyBots(h: Harness, ids: string[]) {
+  for (let i = 0; i < 40 && ids.some((id) => !h.sockets.get(id)); i++) await new Promise((r) => setTimeout(r, 5));
+  for (const id of ids) {
+    h.sockets.get(id)!.onopen!();
+    h.sockets.get(id)!.emit('session.updated');
+  }
+}
+
+test('standing calls: save, ring now, answer (the first bot opens with the agenda), and the refusals', async () => {
+  const h = await start(true, 5, [], {}, { zone: () => 'UTC' });
+  const c = await connect(h);
+  const empty = await c.ok('incoming');
+  assert.deepEqual([empty.schedules, empty.ringing, empty.missed, empty.settings.quietHours.timezone], [[], null, [], 'UTC']);
+  await c.fails('scheduleSave', { schedule: { title: 'Standup', botIds: ['a', 'zzz'], days: [1], time: '09:00', timezone: 'UTC' } }, /not on this account/);
+  await c.fails('scheduleSave', { schedule: { title: 'Standup', botIds: ['a'], days: [1], time: '9am', timezone: 'UTC' } }, /time must be HH:MM/);
+  const saved = await c.ok('scheduleSave', { schedule: { title: 'Standup', botIds: ['a', 'b'], agenda: 'Blockers first', days: [0, 1, 2, 3, 4, 5, 6], time: '09:00', timezone: 'UTC' } });
+  assert.equal(saved.schedule.title, 'Standup');
+  assert.equal(saved.schedules[0].nextAt > Date.now(), true);
+  const ringing = incomingWhere(c, (s) => s.ringing !== null);
+  const rang = await c.ok('scheduleRingNow', { id: saved.schedule.id });
+  assert.equal(rang.ringing.title, 'Standup');
+  assert.equal((await ringing).ringing.id, rang.ringing.id, 'the app is told when a call rings');
+  (h as any).expect(['a', 'b']);
+  const joined = await c.ok('ringAnswer', { id: rang.ringing.id });
+  assert.deepEqual([joined.joined, joined.ring], [['a', 'b'], rang.ringing.id]);
+  await readyBots(h, ['a', 'b']);
+  const a = h.sockets.get('a')!;
+  assert.match(a.said().at(-1)!, /answered the standing call "Standup"\. Open it now in one or two short spoken sentences, starting with the agenda\./);
+  assert.match(a.lastSession().instructions, /# This is the standing call "Standup"\nShashank answered the scheduled call\. Agenda:\nBlockers first/);
+  await c.fails('scheduleRingNow', { id: saved.schedule.id }, /Leave the current call first/);
+  await c.fails('ringAnswer', { id: rang.ringing.id }, /Leave the current call first/);
+  await c.ok('leave');
+  await c.fails('ringAnswer', { id: rang.ringing.id }, /already answered/);
+  await c.fails('ringDecline', { id: 'nope' }, /no longer there/);
+  await c.fails('ringAnswer', {}, /id is required/);
+  await c.fails('incomingSettings', { settings: { ringSeconds: 1 } }, /ringSeconds must be 15 to 120/);
+  assert.equal((await c.ok('incomingSettings', { settings: { ringSeconds: 20, approvals: false } })).settings.ringSeconds, 20);
+  // Decline, snooze, clear.
+  const again = (await c.ok('scheduleRingNow', { id: saved.schedule.id })).ringing;
+  await c.fails('ringSnooze', { id: again.id, minutes: 3 }, /minutes must be one of/);
+  const snoozed = await c.ok('ringSnooze', { id: again.id, minutes: 5 });
+  assert.equal(snoozed.callbacks.length, 1);
+  await c.ok('callbackCancel', { id: snoozed.callbacks[0].id });
+  await c.fails('callbackCancel', { id: snoozed.callbacks[0].id }, /no longer there/);
+  const third = (await c.ok('scheduleRingNow', { id: saved.schedule.id })).ringing;
+  assert.equal((await c.ok('ringDecline', { id: third.id })).ringing, null);
+  assert.deepEqual((await c.ok('missedClear')).missed, []);
+  assert.deepEqual((await c.ok('scheduleDelete', { id: saved.schedule.id })).schedules, []);
+  await c.fails('scheduleDelete', { id: saved.schedule.id }, /no longer there/);
+});
+
+test('a ring whose bots were deleted cannot be answered: it is listed as missed with why, and the bots leave its standing call', async () => {
+  const h = await start(true, 5, [], {}, { zone: () => 'UTC' });
+  const c = await connect(h);
+  const saved = await c.ok('scheduleSave', { schedule: { title: 'Solo', botIds: ['c'], days: [1], time: '09:00', timezone: 'UTC' } });
+  const ring = (await c.ok('scheduleRingNow', { id: saved.schedule.id })).ringing;
+  h.agents.splice(h.agents.findIndex((x) => x.id === 'c'), 1);
+  await c.fails('ringAnswer', { id: ring.id }, /not on this account any more/);
+  const st = await c.ok('incoming');
+  assert.match(st.missed[0].note, /^Answering failed: The bots in that call are not on this account any more\./);
+  await c.ok('bots');
+  const after = await c.ok('incoming');
+  assert.deepEqual([after.schedules[0].botIds, after.schedules[0].enabled], [[], false]);
+});
+
+test('a bot promises a call back during a call: by minutes or a time, or when its job finishes; refusals are told', async () => {
+  const h = await start(true, 5, [], {}, { zone: () => 'UTC' });
+  const c = await connect(h);
+  await inCall(h, c, ['a']);
+  const a = h.sockets.get('a')!;
+  assert.ok(a.lastSession().tools.some((t: any) => t.name === 'call_back_later'));
+  reply(a, 'I will call you back.', [['call_back_later', { reason: 'Check the numbers', in_minutes: 30 }]]);
+  assert.match(a.outputs().at(-1)!, /^Call back set: Grok Call rings Shashank at [A-Z][a-z]{2} \d{1,2}:\d{2}\s?[AP]M, and you open that call\./);
+  const st = await c.ok('incoming');
+  assert.deepEqual(st.callbacks.map((x: any) => [x.botId, x.reason, x.waitsFor]), [['a', 'Check the numbers', []]]);
+  reply(a, '', [['call_back_later', { reason: 'Results', when_job_done: true }]]);
+  assert.match(a.outputs().at(-1)!, /^Not done: You have no job under way to wait for/);
+  reply(a, '', [['call_back_later', { reason: 'Results' }]]);
+  assert.match(a.outputs().at(-1)!, /^Not done: Give exactly one of/);
+  reply(a, '', [['call_back_later', { in_minutes: 5 }]]);
+  assert.match(a.outputs().at(-1)!, /^Not done: Give reason/);
+  await c.ok('incomingSettings', { settings: { botCallbacks: false } });
+  reply(a, '', [['call_back_later', { reason: 'x', in_minutes: 5 }]]);
+  assert.match(a.outputs().at(-1)!, /turned off bot callbacks/);
+  const leaving = c.op('leave');
+  await askedForSummary(a);
+  reply(a, '', [['save_summary', { summary: 'Call backs.', action_items: [] }]]);
+  await leaving;
+});
+
+test('a call back waiting on a job rings after the call once the job finishes, and the bot opens with the result', async () => {
+  const h = await start(true, 5, [], {}, { zone: () => 'UTC' });
+  const c = await connect(h);
+  (h as any).holdJobs(true);
+  await inCall(h, c, ['a']);
+  const a = h.sockets.get('a')!;
+  // A job that was not accepted (it failed at once) is not waited for.
+  reply(a, 'On it.', [['send_task', { request: 'post a note' }]]);
+  for (let i = 0; i < 40 && a.outputs().length < 1; i++) await new Promise((r) => setTimeout(r, 5));
+  reply(a, 'On it.', [['send_task', { request: 'relay the launch thread' }]]);
+  for (let i = 0; i < 40 && a.outputs().length < 2; i++) await new Promise((r) => setTimeout(r, 5));
+  reply(a, 'I will call you when it is up.', [['call_back_later', { reason: 'The thread is posted', when_job_done: true }]]);
+  assert.equal(a.outputs().at(-1), 'Call back set: Grok Call rings Shashank once your job finishes, and you open that call with the result.');
+  reply(a, 'And the images.', [['send_task', { request: 'relay the images' }]]);
+  for (let i = 0; i < 40 && a.outputs().length < 4; i++) await new Promise((r) => setTimeout(r, 5));
+  reply(a, '', [['call_back_later', { reason: 'Both are up', when_job_done: true }]]);
+  assert.equal(a.outputs().at(-1), 'Call back set: Grok Call rings Shashank once your 2 jobs finish, and you open that call with the result.');
+  hostSays(a, 'Bot A, thanks.');
+  const leaving = c.op('leave');
+  await askedForSummary(a);
+  reply(a, '', [['save_summary', { summary: 'Posting.', action_items: [] }]]);
+  await leaving;
+  const rang = incomingWhere(c, (s) => s.ringing?.source === 'callback');
+  (h as any).holdJobs(false); // the agent answers after the call ended
+  const ring = (await rang).ringing;
+  assert.deepEqual([ring.title, ring.reason, ring.botIds], ['Bot A is calling back', 'The thread is posted Result: Done: relay the launch thread', ['a']]);
+  const held = await c.ok('incoming');
+  assert.equal(held.held[0].reason, 'Both are up Result: Done: relay the launch thread; Done: relay the images', 'the second call back waits its turn');
+  h.sockets.clear();
+  (h as any).expect(['a']);
+  await c.ok('ringAnswer', { id: ring.id });
+  await readyBots(h, ['a']);
+  const back = h.sockets.get('a')!;
+  assert.match(back.said().at(-1)!, /answered your call\. Open it now/);
+  assert.match(back.lastSession().instructions, /# Why this call\nBot A called Shashank, and he answered\. It is the call back that was promised: The thread is posted Result: Done: relay the launch thread/);
+  await c.ok('leave');
+});
+
+test('a job from an ended call that finishes later rings its bot', async () => {
+  const h = await start(true, 5, [], {}, { zone: () => 'UTC' });
+  const c = await connect(h);
+  (h as any).holdJobs(true);
+  await inCall(h, c, ['a']);
+  const a = h.sockets.get('a')!;
+  reply(a, 'Sending it.', [['send_task', { request: 'relay the recap' }]]);
+  for (let i = 0; i < 40 && !a.outputs().length; i++) await new Promise((r) => setTimeout(r, 5));
+  const leaving = c.op('leave');
+  await askedForSummary(a);
+  reply(a, '', [['save_summary', { summary: 'Recap.', action_items: [] }]]);
+  await leaving;
+  const rang = incomingWhere(c, (s) => s.ringing?.source === 'job');
+  (h as any).holdJobs(false);
+  const ring = (await rang).ringing;
+  assert.deepEqual([ring.title, ring.reason], ['Bot A has results', 'Done: relay the recap']);
+});
+
+test('actionView passes on only a pending approval\'s summary', () => {
+  const base = { id: 'x', callId: 'c', botId: 'a', botName: 'Bot A', target: 'agent' as const, tool: 'send_task', input: {}, status: 'waiting_approval' as const, requestId: null, summary: 's', result: 'r', error: null, createdAt: 1, updatedAt: 2 };
+  const approval = { kind: 'auto_review' as const, requestId: 'q', entryId: null, summary: 'Send the email', status: 'pending' as const };
+  assert.equal(actionView({ ...base, approval }).approvalSummary, 'Send the email');
+  assert.equal(actionView({ ...base, approval: { ...approval, status: 'approved' } }).approvalSummary, null);
+  assert.deepEqual(actionView({ ...base, approval: null }), { id: 'x', botId: 'a', botName: 'Bot A', callId: 'c', target: 'agent', tool: 'send_task', status: 'waiting_approval', summary: 's', error: null, approvalSummary: null });
+});
+
+test('a disk failure while saving incoming calls is reported as it is, not as a mistake in the request', async () => {
+  const h = await start(true, 5, [], {}, { zone: () => 'UTC' });
+  const c = await connect(h);
+  const saved = await c.ok('scheduleSave', { schedule: { title: 'S', botIds: ['a'], days: [1], time: '09:00', timezone: 'UTC' } });
+  const ring = (await c.ok('scheduleRingNow', { id: saved.schedule.id })).ringing;
+  const file = path.join(h.dir, 'incoming.json');
+  fs.rmSync(file);
+  fs.mkdirSync(path.join(file, 'blocked'), { recursive: true }); // a folder where the file goes: every save fails
+  await c.fails('incomingSettings', { settings: { approvals: false } }, /EISDIR|ENOTEMPTY|EEXIST|directory/i);
+  await c.fails('ringAnswer', { id: ring.id }, /EISDIR|ENOTEMPTY|EEXIST|directory/i);
 });

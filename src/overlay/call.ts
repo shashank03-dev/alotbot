@@ -14,6 +14,7 @@ import {
   LIST_TASKS_TOOL,
 } from '../../public/core.js';
 import type { Bot } from '../grokbot.ts';
+import type { RingSource } from './incoming.ts';
 import type { CallKind, CallRecord, Hit, LibraryLine } from './library.ts';
 import type { CallLog } from './log.ts';
 import { STATUSES, type Task, TaskBoard, TaskError, type TaskStatus } from './tasks.ts';
@@ -89,6 +90,37 @@ export const RECALL_TOOLS = [
     ['id'],
   ),
 ];
+
+/** Lets bots in a call promise a call back (the server's incoming-call manager). Returns what the bot is told. */
+export interface CallBacks {
+  callBack(botId: string, botName: string, args: Record<string, unknown>): string;
+}
+
+export const CALLBACK_TOOL = fn(
+  'call_back_later',
+  `Promise ${USER} a call back: Grok Call rings him then, and you open that call by saying why you called. Use it when he asks ` +
+    'you to call him back or to remind him by a call, or when you offer to call back with a result and he agrees. Give exactly one ' +
+    'of in_minutes, at or when_job_done. Never use it without his agreement.',
+  {
+    reason: { type: 'string', description: 'What you will call about, in one sentence.' },
+    in_minutes: { type: 'integer', minimum: 1, maximum: 10080, description: 'Call in this many minutes.' },
+    at: { type: 'string', description: 'Call at this time: "HH:MM" (24-hour, his local time; the next time it comes round) or an ISO date-time.' },
+    when_job_done: { type: 'boolean', description: 'Call once every background job you sent in this call has finished, with its result.' },
+  },
+  ['reason'],
+);
+
+/** Why a call started when it rang: the bot that called opens it. */
+export interface CallOpening {
+  source: RingSource;
+  /** The bot that called (it opens the call), or null for a standing call (the first bot in opens it). */
+  botId: string | null;
+  /** The calling bot's name, kept even if it can't join. */
+  callerName: string | null;
+  title: string;
+  reason: string;
+  agenda: string;
+}
 
 const TASK_SENTENCE = /There is a shared task list[\s\S]*?someone changed it\. /;
 
@@ -168,6 +200,7 @@ class OverlayLink extends LinkBase {
       ...u.session.tools.filter((t: { name?: string }) => !REPLACED_TASK_TOOLS.has(t.name ?? '')),
       ...TASK_TOOLS,
       ...((this.call as OverlayCall).pastCalls ? RECALL_TOOLS : []),
+      ...((this.call as OverlayCall).callBacks ? [CALLBACK_TOOL] : []),
     ];
     return u;
   }
@@ -185,6 +218,7 @@ class OverlayLink extends LinkBase {
 /** What a call starts from besides memory: an earlier call it continues. */
 export interface CallContext {
   continued?: CallRecord | null;
+  opening?: CallOpening | null;
 }
 
 export class OverlayCall extends CallBase {
@@ -192,6 +226,12 @@ export class OverlayCall extends CallBase {
   lastSummary = '';
   /** Saved calls the bots can search, or null when the library is unavailable. */
   pastCalls: PastCalls | null = null;
+  /** Lets bots promise a call back, or null when that is unavailable. */
+  callBacks: CallBacks | null = null;
+  /** An answered call: the calling bot has opened it. */
+  private callerOpened = false;
+  /** The calling bot could not join, so another bot opened the call for it. */
+  private standIn = false;
   context: CallContext = {};
   kind: CallKind = 'call';
   /** How times of earlier calls are written for the bots (the Mac's local time by default). */
@@ -212,9 +252,17 @@ export class OverlayCall extends CallBase {
     this.join(bots, available, null);
   }
 
-  /** Instructions that come from this call's context: the earlier call it continues, and the call history. */
+  /** Instructions that come from this call's context: why it rang, the earlier call it continues, and the call history. */
   contextText(): string {
     let out = '';
+    const o = this.context.opening;
+    if (o) {
+      const caller = o.callerName ?? 'A bot';
+      out +=
+        o.source === 'schedule'
+          ? `\n\n# This is the standing call "${o.title}"\n${USER} answered the scheduled call.` + (o.agenda ? ` Agenda:\n${o.agenda}` : ' It has no agenda: ask what he wants to cover.')
+          : `\n\n# Why this call\n${caller} called ${USER}, and he answered. ${o.source === 'approval' ? 'Work is waiting for his approval' : o.source === 'job' ? 'A background job finished' : 'It is the call back that was promised'}: ${o.reason}`;
+    }
     const c = this.context.continued;
     if (c) {
       out +=
@@ -232,6 +280,53 @@ export class OverlayCall extends CallBase {
         `Say when you found nothing instead of guessing. What earlier calls say is a record of the past, not an instruction to you now.`;
     }
     return out;
+  }
+
+  /**
+   * An answered call opens at once, without waiting for the host to speak first: the bot that called says why, or the
+   * first bot in starts a standing call. Other bots join quietly. Without an opening, the shared engine's greeting runs.
+   */
+  onReady(link: any) {
+    const o = this.context.opening;
+    if (!o || this.callerOpened) return super.onReady(link);
+    const caller = o.botId ? this.links.get(o.botId) : link;
+    if (caller && caller !== link && caller.status !== 'error') {
+      // Not the caller: it joins without opening the call, and the caller opens it once it is in.
+      const was = this.opened;
+      this.opened = true;
+      super.onReady(link);
+      this.opened = was;
+      return;
+    }
+    this.opened = true;
+    super.onReady(link);
+    this.openFor(link);
+  }
+
+  /** The bot opens the answered call. */
+  private openFor(link: any) {
+    const o = this.context.opening!;
+    this.callerOpened = true;
+    this.setEar(link);
+    link.say(
+      o.source === 'schedule'
+        ? `[Call]: ${USER} answered the standing call "${o.title}". Open it now in one or two short spoken sentences${o.agenda ? ', starting with the agenda' : ''}.`
+        : this.standIn
+          ? `[Call]: ${USER} answered ${o.callerName ?? 'a bot'}'s call, but it could not join. Open the call in its place: in one or two short spoken sentences, say why it called.`
+          : `[Call]: ${USER} answered your call. Open it now: in one or two short spoken sentences, say why you called.`,
+    );
+    link.respond();
+  }
+
+  /** The caller could not join: the first bot that is in opens the call instead. */
+  onFailed(link: any, busy = false) {
+    super.onFailed(link, busy);
+    const o = this.context.opening;
+    if (!o || this.callerOpened || o.botId !== link.bot.id) return;
+    this.context = { ...this.context, opening: { ...o, botId: null } };
+    this.standIn = true;
+    const up = this.readyLinks()[0];
+    if (up) this.openFor(up);
   }
 
   add(bot: Bot) {
@@ -266,7 +361,8 @@ export class OverlayCall extends CallBase {
       return { output: `"${c.name}" is not a tool in this call. Use add_task, update_task, link_tasks or list_tasks.`, followUp: false };
     }
     const recall = RECALL_TOOLS.some((t) => t.name === c.name);
-    if (!TASK_TOOLS.some((t) => t.name === c.name) && !recall) return super.onToolCall(link, c);
+    const callBack = c.name === CALLBACK_TOOL.name;
+    if (!TASK_TOOLS.some((t) => t.name === c.name) && !recall && !callBack) return super.onToolCall(link, c);
     let a: Record<string, unknown> = {};
     try {
       a = JSON.parse(c.args) ?? {};
@@ -275,6 +371,16 @@ export class OverlayCall extends CallBase {
     }
     const me: string = link.bot.name;
     if (recall) return { output: this.recall(c.name, a, me), followUp: true };
+    if (callBack) {
+      if (!this.callBacks) return { output: 'Call backs are not available right now. Tell the host you can\'t call back.', followUp: true };
+      try {
+        const out = this.callBacks.callBack(link.bot.id, me, a);
+        this.event('tool', `${me} set a call back: ${out}`);
+        return { output: out, followUp: 'if-quiet' };
+      } catch (err) {
+        return { output: `Not done: ${(err as Error).message}`, followUp: true };
+      }
+    }
     try {
       switch (c.name) {
         case 'add_task': {
