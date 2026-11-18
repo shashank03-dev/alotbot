@@ -136,6 +136,18 @@ import Testing
         #expect(held("") == "Waiting to ring.")
     }
 
+    /// "Later" rings the same call again: the backend lists it as snoozed, with when it rings.
+    @Test func snoozedRingsDecodeAndSayWhenTheyRing() throws {
+        let json = Self.state.replacingOccurrences(of: #""held":[]"#, with: #""held":[],"snoozed":[{"id":"r2","source":"schedule","title":"Standup","reason":"Standing call.","botIds":["a","b"],"agenda":"Blockers","createdAt":5,"state":"snoozed","until":null,"note":"Snoozed for 5 min.","scheduleId":"s1","at":1795000000000}]"#)
+        guard case let .incoming(s) = try ServerMessage.decode(#"{"t":"incoming","state":\#(json)}"#) else { Issue.record("not incoming"); return }
+        let r = try #require(s.snoozed?.first)
+        #expect([r.title, r.scheduleId] == ["Standup", "s1"])
+        #expect(r.at == 1795000000000)
+        #expect(r.waitingLabel == "Snoozed. Rings again at \(Date(timeIntervalSince1970: 1795000000).formatted(date: .omitted, time: .shortened)).")
+        guard case let .incoming(old) = try ServerMessage.decode(#"{"t":"incoming","state":\#(Self.state)}"#) else { Issue.record("not incoming"); return }
+        #expect(old.snoozed == nil && old.ringing?.at == nil, "an older backend sends neither")
+    }
+
     @Test func weekdaysInWords() {
         #expect(Weekdays.describe([1, 2, 3, 4, 5]) == "Weekdays")
         #expect(Weekdays.describe([0, 1, 2, 3, 4, 5, 6]) == "Every day")

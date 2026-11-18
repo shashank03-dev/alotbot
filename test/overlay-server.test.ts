@@ -1104,9 +1104,10 @@ test('standing calls: save, ring now, answer (the first bot opens with the agend
   const again = (await c.ok('scheduleRingNow', { id: saved.schedule.id })).ringing;
   await c.fails('ringSnooze', { id: again.id, minutes: 3 }, /minutes must be one of/);
   const snoozed = await c.ok('ringSnooze', { id: again.id, minutes: 5 });
-  assert.equal(snoozed.callbacks.length, 1);
-  await c.ok('callbackCancel', { id: snoozed.callbacks[0].id });
-  await c.fails('callbackCancel', { id: snoozed.callbacks[0].id }, /no longer there/);
+  assert.deepEqual(snoozed.snoozed.map((r: any) => [r.title, r.scheduleId]), [['Standup', saved.schedule.id]]);
+  assert.deepEqual(snoozed.callbacks, []);
+  await c.ok('ringDecline', { id: snoozed.snoozed[0].id });
+  await c.fails('ringDecline', { id: snoozed.snoozed[0].id }, /already declined/);
   const third = (await c.ok('scheduleRingNow', { id: saved.schedule.id })).ringing;
   assert.equal((await c.ok('ringDecline', { id: third.id })).ringing, null);
   assert.deepEqual((await c.ok('missedClear')).missed, []);
@@ -1138,6 +1139,8 @@ test('a bot promises a call back during a call: by minutes or a time, or when it
   assert.match(a.outputs().at(-1)!, /^Call back set: Grok Call rings Shashank at [A-Z][a-z]{2} \d{1,2}:\d{2}\s?[AP]M, and you open that call\./);
   const st = await c.ok('incoming');
   assert.deepEqual(st.callbacks.map((x: any) => [x.botId, x.reason, x.waitsFor]), [['a', 'Check the numbers', []]]);
+  await c.ok('callbackCancel', { id: st.callbacks[0].id });
+  await c.fails('callbackCancel', { id: st.callbacks[0].id }, /no longer there/);
   reply(a, '', [['call_back_later', { reason: 'Results', when_job_done: true }]]);
   assert.match(a.outputs().at(-1)!, /^Not done: You have no job under way to wait for/);
   reply(a, '', [['call_back_later', { reason: 'Results' }]]);

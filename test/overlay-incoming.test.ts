@@ -561,13 +561,73 @@ test('answer, decline, call back a missed one, and snooze', () => {
   assert.throws(() => h.inc.snooze(again.id, 7), /minutes must be one of 5, 10, 15, 30, 60/);
   h.inc.snooze(again.id, 10);
   assert.equal(h.inc.ring(again.id)!.note, 'Snoozed for 10 min.');
-  assert.equal(h.inc.state().callbacks[0].botId, 'a');
+  assert.deepEqual(h.inc.state().snoozed.map((r) => r.title), ['Standup']);
   h.advance(10 * MIN);
   const back = h.inc.state().ringing!;
-  assert.deepEqual([back.source, back.title, back.reason], ['callback', 'Standup is calling back', again.reason]);
+  assert.deepEqual([back.source, back.title, back.reason], ['schedule', 'Standup', again.reason]);
   h.inc.clearMissed();
   assert.deepEqual(h.inc.state().missed, []);
   assert.equal(h.inc.state().ringing!.id, back.id, 'clearing missed calls keeps one that is ringing');
+});
+
+// "Later" turned a standing call into a call back from its first bot: no agenda, no other bots, a new title, held by
+// quiet hours, and the bot told it was a promised call back.
+test('Later rings the same call again: same bots, agenda and title, through quiet hours, after a restart, and can be cancelled', () => {
+  const h = harness(newDir(), Date.parse('2026-11-18T22:30:00Z'));
+  h.inc.start();
+  const s = h.inc.saveSchedule(weekly(), KNOWN);
+  const first = h.inc.ringNow(s.id);
+  assert.equal(h.inc.state().ringing!.id, first.id, 'in quiet hours');
+  h.inc.snooze(first.id, 5);
+  const [snoozed] = h.inc.state().snoozed;
+  assert.equal(snoozed.at, h.now + 5 * MIN);
+  assert.deepEqual(h.inc.state().callbacks, []);
+  assert.deepEqual(h.inc.state().held, []);
+  assert.equal(h.inc.ringNow(s.id).id, snoozed.id, 'Ring now rings the snoozed one, not a second copy');
+  assert.equal(h.inc.state().ringing!.id, snoozed.id);
+  assert.deepEqual(h.inc.state().snoozed, []);
+  h.inc.snooze(snoozed.id, 10);
+  // Closed and opened again before it rings: it still rings at its time.
+  h.inc.stop();
+  const h2 = harness(h.dir, h.now);
+  h2.inc.start();
+  assert.equal(h2.inc.state().snoozed.length, 1);
+  h2.advance(10 * MIN - 1);
+  assert.equal(h2.inc.state().ringing, null);
+  h2.advance(1);
+  const again = h2.inc.state().ringing!;
+  assert.deepEqual(
+    [again.source, again.title, again.reason, again.botIds, again.agenda, again.scheduleId, again.createdAt],
+    ['schedule', 'Standup', first.reason, ['a', 'b'], 'Yesterday, today, blockers', s.id, h2.now],
+  );
+  assert.deepEqual(h2.inc.state().snoozed, []);
+  // Cancelled from Settings (Don't ring) before it rings.
+  h2.inc.snooze(again.id, 15);
+  const waiting = h2.inc.state().snoozed[0];
+  h2.inc.decline(waiting.id);
+  assert.deepEqual(h2.inc.state().snoozed, []);
+  h2.advance(20 * MIN);
+  assert.equal(h2.inc.state().ringing, null);
+  h2.inc.clearMissed();
+  // A bot's job ring snoozed keeps its own words; it waits for quiet hours like any job ring.
+  h2.inc.seed([view()]);
+  h2.inc.observe([view({ status: 'completed', summary: 'Draft ready' })], null);
+  const job = h2.inc.state().held[0];
+  assert.equal(job.title, 'Bot A has results');
+  h2.inc.setSettings({ quietHours: { enabled: false } });
+  h2.inc.snooze(h2.inc.state().ringing!.id, 5);
+  h2.inc.setSettings({ quietHours: { enabled: true } });
+  h2.advance(5 * MIN);
+  assert.deepEqual(h2.inc.state().held.map((r) => [r.source, r.title, r.reason, r.note]), [['job', 'Bot A has results', 'Draft ready', 'It was during your quiet hours.']]);
+  // Due long ago while the app was closed: missed, not rung.
+  h2.inc.decline(h2.inc.state().held[0].id);
+  h2.inc.ringNow(s.id);
+  h2.inc.snooze(h2.inc.state().ringing!.id, 5);
+  h2.inc.stop();
+  const h3 = harness(h.dir, h2.now + 5 * MIN + HELD_MAX_MS + 1);
+  h3.inc.start();
+  assert.equal(h3.inc.state().ringing, null);
+  assert.equal(h3.inc.state().missed[0].note, 'It was due while Grok Call was closed or the Mac was asleep.');
 });
 
 test('only the newest finished rings are kept', () => {

@@ -65,8 +65,10 @@ public struct IncomingRing: Codable, Equatable, Identifiable, Sendable {
     public var until: Double?
     public var note: String
     public var scheduleId: String?
-    public init(id: String, source: String, title: String, reason: String, botIds: [String], agenda: String, createdAt: Double, state: String, until: Double?, note: String, scheduleId: String?) {
-        self.id = id; self.source = source; self.title = title; self.reason = reason; self.botIds = botIds; self.agenda = agenda; self.createdAt = createdAt; self.state = state; self.until = until; self.note = note; self.scheduleId = scheduleId
+    /// When a snoozed ring rings again (ms).
+    public var at: Double?
+    public init(id: String, source: String, title: String, reason: String, botIds: [String], agenda: String, createdAt: Double, state: String, until: Double?, note: String, scheduleId: String?, at: Double? = nil) {
+        self.id = id; self.source = source; self.title = title; self.reason = reason; self.botIds = botIds; self.agenda = agenda; self.createdAt = createdAt; self.state = state; self.until = until; self.note = note; self.scheduleId = scheduleId; self.at = at
     }
 
     /// One short line under the title.
@@ -82,7 +84,8 @@ public struct IncomingRing: Codable, Equatable, Identifiable, Sendable {
 
     /// When a held ring will sound, from the reason the backend gave for holding it (written for the missed list).
     public var waitingLabel: String {
-        switch note {
+        if state == "snoozed", let at { return "Snoozed. Rings again at \(Date(timeIntervalSince1970: at / 1000).formatted(date: .omitted, time: .shortened))." }
+        return switch note {
         case "You were in a call.": "Rings when your call ends."
         case "Another call was ringing.": "Rings after the call that is ringing now."
         case "Do not disturb was on.": "Rings when do not disturb ends."
@@ -98,6 +101,8 @@ public struct IncomingState: Codable, Equatable, Sendable {
     public var callbacks: [CallBack]
     public var ringing: IncomingRing?
     public var held: [IncomingRing]
+    /// Rings put off with Later; each rings again as the same call at its `at`. Nil from an older backend.
+    public var snoozed: [IncomingRing]?
     /// Newest first.
     public var missed: [IncomingRing]
     /// When the quiet hours you are in end (ms), or nil.

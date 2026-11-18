@@ -10,7 +10,7 @@ import { clockMinutes, inWindow, nextWeekly, validZone, zonedTime, addDays, loca
 export const INCOMING_FILE = 'incoming.json';
 export const RING_SOURCES = ['schedule', 'callback', 'job', 'approval'] as const;
 export type RingSource = (typeof RING_SOURCES)[number];
-export type RingState = 'ringing' | 'held' | 'answered' | 'declined' | 'missed';
+export type RingState = 'ringing' | 'held' | 'snoozed' | 'answered' | 'declined' | 'missed';
 
 export const SCHEDULES_MAX = 20;
 export const BOTS_PER_CALL_MAX = 8;
@@ -80,6 +80,8 @@ export interface Ring {
   /** Why it is held or missed, in words. */
   note: string;
   scheduleId: string | null;
+  /** When a snoozed ring rings again (while snoozed). */
+  at: number | null;
 }
 
 export interface QuietHours {
@@ -273,8 +275,9 @@ export function parseSaved(raw: unknown, zone: string, now: number): Saved {
   for (const g of Array.isArray(r.rings) ? r.rings : []) {
     if (!isRecord(g) || typeof g.id !== 'string' || !RING_SOURCES.includes(g.source as RingSource) || !Number.isSafeInteger(g.createdAt)) continue;
     if (!Array.isArray(g.botIds) || !g.botIds.every((b) => typeof b === 'string')) continue;
-    // A ring that was sounding or waiting when the app closed is missed now: nobody heard it.
-    const state: RingState = g.state === 'answered' || g.state === 'declined' ? g.state : 'missed';
+    // A ring that was sounding or waiting when the app closed is missed now: nobody heard it. A snoozed one still rings.
+    const snoozed = g.state === 'snoozed' && Number.isSafeInteger(g.at);
+    const state: RingState = g.state === 'answered' || g.state === 'declined' || snoozed ? (g.state as RingState) : 'missed';
     rings.push({
       id: g.id,
       source: g.source as RingSource,
@@ -287,6 +290,7 @@ export function parseSaved(raw: unknown, zone: string, now: number): Saved {
       until: null,
       note: state === g.state ? oneLine(g.note, 200) : 'Grok Call was closed while this rang.',
       scheduleId: typeof g.scheduleId === 'string' ? g.scheduleId : null,
+      at: snoozed ? (g.at as number) : null,
     });
   }
   const cooldowns: Record<string, number> = {};
@@ -355,6 +359,7 @@ export class IncomingCalls {
       callbacks: this.s.callbacks,
       ringing: this.s.rings.find((r) => r.state === 'ringing') ?? null,
       held: this.s.rings.filter((r) => r.state === 'held'),
+      snoozed: this.s.rings.filter((r) => r.state === 'snoozed'),
       missed: this.s.rings.filter((r) => r.state === 'missed').reverse(),
       quietUntil: quietUntil(this.s.settings.quietHours, now),
     };
@@ -419,6 +424,15 @@ export class IncomingCalls {
       else this.offer(ring);
     }
     this.s.checkedAt = Math.max(this.s.checkedAt, now);
+    // Snoozed rings ring again as the same call; one due long ago (the app was closed) is missed.
+    for (const r of this.s.rings.filter((x) => x.state === 'snoozed' && x.at! <= now)) {
+      dirty = true;
+      const late = now - r.at! > HELD_MAX_MS;
+      r.createdAt = r.at!;
+      r.at = null;
+      if (late) this.miss(r, 'It was due while Grok Call was closed or the Mac was asleep.');
+      else this.offer(r);
+    }
     for (const c of [...this.s.callbacks]) {
       if (c.at === null || c.at > now) continue;
       dirty = true;
@@ -442,6 +456,7 @@ export class IncomingCalls {
       if (t !== null) next = Math.min(next, t);
     }
     for (const c of this.s.callbacks) if (c.at !== null) next = Math.min(next, c.at);
+    for (const r of this.s.rings) if (r.state === 'snoozed') next = Math.min(next, r.at!);
     // Held rings ring as soon as do-not-disturb or quiet hours end.
     if (this.s.rings.some((r) => r.state === 'held')) {
       for (const t of [this.s.settings.doNotDisturbUntil, quietUntil(this.s.settings.quietHours, now)]) if (t !== null && t > now) next = Math.min(next, t);
@@ -481,6 +496,7 @@ export class IncomingCalls {
       until: null,
       note: '',
       scheduleId,
+      at: null,
     };
     this.s.rings.push(ring);
     return ring;
@@ -517,9 +533,9 @@ export class IncomingCalls {
     this.trim();
   }
 
-  /** Keeps the newest MISSED_KEPT finished rings; held and ringing ones always stay. */
+  /** Keeps the newest MISSED_KEPT finished rings; held, snoozed and ringing ones always stay. */
   private trim() {
-    const done = this.s.rings.filter((r) => r.state !== 'ringing' && r.state !== 'held');
+    const done = this.s.rings.filter((r) => r.state !== 'ringing' && r.state !== 'held' && r.state !== 'snoozed');
     const drop = new Set(done.slice(0, Math.max(0, done.length - MISSED_KEPT)));
     this.s.rings = this.s.rings.filter((r) => !drop.has(r));
   }
@@ -551,7 +567,7 @@ export class IncomingCalls {
   private sounding(id: string): Ring {
     const r = this.ring(id);
     if (!r) throw new IncomingError('That call is no longer there.');
-    if (r.state !== 'ringing' && r.state !== 'held' && r.state !== 'missed') throw new IncomingError(`That call was already ${r.state}.`);
+    if (r.state !== 'ringing' && r.state !== 'held' && r.state !== 'snoozed' && r.state !== 'missed') throw new IncomingError(`That call was already ${r.state}.`);
     return r;
   }
 
@@ -559,6 +575,7 @@ export class IncomingCalls {
     const wasRinging = r.state === 'ringing';
     r.state = state;
     r.until = null;
+    r.at = null;
     r.note = note;
     if (wasRinging) {
       this.d.clearTimer(this.ringTimer);
@@ -593,27 +610,22 @@ export class IncomingCalls {
     this.commit();
   }
 
-  /** Rings again in `minutes`. */
+  /** The same call rings again in `minutes`: same bots, agenda, reason and standing call. */
   snooze(id: string, minutes: unknown) {
     if (!SNOOZE_MINUTES.includes(minutes as (typeof SNOOZE_MINUTES)[number])) throw new IncomingError(`minutes must be one of ${SNOOZE_MINUTES.join(', ')}`);
     const r = this.sounding(id);
     this.end(r, 'declined', `Snoozed for ${minutes} min.`);
-    this.s.callbacks.push({
-      id: crypto.randomUUID(),
-      botId: r.botIds[0],
-      botName: r.title.replace(/ is calling back$/, ''),
-      reason: r.reason,
-      at: this.d.now() + (minutes as number) * 60_000,
-      waitsFor: [],
-      createdAt: this.d.now(),
-    });
+    const again = this.newRing(r.source, r.title, r.reason, r.botIds, r.agenda, r.scheduleId);
+    again.state = 'snoozed';
+    again.at = this.d.now() + (minutes as number) * 60_000;
+    again.note = `Snoozed for ${minutes} min.`;
     this.release(this.d.now());
     this.commit();
     this.tick();
   }
 
   clearMissed() {
-    this.s.rings = this.s.rings.filter((r) => r.state === 'ringing' || r.state === 'held');
+    this.s.rings = this.s.rings.filter((r) => r.state === 'ringing' || r.state === 'held' || r.state === 'snoozed');
     this.commit();
   }
 
@@ -652,8 +664,15 @@ export class IncomingCalls {
     const s = this.s.schedules.find((x) => x.id === id);
     if (!s) throw new IncomingError('That standing call is no longer there.');
     if (this.d.busy()) throw new IncomingError('Leave the current call first.');
-    // Already waiting or ringing: pressing again must not queue another ring to decline.
-    const pending = this.s.rings.find((r) => r.scheduleId === s.id && (r.state === 'held' || r.state === 'ringing'));
+    // Already waiting or ringing: pressing again must not queue another ring to decline. A snoozed one rings now.
+    const pending = this.s.rings.find((r) => r.scheduleId === s.id && (r.state === 'held' || r.state === 'ringing' || r.state === 'snoozed'));
+    if (pending?.state === 'snoozed') {
+      pending.at = null;
+      pending.createdAt = this.d.now();
+      this.offer(pending);
+      this.commit();
+      this.tick();
+    }
     if (pending) return pending;
     const ring = this.newRing('schedule', s.title, s.agenda ? `Standing call. Agenda: ${s.agenda}` : 'Standing call.', s.botIds, s.agenda, s.id);
     this.offer(ring);
