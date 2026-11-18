@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Foundation
 import GrokCallCore
 import SwiftUI
@@ -102,8 +103,10 @@ final class AppModel: ObservableObject {
     // Meetings and screen sharing.
     @Published var meetingApps: [MeetingApp] = []
     @Published var talkHeld = false
-    /// ⌥Space could be registered (another app may own it); the on-screen talk button always works.
-    @Published var talkKeyAvailable = false
+    /// ⌥Space could be registered at the last meeting (another app may own it); the on-screen talk button always works.
+    @Published var talkKeyAvailable = true
+    /// True while a meeting is on: only then is ⌥Space registered.
+    var talkKeyWanted: AnyPublisher<Bool, Never> { $view.map { $0?.meeting != nil }.removeDuplicates().eraseToAnyPublisher() }
     @Published var shareTargets: [ShareTarget] = []
     private(set) var meeting: MeetingSession?
     private(set) var screenShare: ScreenShareSession?

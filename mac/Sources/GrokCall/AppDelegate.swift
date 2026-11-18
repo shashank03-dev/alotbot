@@ -199,7 +199,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var overlay: OverlayController!
     private var settings: NSWindow?
     private var hotKey: HotKey?
-    private var talkKey: TalkKey?
+    private var talkKey: TalkKeySwitch?
     private var incomingCalls: IncomingCallController?
     private var subs = Set<AnyCancellable>()
 
@@ -207,8 +207,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model = AppModel()
         overlay = OverlayController(model: model)
         hotKey = HotKey { [weak self] in DispatchQueue.main.async { self?.model.stopAll() } }
-        talkKey = TalkKey { [weak self] held in DispatchQueue.main.async { self?.model.setTalk(held) } }
-        model.talkKeyAvailable = talkKey?.registered == true
+        // ⌥Space is registered only during a meeting; ⌥Esc (hotKey) stays registered all the time.
+        talkKey = TalkKeySwitch(wanted: model.talkKeyWanted, make: { [weak self] in
+            let key = TalkKey { held in DispatchQueue.main.async { self?.model.setTalk(held) } }
+            return (key, key.registered)
+        }, registered: { [weak self] in self?.model.talkKeyAvailable = $0 })
         incomingCalls = IncomingCallController(model: model)
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)

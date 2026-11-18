@@ -144,6 +144,26 @@ final class IncomingCallController: NSObject, UNUserNotificationCenterDelegate {
     }
 }
 
+/// Registers ⌥Space only while `wanted` is true (a meeting is on), so other apps keep it the rest of the time.
+@MainActor
+final class TalkKeySwitch {
+    private var key: AnyObject?
+    private var sub: AnyCancellable?
+    var isOn: Bool { key != nil }
+
+    /// `make` registers the key and says whether it got it; dropping what it returns unregisters it.
+    init(wanted: AnyPublisher<Bool, Never>, make: @escaping () -> (key: AnyObject, registered: Bool), registered: @escaping (Bool) -> Void) {
+        sub = wanted.sink { [weak self] on in
+            guard let self else { return }
+            if !on { key = nil; return }
+            guard key == nil else { return }
+            let made = make()
+            key = made.key
+            registered(made.registered)
+        }
+    }
+}
+
 /// ⌥Space, held anywhere: in a meeting, your mic goes to the bots instead of the meeting while you hold it.
 final class TalkKey {
     private var ref: EventHotKeyRef?
