@@ -1141,6 +1141,20 @@ test('two join requests at once start one call; so do an answer and a join', asy
   await c2.fails('ringAnswer', { id: ring.id }, /Leave the current call first/);
 });
 
+// A ring kept sounding after you started a call yourself, and Answer then said "Leave this call first."
+test('starting a call while a ring sounds holds the ring until the call ends', async () => {
+  const h = await start(true, 5, [], {}, { zone: () => 'UTC' });
+  const c = await connect(h);
+  const saved = await c.ok('scheduleSave', { schedule: { title: 'Standup', botIds: ['b'], days: [0, 1, 2, 3, 4, 5, 6], time: '09:00', timezone: 'UTC' } });
+  const ring = (await c.ok('scheduleRingNow', { id: saved.schedule.id })).ringing;
+  await inCall(h, c, ['a']);
+  const during = await c.ok('incoming');
+  assert.equal(during.ringing, null);
+  assert.deepEqual(during.held.map((r: any) => [r.id, r.note]), [[ring.id, 'You were in a call.']]);
+  await c.ok('leave');
+  assert.equal((await c.ok('incoming')).ringing.id, ring.id, 'rings once the call ended');
+});
+
 test('a ring whose bots were deleted cannot be answered: it is listed as missed with why, and the bots leave its standing call', async () => {
   const h = await start(true, 5, [], {}, { zone: () => 'UTC' });
   const c = await connect(h);

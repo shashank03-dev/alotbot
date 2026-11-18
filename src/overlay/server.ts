@@ -726,6 +726,7 @@ export function createOverlayServer(opts: OverlayOptions) {
       this.mic = new MicStats(Date.now());
       call.joinWith(picked, all, calls.readMemory(), { continued, opening, meeting });
       this.call = call;
+      incoming.callStarted();
       this.linesSent = 0;
       this.tasksSent = -1;
       this.lastView = '';

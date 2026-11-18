@@ -557,6 +557,18 @@ export class IncomingCalls {
     return changed;
   }
 
+  /** You started a call yourself: a ring that is sounding waits, and rings when the call ends (in a call nothing rings). */
+  callStarted() {
+    const r = this.s.rings.find((x) => x.state === 'ringing');
+    if (!r) return;
+    this.d.clearTimer(this.ringTimer);
+    this.ringTimer = null;
+    r.state = 'held';
+    r.until = null;
+    r.note = 'You were in a call.';
+    this.commit();
+  }
+
   /** A call ended (or anything else that may free a held ring). */
   freed() {
     if (this.release(this.d.now())) this.commit();

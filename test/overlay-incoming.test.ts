@@ -463,6 +463,26 @@ test('in a call nothing rings: rings wait, ring when the call ends, and are miss
   assert.equal(h.inc.state().missed[0].note, 'You were in a call. It waited too long to ring.');
 });
 
+test('a ring that is sounding when you start a call yourself waits, and rings when the call ends', () => {
+  const h = harness();
+  h.inc.start();
+  const s = h.inc.saveSchedule(weekly(), KNOWN);
+  const ring = h.inc.ringNow(s.id);
+  h.inc.callStarted();
+  h.busy = true;
+  assert.equal(h.inc.state().ringing, null);
+  assert.deepEqual(h.inc.state().held.map((r) => [r.id, r.note, r.until]), [[ring.id, 'You were in a call.', null]]);
+  h.advance(RING_SECONDS.default * 1000 + 1);
+  assert.deepEqual(h.inc.state().missed, [], 'its ring timer stopped');
+  h.busy = false;
+  h.inc.freed();
+  assert.equal(h.inc.state().ringing!.id, ring.id);
+  const before = h.changes;
+  h.inc.decline(ring.id);
+  h.inc.callStarted();
+  assert.equal(h.changes, before + 1, 'nothing ringing: nothing to save');
+});
+
 test('two calls at once: the second waits for the first to end', () => {
   const h = harness();
   h.inc.start();
