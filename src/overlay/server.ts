@@ -18,7 +18,7 @@ import { BadSetting, COLORS, LANGUAGES, OverlayGrokClient, parseNewBot, parseVoi
 import { OverlayStore } from './store.ts';
 import { CALL_KINDS, CallLibrary, type CallKind, callIdOf, LibraryError } from './library.ts';
 import { type ActionView, callbackWhen, IncomingCalls, IncomingError, type Ring } from './incoming.ts';
-import type { CallOpening } from './call.ts';
+import { type CallOpening, type MeetingInfo } from './call.ts';
 import type { Action } from '../actions.ts';
 import { ActionStore } from '../actions.ts';
 import { CallActions } from '../dispatch.ts';
@@ -116,6 +116,20 @@ const int = (v: unknown, what: string): number => {
   if (!Number.isSafeInteger(v)) throw new ClientError(`${what} must be a whole number`);
   return v as number;
 };
+
+/**
+ * The meeting a call listens to, from the app: its app name, and the host's confirmation that the people in it know
+ * they are being transcribed. Null for a normal call.
+ */
+export function parseMeeting(raw: unknown): MeetingInfo | null {
+  if (raw === undefined || raw === null) return null;
+  const r = raw as Record<string, unknown>;
+  if (typeof raw !== 'object' || Array.isArray(raw)) throw new ClientError('meeting must be an object');
+  const app = typeof r.app === 'string' ? r.app.replace(/\s+/g, ' ').trim() : '';
+  if (!app || app.length > 100) throw new ClientError('meeting.app must name the meeting app (up to 100 characters)');
+  if (r.consent !== true) throw new ClientError('Confirm that the people in the meeting know it is being transcribed.');
+  return { app };
+}
 
 export function createOverlayServer(opts: OverlayOptions) {
   const store = new AuthStore(opts.dataDir);
@@ -378,7 +392,21 @@ export function createOverlayServer(opts: OverlayOptions) {
         case 'bots':
           return { bots: await this.refreshBots() };
         case 'join':
-          return this.join(m.botIds, m.continueFrom);
+          return this.join(m.botIds, m.continueFrom, null, parseMeeting(m.meeting));
+        case 'meetingLine': {
+          const call = this.inCall();
+          if (call.kind !== 'meeting') throw new ClientError('this call is not listening to a meeting');
+          if (m.who !== 'meeting' && m.who !== 'host') throw new ClientError('who must be meeting or host');
+          if (typeof m.text !== 'string') throw new ClientError('text must be text');
+          return { kept: call.meetingLine(m.who, m.text) };
+        }
+        case 'setWhisper': {
+          const call = this.inCall();
+          if (call.kind !== 'meeting') throw new ClientError('this call is not listening to a meeting');
+          if (m.mode !== 'text' && m.mode !== 'voice') throw new ClientError('mode must be text or voice');
+          call.setWhisper(m.mode);
+          return { whisper: m.mode };
+        }
         case 'leave':
           return this.leave();
         case 'addBot':
@@ -565,7 +593,7 @@ export function createOverlayServer(opts: OverlayOptions) {
       return { deleted: c.id };
     }
 
-    async join(raw: unknown, continueFrom: unknown = undefined, opening: CallOpening | null = null) {
+    async join(raw: unknown, continueFrom: unknown = undefined, opening: CallOpening | null = null, meeting: MeetingInfo | null = null) {
       if (this.call) throw new ClientError('already in a call');
       if (!Array.isArray(raw) || !raw.length || !raw.every((x) => typeof x === 'string')) throw new ClientError('botIds must be a list of bot ids');
       const continued = continueFrom === undefined || continueFrom === null ? null : this.libraryGet(str(continueFrom, 'continueFrom')).call;
@@ -628,7 +656,7 @@ export function createOverlayServer(opts: OverlayOptions) {
       };
       this.log = log;
       this.mic = new MicStats(Date.now());
-      call.joinWith(picked, all, calls.readMemory(), { continued, opening });
+      call.joinWith(picked, all, calls.readMemory(), { continued, opening, meeting });
       this.call = call;
       this.linesSent = 0;
       this.tasksSent = -1;

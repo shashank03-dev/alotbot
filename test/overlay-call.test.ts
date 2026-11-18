@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { CallLibrary, callIdOf, fileTime } from '../src/overlay/library.ts';
-import { type CallBacks, type CallOpening, CALLBACK_TOOL, type PastCalls, RECALL_OUTPUT_MAX, RECALL_TOOLS, PAST_LINES } from '../src/overlay/call.ts';
+import { type CallBacks, type CallOpening, CALLBACK_TOOL, MEETING_ECHO_MS, MEETING_LINES_PER_MIN, type PastCalls, RECALL_OUTPUT_MAX, RECALL_TOOLS, PAST_LINES } from '../src/overlay/call.ts';
 
 const A = bot('a');
 const B = bot('b');
@@ -641,3 +641,120 @@ test('if the bot that called cannot join, the first bot in opens the call instea
 });
 
 const flushAll = () => new Promise((r) => setImmediate(r));
+
+// ---------- meetings ----------
+
+async function meeting(app = 'zoom.us') {
+  const h = setup();
+  h.call.joinWith([A, B], [A, B, C], null, { meeting: { app } });
+  await h.ready('a', 'b');
+  return h;
+}
+
+test('a meeting call: bots are told they are private advisers, whisper in text, and the view says so', async () => {
+  const h = await meeting();
+  assert.equal(h.call.kind, 'meeting');
+  assert.equal(h.call.textOnly, true);
+  assert.deepEqual(h.call.overlayView().meeting, { app: 'zoom.us', whisper: 'text' });
+  const ins = h.ws('a').lastSession().instructions;
+  assert.match(ins, /# You are listening in on a meeting\nShashank is in a meeting in zoom\.us\. Nobody in the meeting can hear you/);
+  assert.match(ins, /stay silent until Shashank speaks to you directly \(\[Shashank \(host\)\] lines\)/);
+  assert.equal(h.call.overlayExport().kind, 'meeting');
+  // A normal call has none of it.
+  const plain = await twoBots();
+  assert.equal(plain.call.overlayView().meeting, null);
+  assert.equal(plain.call.textOnly, false);
+  assert.equal(plain.call.meetingLine('meeting', 'hello there'), false);
+  plain.call.setWhisper('voice');
+  assert.equal(plain.call.textOnly, false);
+});
+
+test('meeting lines reach every bot as text, are in the transcript, and never start a reply', async () => {
+  const h = await meeting();
+  const asks = () => [h.ws('a'), h.ws('b')].flatMap((w) => w.sent.filter((m: any) => m.type === 'response.create')).length;
+  const before = asks();
+  assert.equal(h.call.meetingLine('meeting', '  Revenue   was   up this quarter '), true);
+  assert.equal(h.call.meetingLine('host', 'Thanks, what drove it?'), true);
+  assert.equal(asks(), before, 'nobody answers the meeting');
+  assert.equal(h.ws('a').said().at(-2), '[Meeting]: Revenue was up this quarter');
+  assert.equal(h.ws('b').said().at(-1), '[Shashank (in the meeting)]: Thanks, what drove it?');
+  assert.deepEqual(h.call.linesSince(0).map((l: any) => [l.who, l.botId]), [['Meeting', null], ['Shashank (in the meeting)', null]]);
+  assert.ok(h.call.timeline.some((e: any) => e.kind === 'meeting' && e.text === 'Meeting: Revenue was up this quarter'));
+  for (const junk of ['', '   ', '...', '?!', null as unknown as string]) assert.equal(h.call.meetingLine('meeting', junk), false);
+  assert.equal(h.call.meetingLine('meeting', 'x'.repeat(2000)), true);
+  assert.equal(h.call.lines.at(-1).text.length, 1000);
+  h.call.leave();
+  assert.equal(h.call.meetingLine('meeting', 'after the call'), false);
+});
+
+test('your line that repeats what the meeting just said is its sound in your mic, and is dropped', async () => {
+  const h = await meeting();
+  h.call.meetingLine('meeting', 'We should ship the beta on Friday');
+  assert.equal(h.call.meetingLine('host', 'ship the beta on friday'), false);
+  assert.ok(h.call.timeline.some((e: any) => e.kind === 'echo' && /meeting's sound in your mic: "ship the beta on friday"/.test(e.text)));
+  assert.equal(h.call.meetingLine('host', 'No wait, Monday is better'), true, 'your own words are kept');
+  h.setClock(MEETING_ECHO_MS + 1);
+  assert.equal(h.call.meetingLine('host', 'ship the beta on friday'), true, 'the meeting said it long enough ago');
+});
+
+test('a runaway meeting transcript is cut at the per-minute limit, said once, and flows again a minute later', async () => {
+  const h = await meeting();
+  for (let i = 0; i < MEETING_LINES_PER_MIN; i++) assert.equal(h.call.meetingLine('meeting', `line ${i}`), true);
+  assert.equal(h.call.meetingLine('meeting', 'one too many'), false);
+  assert.equal(h.call.meetingLine('meeting', 'two too many'), false);
+  assert.equal(h.call.timeline.filter((e: any) => /coming too fast/.test(e.text)).length, 1);
+  h.setClock(60_001);
+  assert.equal(h.call.meetingLine('meeting', 'back again'), true);
+  for (let i = 0; i < MEETING_LINES_PER_MIN; i++) h.call.meetingLine('meeting', `more ${i}`);
+  assert.equal(h.call.timeline.filter((e: any) => /coming too fast/.test(e.text)).length, 2, 'said again for a new burst');
+});
+
+test('in a meeting a bot answers you, and then the bots wait: no rounds, no suggestions, unless one hands the turn on', async () => {
+  const h = await meeting();
+  const asksOf = (id: string) => h.ws(id).sent.filter((m: any) => m.type === 'response.create').length;
+  const run = () => h.timers.filter((t: any) => !t.done).forEach((t: any) => { t.done = true; t.fn(); });
+  h.call.sendText('What was Q3 revenue?');
+  reply(h.ws('a'), '4.2 million.');
+  run();
+  assert.equal(h.call.waitingForHost, true);
+  assert.equal(asksOf('b'), 0, 'Bot B does not chime in');
+  // A one-on-one ends without a suggestion round.
+  h.call.sendText('Bot A, and the margin?');
+  reply(h.ws('a'), 'Twelve percent.');
+  h.call.sendText('Thanks, that is all.');
+  reply(h.ws('a'), 'Sure.');
+  run();
+  assert.equal(h.call.focus, null);
+  assert.equal(asksOf('b'), 0, 'no suggestion round in a meeting');
+  assert.ok(h.call.timeline.some((e: any) => e.text === 'Your talk with Bot A is over: the bots wait for you'));
+  // A bot that asks to wait waits, like any other turn decision.
+  h.call.sendText('Anything else?');
+  reply(h.ws('a'), 'No.', [['wait_for_host', {}]]);
+  run();
+  assert.equal(asksOf('b'), 0);
+  // A bot can still hand the turn on.
+  h.call.sendText('Ask Bot B about churn.');
+  reply(h.ws('a'), 'Bot B?', [['hand_to', { name: 'Bot B' }]]);
+  run();
+  assert.equal(asksOf('b'), 1, 'a hand-off still works');
+});
+
+test('outside meetings the one-on-one still ends with suggestions', async () => {
+  const h = await twoBots();
+  h.call.sendText('Bot A, the margin?');
+  reply(h.ws('a'), 'Twelve percent.');
+  h.call.sendText('Thanks, that is all.');
+  reply(h.ws('a'), 'Sure.');
+  h.timers.filter((t: any) => !t.done).forEach((t: any) => { t.done = true; t.fn(); });
+  assert.ok(h.call.timeline.some((e: any) => /may now add a suggestion/.test(e.text)));
+});
+
+test('whispers: aloud for headphones, back to text; the timeline says which', async () => {
+  const h = await meeting();
+  h.call.setWhisper('voice');
+  assert.equal(h.call.textOnly, false);
+  assert.deepEqual(h.call.overlayView().meeting, { app: 'zoom.us', whisper: 'voice' });
+  h.call.setWhisper('voice');
+  h.call.setWhisper('text');
+  assert.deepEqual(h.call.timeline.filter((e: any) => e.kind === 'meeting').map((e: any) => e.text), ['Bots whisper aloud (headphones)', 'Bots whisper in text']);
+});
