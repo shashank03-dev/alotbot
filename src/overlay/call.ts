@@ -7,6 +7,7 @@ import {
   CONTEXT_LINES,
   contextText,
   matchBot,
+  meetingMarkdown,
   tagOf,
   USER,
   ADD_TASK_TOOL,
@@ -70,6 +71,8 @@ export function tasksText(board: TaskBoard, me: string): string {
 export interface OverlayMemory {
   summary: string;
   tasks: Task[];
+  /** The newest decisions across calls, oldest first. */
+  decisions: string[];
 }
 
 export interface LiveLine {
@@ -82,6 +85,29 @@ export interface LiveLine {
 }
 
 export type Gaze = 'host' | string | null;
+
+/** An agenda topic, as the call engine keeps it (ms are into the call). */
+export interface MeetingTopic {
+  id: number;
+  title: string;
+  minutes: number | null;
+  status: 'waiting' | 'current' | 'done';
+  startedAt: number | null;
+  endedAt: number | null;
+  outcome: string;
+  overtime: boolean;
+}
+
+/** A poll among the bots, as the call engine keeps it; `result` is '' while it is open. */
+export interface MeetingPoll {
+  id: number;
+  question: string;
+  options: string[];
+  by: string;
+  votes: { bot: string; option: string; reason: string }[];
+  winners: string[];
+  result: string;
+}
 
 export interface OverlayBotView {
   id: string;
@@ -157,6 +183,8 @@ export class OverlayCall extends CallBase {
     this.board = new TaskBoard(memory?.tasks ?? []);
     this.lastSummary = memory?.summary ?? '';
     this.join(bots, available, null);
+    // After join, which starts the call afresh; the bots' instructions are written once their sessions open.
+    this.pastDecisions = [...(memory?.decisions ?? [])];
   }
 
   add(bot: Bot) {
@@ -294,10 +322,14 @@ export class OverlayCall extends CallBase {
       summary: data.summary as string,
       actionItems: this.actionItems as string[],
       tasks: this.board.tasks.map((t) => ({ ...t, status: this.board.statusOf(t) })),
-      memory: { summary: (data.summary as string) || this.lastSummary, tasks: this.board.carryOver() } as OverlayMemory,
+      agenda: data.agenda as MeetingTopic[],
+      decisions: data.decisions as { text: string; by: string; at: number }[],
+      polls: data.polls as MeetingPoll[],
+      memory: { summary: (data.summary as string) || this.lastSummary, tasks: this.board.carryOver(), decisions: data.memory.decisions as string[] } as OverlayMemory,
       timeline: this.timeline as { at: number; kind: string; text: string }[],
       logFile: this.log?.name ?? null,
-      saveWorthy: data.lines.length > 0 || this.board.version > 0,
+      // A call with only an agenda, a vote or a decision is worth saving too.
+      saveWorthy: data.lines.length > 0 || this.board.version > 0 || this.meetingVersion > 0,
     };
   }
 
@@ -355,6 +387,7 @@ export function overlayMarkdown(d: ReturnType<OverlayCall['overlayExport']>, for
     const ordered = d.tasks.filter((t) => t.parent === null).flatMap((p) => [p, ...d.tasks.filter((t) => t.parent === p.id)]);
     out.push('## Tasks', '', ...ordered.map(line), '');
   }
+  out.push(...meetingMarkdown(d));
   out.push('## Transcript', '', ...(d.lines.length ? d.lines.map((l) => `**${tagOf(l)}:** ${l.text}  `) : ['_Nothing was said._']), '');
   // Everything that happened, with times from the start of the call (the last 500 entries).
   const clock = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`;

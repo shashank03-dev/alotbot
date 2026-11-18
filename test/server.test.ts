@@ -8,6 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { after, before, test } from 'node:test';
 import { createApp, isAllowed, parseLanded, parseToolCall, readJson, TOOL_BODY_LIMIT } from '../src/server.ts';
+import { PAST_CALLS_TOOL } from '../src/past-calls.ts';
 
 const TOKEN = 'k'.repeat(48);
 /** Every request in this file carries the run's key, as the page does; tests that check refusals leave it out. */
@@ -152,7 +153,7 @@ test('lists bots and mints a voice session for one', async () => {
   assert.deepEqual(bots, { bots: [{ id: '7', name: 'My Bot', voice: 'carina', speed: 1, language: null, color: null, shape: null }] });
   const r = await fetch(`${base}/api/bots/7/voice`, { method: 'POST' });
   assert.equal(r.status, 200);
-  assert.deepEqual(await r.json(), { clientSecret: 's', url: 'wss://voice.test/rt?model=m', expiresAt: 5, instructions: 'Be My Bot.', tools: [SEARCH, ...APP_TOOLS], apps: [{ id: 'user-Mail', name: 'Mail', status: 'connected' }], greeting: null, receipt: null, skills: [], routines: [], computers: [] });
+  assert.deepEqual(await r.json(), { clientSecret: 's', url: 'wss://voice.test/rt?model=m', expiresAt: 5, instructions: 'Be My Bot.', tools: [SEARCH, ...APP_TOOLS, PAST_CALLS_TOOL], apps: [{ id: 'user-Mail', name: 'Mail', status: 'connected' }], greeting: null, receipt: null, skills: [], routines: [], computers: [] });
   assert.equal((await fetch(`${base}/api/bots/nope/voice`, { method: 'POST' })).status, 404);
   assert.equal((await fetch(`${base}/api/bots/7/voice`)).status, 405);
   assert.equal((await fetch(`${base}/api/bots/bad%20id/voice`, { method: 'POST' })).status, 404);
@@ -202,7 +203,7 @@ test('defaults to the real Grok Bot sign-in page', async () => {
 
 test('memory: none at first, then the last saved call; calls are saved under dataDir', async () => {
   assert.deepEqual(await (await fetch(`${base}/api/memory`)).json(), { memory: null });
-  const memory = { summary: 'We chose May.', actionItems: ['Email Sam'], notes: [{ text: 'Budget 5k', by: 'Bot A' }] };
+  const memory = { summary: 'We chose May.', actionItems: ['Email Sam'], notes: [{ text: 'Budget 5k', by: 'Bot A' }], decisions: ['Launch in May'] };
   const r = await fetch(`${base}/api/calls`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ memory, markdown: '# Call' }) });
   assert.equal(r.status, 200);
   const { file } = await r.json();
@@ -246,6 +247,25 @@ test('readJson stops reading a body over the limit', async () => {
 });
 
 const LINE = { theyJustTalked: true, newsOwed: false, receiptOwed: false, alreadySpokeThisTurn: false };
+
+test('search_past_calls is answered by this server from the saved calls, without Grok Bot', async () => {
+  const markdown = '# Grok Call, T\n\n## Summary\n\nWe planned the launch.\n\n## Decisions\n\n- Launch in May (Bot A, at 0:10)\n\n## Transcript\n\n_Nothing was said._\n';
+  const saved = await fetch(`${base}/api/calls`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ memory: { summary: '', actionItems: [], notes: [] }, markdown }) });
+  assert.equal(saved.status, 200);
+  const sent = toolBodies.length;
+  const r = await fetch(`${base}/api/bots/7/tool`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ callId: 'call-9-7', name: 'search_past_calls', input: { query: 'when do we launch' }, line: LINE }),
+  });
+  assert.equal(r.status, 200);
+  const { kind, output } = await r.json();
+  assert.equal(kind, 'served');
+  assert.equal(output.matches[0].section, 'Decisions');
+  assert.equal(output.matches[0].text, 'Launch in May (Bot A, at 0:10)');
+  assert.equal(output.calls[0].summary, 'We planned the launch.');
+  assert.equal(toolBodies.length, sent, 'nothing went to Grok Bot');
+});
 
 test('call tools: a bot\'s search goes to Grok Bot; hang-up and malformed calls are refused with the reason', async () => {
   await until(() => fs.existsSync(path.join(dataDir, 'auth.json')));

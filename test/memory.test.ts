@@ -8,7 +8,8 @@ import { BadInput, callFileName, CallStore, LIMITS, parseMemory } from '../src/m
 const good = { summary: ' We chose  May. ', actionItems: ['Email Sam', '  '], notes: [{ text: 'Budget\n5k', by: 'Bot A' }, { text: ' ', by: 'X' }] };
 
 test('parseMemory cleans text and drops empty entries', () => {
-  assert.deepEqual(parseMemory(good), { summary: 'We chose May.', actionItems: ['Email Sam'], notes: [{ text: 'Budget 5k', by: 'Bot A' }] });
+  assert.deepEqual(parseMemory(good), { summary: 'We chose May.', actionItems: ['Email Sam'], notes: [{ text: 'Budget 5k', by: 'Bot A' }], decisions: [] }, 'saved before decisions existed');
+  assert.deepEqual(parseMemory({ ...good, decisions: [' Launch  in May ', ''] }).decisions, ['Launch in May']);
 });
 
 test('parseMemory refuses bad shapes with the reason', () => {
@@ -23,6 +24,8 @@ test('parseMemory refuses bad shapes with the reason', () => {
     [{ ...good, notes: [null] }, /each note must be an object/],
     [{ ...good, notes: [{ text: 'a' }] }, /note author must be text/],
     [{ ...good, notes: [{ text: 'a'.repeat(LIMITS.item + 1), by: 'b' }] }, /note is longer than 500/],
+    [{ ...good, decisions: 'Go' }, /decisions must be a list/],
+    [{ ...good, decisions: [3] }, /decision must be text/],
   ];
   for (const [input, msg] of bad) assert.throws(() => parseMemory(input), (e: Error) => e instanceof BadInput && msg.test(e.message), String(msg));
 });

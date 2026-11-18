@@ -1,13 +1,16 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { callFileName } from '../memory.ts';
+import { CALL_FILE, callFiles, callTime } from '../past-calls.ts';
 import type { OverlayMemory } from './call.ts';
 import { parseTasks } from './tasks.ts';
 
 export const SUMMARY_MAX = 2000;
+/** Longest saved decision, and how many are kept (the newest). */
+export const DECISION_MAX = 500;
+export const DECISIONS_KEPT = 50;
 /** Past calls listed in the app, newest first. */
 export const CALLS_LISTED = 50;
-const CALL_FILE = /^call-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z(-\d+)?\.md$/;
 
 export interface PastCall {
   file: string;
@@ -22,11 +25,11 @@ export function parseOverlayMemory(raw: unknown): OverlayMemory {
   const m = raw as Record<string, unknown> | null;
   if (!m || typeof m !== 'object') throw new Error('memory must be an object');
   if (typeof m.summary !== 'string') throw new Error('summary must be text');
-  return { summary: m.summary.replace(/\s+/g, ' ').trim().slice(0, SUMMARY_MAX), tasks: parseTasks(m.tasks) };
+  // Memory saved before decisions existed has none.
+  if (m.decisions !== undefined && !(Array.isArray(m.decisions) && m.decisions.every((d) => typeof d === 'string'))) throw new Error('decisions must be a list of text');
+  const decisions = ((m.decisions as string[] | undefined) ?? []).map((d) => d.replace(/\s+/g, ' ').trim().slice(0, DECISION_MAX)).filter(Boolean).slice(-DECISIONS_KEPT);
+  return { summary: m.summary.replace(/\s+/g, ' ').trim().slice(0, SUMMARY_MAX), tasks: parseTasks(m.tasks), decisions };
 }
-
-/** call-…Z.md is 1, call-…Z-2.md is 2: later saves in the same second. */
-const copyNumber = (file: string) => Number(/-(\d+)\.md$/.exec(file)?.[1] ?? 1);
 
 /** The summary section of a saved call's Markdown. */
 export function summaryOf(markdown: string): string {
@@ -76,19 +79,9 @@ export class OverlayStore {
   }
 
   listCalls(): PastCall[] {
-    let names: string[];
-    try {
-      names = fs.readdirSync(this.callsDir).filter((n) => CALL_FILE.test(n));
-    } catch {
-      return [];
-    }
-    return names
-      .map((file) => {
-        const stamp = file.slice(5, 25).replace(/T(\d{2})-(\d{2})-(\d{2})Z/, 'T$1:$2:$3Z');
-        return { file, at: Date.parse(stamp), summary: summaryOf(fs.readFileSync(path.join(this.callsDir, file), 'utf8')) };
-      })
-      .sort((a, b) => b.at - a.at || copyNumber(b.file) - copyNumber(a.file))
-      .slice(0, CALLS_LISTED);
+    return callFiles(this.callsDir)
+      .slice(0, CALLS_LISTED)
+      .map((file) => ({ file, at: callTime(file), summary: summaryOf(fs.readFileSync(path.join(this.callsDir, file), 'utf8')) }));
   }
 
   /** A saved call's Markdown. Only plain call file names are accepted. */

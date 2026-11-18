@@ -15,7 +15,7 @@ const state = {
   panel: null, // 'people' | 'tasks' | 'timeline' | null
   timelineSeq: 0, // last timeline entry drawn
   toastTimer: 0,
-  tasksSeen: -1, // task state last drawn: `${notepadVersion}|${direction.length}`
+  tasksSeen: -1, // panel state last drawn: see meetingKey
 };
 
 // ---------- helpers ----------
@@ -194,7 +194,7 @@ async function loadLobby(message = '') {
 
 function renderMemoryHint() {
   const m = state.memory;
-  $('#memory-hint').hidden = !(m && (m.summary || m.actionItems.length || m.notes.length));
+  $('#memory-hint').hidden = !(m && (m.summary || m.actionItems.length || m.notes.length || m.decisions?.length));
 }
 
 function renderPicker() {
@@ -407,6 +407,12 @@ async function join() {
     state.bots,
     state.memory,
   );
+  // An agenda written in the lobby: every bot gets it as it joins, and topic 1 starts now.
+  const agenda = $('#lobby-agenda').value;
+  if (agenda.trim() && state.call.setAgenda(agenda)) {
+    $('#lobby-agenda').value = '';
+    $('#agenda-box').open = false;
+  }
   if (!state.audio.loopback) {
     state.call.event('error', 'Echo protection could not start: use headphones, or the bots may hear themselves');
   }
@@ -453,6 +459,8 @@ async function saveCall(data) {
   const items = data.memory.actionItems;
   $('#saved-items').replaceChildren(...items.map((a) => listItem(a, '')));
   $('#saved-items-wrap').hidden = !items.length;
+  $('#saved-decisions').replaceChildren(...data.decisions.map((d) => listItem(d.text, d.by)));
+  $('#saved-decisions-wrap').hidden = !data.decisions.length;
   const download = $('#saved-download');
   URL.revokeObjectURL(download.href);
   download.href = URL.createObjectURL(new Blob([markdown], { type: 'text/markdown' }));
@@ -561,7 +569,7 @@ function renderCall() {
   $('#empty-hint').hidden = view.bots.length > 0;
   if (state.panel === 'people') renderPeople(view);
   if (state.panel === 'timeline') renderTimeline(view);
-  const tasksKey = `${view.notepadVersion}|${view.direction.length}`;
+  const tasksKey = meetingKey(view);
   if (tasksKey !== state.tasksSeen) {
     if (state.panel === 'tasks') renderTasks(view);
     if (state.panel === 'tasks' || state.tasksSeen === -1) state.tasksSeen = tasksKey;
@@ -585,7 +593,7 @@ function setPanel(name) {
   if (name === 'tasks') {
     const view = state.call.view();
     renderTasks(view);
-    state.tasksSeen = `${view.notepadVersion}|${view.direction.length}`;
+    state.tasksSeen = meetingKey(view);
   }
   if (name === 'timeline') {
     $('#timeline-list').replaceChildren();
@@ -660,12 +668,25 @@ function listItem(text, meta, cls = '') {
   return li;
 }
 
+/**
+ * What the Meeting panel shows changed: tasks, direction, the agenda, votes or decisions, or the current topic's
+ * minute (so its time used stays current).
+ */
+function meetingKey(view) {
+  const current = view.agenda.find((t) => t.status === 'current');
+  const minute = current ? Math.floor((Date.now() - state.call.startedAt - current.startedAt) / 60000) : -1;
+  return `${view.notepadVersion}|${view.direction.length}|${view.meetingVersion}|${minute}`;
+}
+
 function renderTasks(view) {
   const section = (id, items) => {
     $(`#${id}`).hidden = !items.length;
     const list = $(`#${id} ul`);
     list.replaceChildren(...items);
   };
+  renderAgenda(view);
+  renderPolls(view);
+  $('#decision-list').replaceChildren(...view.decisions.map((d) => listItem(`${d.id}. ${d.text}`, `${d.by} · ${clock(d.at)}`)));
   section('direction', view.direction.map((d, i, all) => listItem(d, i === all.length - 1 ? 'Latest' : '')));
   section(
     'task-list',
@@ -674,6 +695,100 @@ function renderTasks(view) {
     ),
   );
   $('#tasks-empty').hidden = hasTasks(view);
+}
+
+// ---------- meeting: agenda, votes, decisions ----------
+
+function renderAgenda(view) {
+  const agenda = view.agenda;
+  const elapsed = Date.now() - state.call.startedAt;
+  $('#agenda-empty').hidden = agenda.length > 0;
+  $('#agenda-list').replaceChildren(
+    ...agenda.map((t) => {
+      let meta = t.minutes ? `${t.minutes} min planned` : '';
+      if (t.status === 'current') {
+        const used = Math.floor((elapsed - t.startedAt) / 60000);
+        meta = [t.overtime ? 'Time is up' : 'Now', t.minutes ? `${used} of ${t.minutes} min` : `${used} min so far`].join(' · ');
+      } else if (t.status === 'done') meta = t.outcome ? `Done: ${t.outcome}` : 'Done';
+      const cls = [t.status === 'waiting' ? '' : t.status, t.overtime && t.status === 'current' ? 'over' : ''].filter(Boolean).join(' ');
+      return listItem(`${t.id}. ${t.title}`, meta, cls);
+    }),
+  );
+  $('#next-topic').hidden = !agenda.some((t) => t.status === 'current');
+}
+
+function renderPolls(view) {
+  const open = view.poll;
+  const box = $('#poll-open');
+  box.hidden = !open;
+  if (open) {
+    const head = document.createElement('strong');
+    head.textContent = open.question;
+    const note = document.createElement('small');
+    note.className = 'muted';
+    note.textContent = `Voting now · asked by ${open.by} · ${open.votes.length} ${open.votes.length === 1 ? 'vote' : 'votes'}`;
+    const rows = open.options.map((option) => {
+      const voters = open.votes.filter((v) => v.option === option).map((v) => v.bot);
+      const row = document.createElement('div');
+      row.className = 'poll-option';
+      const name = document.createElement('span');
+      name.textContent = option;
+      const count = document.createElement('span');
+      count.textContent = String(voters.length);
+      const bar = document.createElement('span');
+      bar.className = 'poll-bar';
+      const fill = document.createElement('i');
+      fill.style.width = `${open.votes.length ? Math.round((voters.length * 100) / open.votes.length) : 0}%`;
+      bar.append(fill);
+      const who = document.createElement('small');
+      who.textContent = voters.join(', ');
+      row.append(name, count, bar, who);
+      return row;
+    });
+    box.replaceChildren(head, note, ...rows);
+  }
+  $('#poll-list').replaceChildren(...view.polls.filter((p) => p.result).map((p) => listItem(p.result, `Asked by ${p.by}`)).reverse());
+  $('#poll-form button').disabled = Boolean(open);
+}
+
+/** The call engine's refusal ("a poll is already open."), as a sentence. */
+const sentence = (why) => why.charAt(0).toUpperCase() + why.slice(1);
+
+function setAgendaFromPanel(e) {
+  e.preventDefault();
+  if (state.call?.setAgenda($('#agenda-text').value)) {
+    $('#agenda-text').value = '';
+    $('#agenda-edit').open = false;
+    toast('Agenda set. Every bot sees it, and topic 1 starts now.');
+  } else toast('Write at least one topic, one per line.');
+}
+
+function nextTopic(e) {
+  e.preventDefault();
+  const step = state.call?.nextTopic($('#topic-outcome').value);
+  if (!step) return;
+  $('#topic-outcome').value = '';
+  toast(step.next ? `Now on: ${step.next.title}` : 'That was the last topic.');
+}
+
+function startPollFromPanel(e) {
+  e.preventDefault();
+  const r = state.call?.startPoll($('#poll-question').value, $('#poll-options').value);
+  if (!r) return;
+  if (r.error) return toast(sentence(r.error));
+  $('#poll-question').value = '';
+  $('#poll-options').value = '';
+  $('#poll-edit').open = false;
+  toast('The bots are voting, one at a time.');
+}
+
+function recordDecision(e) {
+  e.preventDefault();
+  const r = state.call?.addDecision($('#decision-text').value);
+  if (!r) return;
+  if (r.error) return toast(sentence(r.error));
+  $('#decision-text').value = '';
+  toast('Decision recorded. Every bot knows it.');
 }
 
 // ---------- message box, stop hotkey, timeline ----------
@@ -747,6 +862,10 @@ $('#timeline-btn').onclick = () => togglePanel('timeline');
 $('#timeline-close').onclick = closePanel;
 $('#say-send').innerHTML = icon('send');
 $('#say').onsubmit = sendMessage;
+$('#agenda-form').onsubmit = setAgendaFromPanel;
+$('#next-topic').onsubmit = nextTopic;
+$('#poll-form').onsubmit = startPollFromPanel;
+$('#decision-form').onsubmit = recordDecision;
 // Esc: closes the side panel you are in; anywhere else in a call, it stops every bot.
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;

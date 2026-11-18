@@ -19,6 +19,7 @@ import { OverlayStore } from './store.ts';
 import { ActionStore } from '../actions.ts';
 import { CallActions } from '../dispatch.ts';
 import { JobWatcher } from '../jobs.ts';
+import { PAST_CALLS_TOOL, searchPastCalls } from '../past-calls.ts';
 import { STATUSES, TaskBoard, TaskError, type TaskStatus } from './tasks.ts';
 
 export const PROTOCOL_VERSION = 1;
@@ -417,10 +418,16 @@ export function createOverlayServer(opts: OverlayOptions) {
       const name = (id: string): string => call.links.get(id)!.bot.name;
       log.write('join', { bots: picked.map((b) => b.name) });
       const call = new OverlayCall({
-        mintVoice: async (id: string) => { const voice = await grok.voiceSession(id); return { ...voice, tools: [...voice.tools, ...LOCAL_TOOLS] }; },
+        mintVoice: async (id: string) => { const voice = await grok.voiceSession(id); return { ...voice, tools: [...voice.tools, ...LOCAL_TOOLS, PAST_CALLS_TOOL] }; },
         // A bot used one of its own Grok Bot call tools (send_task, search_conversations): Grok Bot runs it.
         callTool: async (id: string, req: ToolCall) => {
           log.write('grok-tool', { bot: name(id), req });
+          // Earlier calls are searched here, on this Mac: a read of the saved calls, not a Grok Bot action.
+          if (req.name === PAST_CALLS_TOOL.name) {
+            const r = { kind: 'served' as const, output: searchPastCalls(calls.callsDir, req.input.query) };
+            log.write('grok-tool-result', { bot: name(id), result: r });
+            return r;
+          }
           try {
             const r = await actions.tool(id, name(id), req);
             log.write('grok-tool-result', { bot: name(id), result: r });
@@ -575,7 +582,7 @@ export function createOverlayServer(opts: OverlayOptions) {
           const saved = calls.readMemory();
           const board = new TaskBoard(saved?.tasks ?? []);
           this.applyTask(op, m, owner, board);
-          calls.writeMemory({ summary: saved?.summary ?? '', tasks: board.tasks });
+          calls.writeMemory({ summary: saved?.summary ?? '', tasks: board.tasks, decisions: saved?.decisions ?? [] });
         }
       } catch (err) {
         if (err instanceof TaskError) throw new ClientError(err.message);

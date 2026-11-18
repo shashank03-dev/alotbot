@@ -5,6 +5,7 @@ import http from 'node:http';
 import { AuthStore, Login } from './auth.ts';
 import { API_URL, GrokBotClient, NotFoundError, SignedOutError, SITE_URL, ToolRefusedError, type ToolCall } from './grokbot.ts';
 import { BadInput, CallStore, LIMITS, parseMemory } from './memory.ts';
+import { PAST_CALLS_TOOL, searchPastCalls } from './past-calls.ts';
 import { ActionStore } from './actions.ts';
 import { CallActions } from './dispatch.ts';
 import { JobWatcher } from './jobs.ts';
@@ -151,7 +152,11 @@ export function createApp(opts: AppOptions) {
     {
       pattern: /^\/api\/bots\/([A-Za-z0-9_-]{1,64})\/voice$/,
       method: 'POST',
-      handler: async (res, m) => json(res, 200, await grok.voiceSession(m[1])),
+      // Each bot can also search the saved calls, which this server answers itself.
+      handler: async (res, m) => {
+        const voice = await grok.voiceSession(m[1]);
+        json(res, 200, { ...voice, tools: [...voice.tools, PAST_CALLS_TOOL] });
+      },
     },
     {
       // A bot used one of its Grok Bot call tools (send_task, search_conversations): Grok Bot runs it.
@@ -159,6 +164,7 @@ export function createApp(opts: AppOptions) {
       method: 'POST',
       handler: async (res, m, req) => {
         const call = parseToolCall(await readJson(req, TOOL_BODY_LIMIT));
+        if (call.name === PAST_CALLS_TOOL.name) return json(res, 200, { kind: 'served', output: searchPastCalls(calls.callsDir, call.input.query) });
         try {
           json(res, 200, await actions.tool(m[1], grok.bot(m[1])?.name ?? m[1], call));
         } catch (err) {

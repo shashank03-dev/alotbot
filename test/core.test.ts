@@ -908,7 +908,7 @@ test('invite refusals: unknown bot, already in the call, bad arguments, unknown 
     'Bot B is already in the call.',
     'There is no Grok Bot called "". Bots you can invite: Bot C.',
     'There is no Grok Bot called "". Bots you can invite: Bot C.',
-    'Unknown tool "end_the_call". Tools in this call: invite_bot, pass, hand_to, wait_for_host, leave_call, list_tasks, add_task, done_task, save_summary.',
+    'Unknown tool "end_the_call". Tools in this call: invite_bot, pass, hand_to, wait_for_host, leave_call, list_tasks, add_task, done_task, save_summary, set_agenda, next_topic, start_poll, cast_vote, record_decision.',
   ]);
   assert.equal(mints.length, 2, 'nobody new was minted');
   // with nobody left to invite, the refusal says so
@@ -1196,7 +1196,10 @@ const creates = (s: FakeSocket) => s.types().filter((x: string) => x === 'respon
 test('groupInstructions explains the turn tools', () => {
   const text = groupInstructions('B', 'A', ['A', 'C']);
   for (const name of ['hand_to', 'pass', 'wait_for_host', 'leave_call']) assert.match(text, new RegExp(name));
-  assert.deepEqual(TOOLS.map((t: any) => t.name), ['invite_bot', 'pass', 'hand_to', 'wait_for_host', 'leave_call', 'list_tasks', 'add_task', 'done_task', 'save_summary']);
+  assert.deepEqual(TOOLS.map((t: any) => t.name), [
+    'invite_bot', 'pass', 'hand_to', 'wait_for_host', 'leave_call', 'list_tasks', 'add_task', 'done_task', 'save_summary',
+    'set_agenda', 'next_topic', 'start_poll', 'cast_vote', 'record_decision',
+  ]);
   for (const t of TOOLS) assert.equal((t as any).type, 'function');
 });
 
@@ -1658,6 +1661,7 @@ test('exportMarkdown: summary, items, done tasks, notes, direction and transcrip
       '## Done during the call', '', '- [x] Ship (Bot B)', '',
       '## Notes', '', '- n1 (Bot A)', '',
       '## Current direction', '', '- no, focus on X', '',
+      '## Who talked', '', '- Shashank (host): 1 turn, 1 word (50%)', '- Bot A: 1 turn, 1 word (50%), cut off 1x', '',
       '## Transcript', '', '**Shashank (host):** Hi  ', '**Bot A (cut off by the host):** Half  ', '',
     ].join('\n'),
   );
@@ -1665,6 +1669,7 @@ test('exportMarkdown: summary, items, done tasks, notes, direction and transcrip
   assert.match(empty, /^# Grok Call, 1970-01-01T00:00:00\.000Z\n\nBots: none  \nLength: 0 min/);
   for (const t of ['_No summary was saved._', '## Action items\n\n_None._', '_Nothing was said._']) assert.ok(empty.includes(t), t);
   assert.ok(!empty.includes('## Notes') && !empty.includes('## Done during') && !empty.includes('## Current direction'));
+  for (const t of ['## Agenda', '## Decisions', '## Polls', '## Who talked']) assert.ok(!empty.includes(t), `no empty ${t}`);
 });
 
 test('joining with last call memory: bots are told, and the notepad starts with its notes and open items', async () => {
@@ -4136,4 +4141,481 @@ test('USER comes from GROK_CALL_USER, and falls back to Host', async () => {
     execFileSync(process.execPath, ['--input-type=module', '-e', "console.log((await import('./public/core.js')).USER)"], { env: { PATH: process.env.PATH!, ...env } }).toString().trim();
   assert.equal(read({}), 'Host');
   assert.equal(read({ GROK_CALL_USER: 'Priya' }), 'Priya');
+});
+
+// ---------- meeting: agenda with time boxes, votes among the bots, decisions, who talked ----------
+
+import {
+  AGENDA_MAX,
+  DECISIONS_MAX,
+  DECISIONS_REMEMBERED,
+  POLL_OPTIONS_MAX,
+  TOPIC_MINUTES_MAX,
+  agendaLine,
+  agendaTopics,
+  meetingMarkdown,
+  meetingRecord,
+  meetingText,
+  parseAgenda,
+  pickOption,
+  pollOptions,
+  rememberedDecisions,
+  talkStats,
+  tally,
+  votePrompt,
+} from '../public/core.js';
+
+test('parseAgenda: one topic per line or ";", list marks dropped, times in any common form', () => {
+  assert.deepEqual(parseAgenda('1. Pricing (10 min)\n- Launch date - 5m\n• Hiring: 15 minutes\n* Budget 2027\n10 min\n\nQ3 plan 10 mins.;Wrap up'), [
+    { title: 'Pricing', minutes: 10 },
+    { title: 'Launch date', minutes: 5 },
+    { title: 'Hiring', minutes: 15 },
+    { title: 'Budget 2027', minutes: null },
+    { title: 'Q3 plan', minutes: 10 },
+    { title: 'Wrap up', minutes: null },
+  ]);
+  assert.deepEqual(parseAgenda('Deep dive 999 min'), [{ title: 'Deep dive', minutes: TOPIC_MINUTES_MAX }]);
+  assert.deepEqual(parseAgenda('Nothing planned 0 min'), [{ title: 'Nothing planned', minutes: null }]);
+  assert.deepEqual(parseAgenda(undefined), []);
+  assert.equal(parseAgenda(Array.from({ length: AGENDA_MAX + 3 }, (_, i) => `T${i}`).join('\n')).length, AGENDA_MAX);
+  assert.equal(parseAgenda('x'.repeat(300))[0].title.length, 120);
+});
+
+test('agendaTopics takes set_agenda arguments: objects, text items, or text; junk is skipped', () => {
+  assert.deepEqual(agendaTopics([{ title: ' Pricing ', minutes: '7' }, { title: 'Hiring', minutes: 'soon' }, 'Launch (5 min); Close', { title: '' }, null, 42]), [
+    { title: 'Pricing', minutes: 7 },
+    { title: 'Hiring', minutes: null },
+    { title: 'Launch', minutes: 5 },
+    { title: 'Close', minutes: null },
+  ]);
+  assert.deepEqual(agendaTopics('A\nB 3m'), [{ title: 'A', minutes: null }, { title: 'B', minutes: 3 }]);
+  assert.deepEqual(agendaTopics(undefined), []);
+  assert.equal(agendaTopics(Array.from({ length: 20 }, (_, i) => ({ title: `T${i}` }))).length, AGENDA_MAX);
+  assert.equal(agendaLine([{ id: 1, title: 'A', minutes: 5 }, { id: 2, title: 'B', minutes: null }]), '1. A (5 min), 2. B');
+});
+
+test('pollOptions and pickOption: options from a list or words, and the option a vote means', () => {
+  assert.deepEqual(pollOptions('Friday or Monday, or monday'), ['Friday', 'Monday']);
+  assert.deepEqual(pollOptions('A; B / C\nD'), ['A', 'B', 'C', 'D']);
+  assert.deepEqual(pollOptions([' Nova ', 'Orbit', '!!!', '', 'nova']), ['Nova', 'Orbit']);
+  assert.deepEqual(pollOptions(undefined), []);
+  assert.equal(pollOptions(Array.from({ length: 9 }, (_, i) => `O${i}`)).length, POLL_OPTIONS_MAX);
+  const opts = ['Ship Friday', 'Ship Monday', 'Wait'];
+  assert.equal(pickOption('ship monday', opts), 'Ship Monday');
+  assert.equal(pickOption('3', opts), 'Wait');
+  assert.equal(pickOption('9', opts), null, 'no such number');
+  assert.equal(pickOption('I say we wait', opts), 'Wait', 'the only option named');
+  assert.equal(pickOption('ship', opts), null, 'two options match');
+  assert.equal(pickOption('  ', opts), null);
+});
+
+test('tally: who voted for what, the winner, a tie, or nobody', () => {
+  const poll = (votes: [string, string][]) => ({ question: 'When?', options: ['Fri', 'Mon'], votes: votes.map(([bot, option]) => ({ bot, option, reason: '' })) });
+  const one = tally(poll([['A', 'Mon'], ['B', 'Mon'], ['C', 'Fri']]));
+  assert.deepEqual(one.results, [{ option: 'Fri', votes: ['C'] }, { option: 'Mon', votes: ['A', 'B'] }]);
+  assert.deepEqual(one.winners, ['Mon']);
+  assert.equal(one.text, '"When?": Fri 1 (C), Mon 2 (A, B). Winner: Mon.');
+  assert.equal(tally(poll([['A', 'Mon'], ['B', 'Fri']])).text, '"When?": Fri 1 (B), Mon 1 (A). Tie between Fri and Mon.');
+  const none = tally(poll([]));
+  assert.deepEqual(none.winners, []);
+  assert.equal(none.text, '"When?": Fri 0, Mon 0. Nobody voted.');
+  assert.match(votePrompt({ question: 'When?', options: ['Fri', 'Mon'] }), /^\[Poll\]: Your turn to vote on "When\?"\. Options: Fri; Mon\. Use cast_vote/);
+});
+
+test('talkStats counts turns, words and cut-off lines per speaker, most words first', () => {
+  assert.deepEqual(talkStats([{ who: 'A', text: 'one two' }, { who: USER, text: 'a b c' }, { who: 'A', text: ' x ', cut: true }, { who: 'B', text: '' }]), [
+    { who: 'A', turns: 2, words: 3, cut: 1 },
+    { who: USER, turns: 1, words: 3, cut: 0 },
+    { who: 'B', turns: 1, words: 0, cut: 0 },
+  ]);
+});
+
+test('meetingText: the tool rules always, then the agenda, an open poll and decisions when there are any', () => {
+  const empty = { agenda: [], poll: null, decisions: [], pastDecisions: [] };
+  const base = meetingText(empty);
+  assert.match(base, /^\n\n# Meeting tools\n- Agenda: when Shashank gives an agenda, one bot sets it with set_agenda/);
+  assert.match(base, /- Votes: .*start_poll.*cast_vote/);
+  assert.match(base, /- Decisions: .*record_decision/);
+  assert.doesNotMatch(base, /search_past_calls|# Agenda|# Open poll|# Decided/);
+  assert.match(meetingText(empty, true), /- Earlier calls: search_past_calls searches Shashank's saved calls/);
+  const agenda = [
+    { id: 1, title: 'Pricing', minutes: 10, status: 'done', outcome: '$5 a month', overtime: false },
+    { id: 2, title: 'Intro', minutes: null, status: 'done', outcome: '', overtime: false },
+    { id: 3, title: 'Launch', minutes: 5, status: 'current', outcome: '', overtime: true },
+    { id: 4, title: 'Hiring', minutes: null, status: 'waiting', outcome: '', overtime: false },
+  ];
+  const full = meetingText({ agenda, poll: { question: 'When?', options: ['Fri', 'Mon'] }, decisions: [{ id: 1, text: 'Price is $5' }], pastDecisions: ['Launch in May'] });
+  assert.match(full, /# Agenda\n1\. Pricing, 10 min \(done: \$5 a month\)\n2\. Intro \(done\)\n3\. Launch, 5 min \(now\)\n4\. Hiring\nNow on topic 3 of 4: "Launch"\. Keep the talk on it, and do not skip ahead unless Shashank asks\. Its time is up: finish the point and use next_topic\./);
+  assert.match(full, /# Open poll\n"When\?" Options: Fri; Mon\. Vote only when the call gives you your turn\./);
+  assert.match(full, /# Decided in this call\n1\. Price is \$5/);
+  assert.match(full, /# Decided in earlier calls\n- Launch in May$/);
+  const onTime = meetingText({ ...empty, agenda: [{ ...agenda[2], overtime: false }] });
+  assert.doesNotMatch(onTime, /Its time is up/);
+  assert.match(meetingText({ ...empty, agenda: [agenda[0]] }), /Every agenda topic is done\.$/);
+});
+
+test('meetingRecord, rememberedDecisions and wrapUpInstructions give the summary bot the meeting', () => {
+  const record = meetingRecord({
+    agenda: [
+      { title: 'A', status: 'done', outcome: 'Yes' },
+      { title: 'B', status: 'done', outcome: '' },
+      { title: 'C', status: 'current' },
+      { title: 'D', status: 'waiting' },
+    ],
+    decisions: [{ text: 'Go', by: 'Bot A' }],
+    polls: [{ result: '"Q": X 1 (A). Winner: X.' }, { result: '' }],
+  });
+  assert.equal(record, 'Agenda:\n- A: Yes\n- B: done\n- C: in progress\n- D: not reached\nDecisions:\n- Go (Bot A)\nPolls:\n- "Q": X 1 (A). Winner: X.');
+  assert.equal(meetingRecord({ agenda: [], decisions: [], polls: [] }), '');
+  assert.match(wrapUpInstructions([], [], [], record), /Tasks and saved context:\nThe task list is empty\.\n\nAgenda, decisions and votes:\nAgenda:/);
+  assert.doesNotMatch(wrapUpInstructions([], [], []), /Agenda, decisions/);
+  assert.deepEqual(rememberedDecisions(['Old', 'Same', ''], [{ text: 'same' }, { text: 'New' }]), ['Old', 'same', 'New']);
+  const many = rememberedDecisions(Array.from({ length: 30 }, (_, i) => `P${i}`), [{ text: 'Last' }]);
+  assert.equal(many.length, DECISIONS_REMEMBERED);
+  assert.equal(many.at(-1), 'Last', 'the newest is kept');
+  assert.equal(many[0], 'P11');
+});
+
+test('meetingMarkdown: agenda with times and outcomes, decisions, polls with reasons, and who talked', () => {
+  const md = meetingMarkdown({
+    agenda: [
+      { title: 'Pricing', minutes: 10, status: 'done', startedAt: 0, endedAt: 12 * 60000, outcome: '$5' },
+      { title: 'Quick one', minutes: null, status: 'done', startedAt: 0, endedAt: 1000, outcome: '' },
+      { title: 'Launch', minutes: 5, status: 'current', startedAt: 1000, endedAt: null, outcome: '' },
+      { title: 'Hiring', minutes: null, status: 'waiting', startedAt: null, endedAt: null, outcome: '' },
+    ],
+    decisions: [{ text: 'Go', by: 'Bot A', at: 65_000 }],
+    polls: [
+      { result: '"Q": X 2. Winner: X.', votes: [{ bot: 'A', option: 'X', reason: 'cheap' }, { bot: 'B', option: 'X', reason: '' }] },
+      { result: '', votes: [] },
+    ],
+    lines: [{ who: USER, text: 'Hello there everyone' }, { who: 'Bot A', text: 'Hi', cut: true }, { who: 'Bot A', text: 'Yes' }],
+  });
+  assert.deepEqual(md, [
+    '## Agenda', '',
+    '- [x] Pricing (planned 10 min, took 12 min): $5',
+    '- [x] Quick one (took under 1 min)',
+    '- [ ] Launch (planned 5 min, in progress at the end)',
+    '- [ ] Hiring (not reached)', '',
+    '## Decisions', '', '- Go (Bot A, at 1:05)', '',
+    '## Polls', '', '- "Q": X 2. Winner: X.', '  - A: X, because cheap', '  - B: X', '',
+    '## Who talked', '', '- Shashank (host): 1 turn, 3 words (60%)', '- Bot A: 2 turns, 2 words (40%), cut off 1x', '',
+  ]);
+  assert.deepEqual(meetingMarkdown({}), []);
+  assert.deepEqual(meetingMarkdown({ agenda: [{ title: 'Bare', minutes: null, status: 'done', startedAt: null, endedAt: null, outcome: '' }] }), ['## Agenda', '', '- [x] Bare', '']);
+  assert.deepEqual(meetingMarkdown({ lines: [{ who: 'Bot A', text: '' }] }), ['## Who talked', '', '- Bot A: 1 turn, 0 words (0%)', '']);
+});
+
+const lastSaid = (s: FakeSocket) => s.said().at(-1);
+
+test('agenda from a bot: set_agenda opens topic 1 for every bot, next_topic moves on, and the end is said', async () => {
+  const { call, ws, timers } = await three();
+  useTool(ws('a'), 'set_agenda', { topics: [{ title: 'Pricing', minutes: 10 }, { title: 'Launch' }] }, 'Agenda is set.');
+  assert.equal(outputs(ws('a')).at(-1).output, 'Agenda set: 1. Pricing (10 min), 2. Launch. Topic 1, "Pricing", starts now. Say so in one short line.');
+  assert.deepEqual(call.agenda.map((t: any) => [t.title, t.status]), [['Pricing', 'current'], ['Launch', 'waiting']]);
+  assert.deepEqual(ws('b').said().slice(-2), ['[Agenda]: Bot A set the agenda: 1. Pricing (10 min), 2. Launch. Topic 1 starts now.', '[Bot A]: Agenda is set.'], 'the change, then its words');
+  assert.ok(!ws('a').said().some((t: string) => t.startsWith('[Agenda]')), 'the bot that set it already knows');
+  for (const id of ['a', 'b', 'c']) assert.match(lastInstructions(ws(id)), /Now on topic 1 of 2: "Pricing"/);
+  assert.equal(timers.find((t) => t.id === call.agendaTimer)!.ms, 10 * 60000);
+  assert.deepEqual(call.timeline.filter((e: any) => e.kind === 'agenda').map((e: any) => e.text), [
+    'Bot A set the agenda: 1. Pricing (10 min), 2. Launch',
+    'Now on topic 1 of 2: "Pricing" (10 min)',
+  ]);
+  assert.equal(call.view().agenda, call.agenda);
+  const v = call.meetingVersion;
+  // the topic is settled: B closes it, and the next one opens with no time box
+  const timer = call.agendaTimer;
+  useTool(ws('b'), 'next_topic', { outcome: 'Five dollars a month' }, 'Pricing is settled.');
+  assert.equal(outputs(ws('b')).at(-1).output, 'Topic 1 closed. Now on topic 2 of 2: "Launch". Open it in one short line.');
+  assert.equal(timers.find((t) => t.id === timer)!.done, true, 'the old time box is cleared');
+  assert.equal(call.agendaTimer, null, 'Launch has no time box');
+  assert.ok(ws('c').said().includes('[Agenda]: Bot B closed topic 1, "Pricing": Five dollars a month. Next topic: "Launch".'));
+  assert.ok(call.meetingVersion > v);
+  assert.match(lastInstructions(ws('a')), /1\. Pricing, 10 min \(done: Five dollars a month\)\n2\. Launch \(now\)/);
+  useTool(ws('c'), 'next_topic', {}, 'That covers it.');
+  assert.equal(outputs(ws('c')).at(-1).output, 'Topic 2 closed. That was the last topic on the agenda: say so in one short line.');
+  assert.ok(ws('a').said().includes('[Agenda]: Bot C closed topic 2, "Launch". That was the last topic.'));
+  assert.ok(call.timeline.some((e: any) => e.text === 'Every agenda topic is done'));
+  assert.match(lastInstructions(ws('a')), /Every agenda topic is done\./);
+  useTool(ws('a'), 'next_topic', {}, 'Done.');
+  assert.equal(outputs(ws('a')).at(-1).output, 'There is no agenda topic open. Use set_agenda first.');
+  useTool(ws('a'), 'set_agenda', { topics: [] }, 'Hmm.');
+  assert.equal(outputs(ws('a')).at(-1).output, 'Nothing set: give at least one topic with a title.');
+});
+
+test('agenda time boxes: a topic that runs over is called out to every bot; a new agenda, wrap-up and leave clear the clock', async () => {
+  const { call, ws, timers } = await three();
+  assert.ok(call.setAgenda('Pricing (2 min)\nLaunch (3 min)'));
+  assert.equal(lastSaid(ws('a')), '[Agenda]: Shashank set the agenda: 1. Pricing (2 min), 2. Launch (3 min). Topic 1 starts now.', 'from the page every bot is told');
+  fire(timers, call.agendaTimer);
+  assert.equal(call.agendaTimer, null);
+  assert.equal(call.agenda[0].overtime, true);
+  assert.equal(call.timeline.at(-1).text, 'Time is up for "Pricing" (2 min planned)');
+  for (const id of ['a', 'b', 'c']) {
+    assert.equal(lastSaid(ws(id)), '[Agenda]: Time is up for "Pricing" (2 min planned). Finish the point and use next_topic, unless Shashank gives it more time.');
+    assert.match(lastInstructions(ws(id)), /Its time is up: finish the point and use next_topic\./);
+  }
+  assert.equal(call.nextTimer, null, 'nobody is cut off or cued');
+  useTool(ws('a'), 'next_topic', { outcome: 'Agreed' }, 'Moving on.');
+  assert.equal(outputs(ws('a')).at(-1).output, 'Topic 1 closed. Now on topic 2 of 2: "Launch" (3 min). Open it in one short line.');
+  call.setAgenda('Pricing (2 min)\nLaunch (3 min)');
+  const step = call.nextTopic('Agreed');
+  assert.equal(step.closed.title, 'Pricing');
+  assert.equal(step.next.title, 'Launch');
+  assert.equal(lastSaid(ws('a')), '[Agenda]: Shashank closed topic 1, "Pricing": Agreed. Next topic: "Launch".');
+  // a replaced agenda drops the old clock
+  const old = call.agendaTimer;
+  call.setAgenda([{ title: 'Only topic', minutes: 1 }]);
+  assert.equal(timers.find((t) => t.id === old)!.done, true);
+  assert.equal(call.agenda.length, 1);
+  const p = call.wrapUp();
+  assert.equal(call.agendaTimer, null, 'wrap-up stops the clock');
+  call.leave();
+  await p;
+  assert.equal(call.setAgenda('Late topic'), null, 'not in a call');
+  assert.equal(call.nextTopic('x'), null);
+  assert.deepEqual(call.agenda, []);
+});
+
+test('leaving mid-topic clears its time box', async () => {
+  const { call, timers } = await three();
+  call.setAgenda('Pricing (5 min)');
+  const t = call.agendaTimer;
+  call.leave();
+  assert.equal(timers.find((x) => x.id === t)!.done, true);
+});
+
+test('a vote: each bot votes in turn, the one that asked last, then it says the result and the call waits', async () => {
+  const { call, ws, timers } = await three();
+  const opened = call.timeline.length;
+  useTool(ws('a'), 'start_poll', { question: 'Ship Friday or Monday?', options: ['Friday', 'Monday'] }, "Let's vote.");
+  assert.equal(outputs(ws('a')).at(-1).output, 'Poll started. The bots vote in turn, you last. Say in one short line that the bots will vote now; do not vote yet.');
+  assert.equal(call.timeline[opened].text, 'Bot A started a poll: "Ship Friday or Monday?" (Friday / Monday)');
+  assert.ok(ws('b').said().includes('[Poll]: Bot A asks every bot to vote: "Ship Friday or Monday?" Options: Friday; Monday. Wait for your turn to vote.'));
+  assert.match(lastInstructions(ws('c')), /# Open poll\n"Ship Friday or Monday\?" Options: Friday; Monday\./);
+  assert.equal(call.view().poll.question, 'Ship Friday or Monday?');
+  // B's turn to vote
+  fire(timers, call.nextTimer);
+  assert.equal(lastSaid(ws('b')), votePrompt(call.poll.record));
+  useTool(ws('b'), 'cast_vote', { option: 'monday', reason: 'more time to test' }, 'Monday: more time to test.');
+  assert.equal(outputs(ws('b')).at(-1).output, 'Vote counted: Monday. Now say your choice and your main reason in one short sentence.');
+  assert.equal(call.timeline.at(-2).text, 'Bot B voted Monday', 'then its spoken vote');
+  // a line from a bot whose turn it is not changes nothing
+  speak(ws('a'), 'I am excited about this launch.');
+  assert.equal(call.poll.current, call.links.get('c'));
+  fire(timers, call.nextTimer);
+  assert.equal(lastSaid(ws('c')), votePrompt(call.poll.record));
+  useTool(ws('c'), 'cast_vote', { option: '1' }, 'Friday, the date we promised.');
+  fire(timers, call.nextTimer);
+  assert.equal(lastSaid(ws('a')), votePrompt(call.poll.record), 'the bot that asked votes last');
+  useTool(ws('a'), 'cast_vote', { option: 'Monday', reason: 'quality' }, 'Monday, for quality.');
+  const result = '"Ship Friday or Monday?": Friday 1 (Bot C), Monday 2 (Bot B, Bot A). Winner: Monday.';
+  assert.ok(call.poll === null);
+  assert.equal(call.polls[0].result, result);
+  assert.deepEqual(call.polls[0].winners, ['Monday']);
+  assert.deepEqual(call.polls[0].votes, [
+    { bot: 'Bot B', option: 'Monday', reason: 'more time to test' },
+    { bot: 'Bot C', option: 'Friday', reason: '' },
+    { bot: 'Bot A', option: 'Monday', reason: 'quality' },
+  ]);
+  assert.ok(call.timeline.some((e: any) => e.text === `Poll closed: ${result}`));
+  for (const id of ['a', 'b', 'c']) assert.ok(ws(id).said().includes(`[Poll]: Result of the vote ${result}`));
+  assert.doesNotMatch(lastInstructions(ws('b')), /# Open poll/);
+  // the bot that asked says the result, then the call waits for Shashank
+  assert.equal(call.announcing, call.links.get('a'));
+  fire(timers, call.nextTimer);
+  assert.equal(lastSaid(ws('a')), `[Poll]: Tell Shashank the result in one short sentence: ${result}`);
+  speak(ws('a'), 'Monday, for quality.'); // the same words as its vote: not taken for going in circles
+  assert.ok(call.announcing === null);
+  assert.equal(call.waitingForHost, true);
+  assert.equal(call.timeline.at(-1).text, 'Poll result told: waiting for you');
+  assert.equal(call.nextTimer, null);
+  assert.equal(call.exportData().notepadChanged, true, 'a call with a vote is worth saving');
+  assert.equal(call.exportData().polls[0].result, result);
+});
+
+test('votes alike are not going in circles; a bot that already voted is skipped; a pass abstains', async () => {
+  const { call, ws, timers } = await three();
+  useTool(ws('a'), 'start_poll', { question: 'Name?', options: 'Nova or Orbit' }, 'Quick vote.');
+  useTool(ws('c'), 'cast_vote', { option: 'Nova' }); // C votes before its turn (no words: it is asked to speak)
+  fire(timers, call.nextTimer);
+  useTool(ws('b'), 'cast_vote', { option: 'Nova' }, 'Nova, because it is short and memorable for everyone.');
+  fire(timers, call.nextTimer);
+  assert.equal(lastSaid(ws('a')), votePrompt(call.poll.record), 'C already voted: A is next');
+  speak(ws('c'), 'Nova, because it is short and memorable for everyone.');
+  assert.ok(!call.timeline.some((e: any) => e.kind === 'loop'), 'no loop breaker during a vote');
+  assert.ok(call.poll, 'the vote goes on');
+  useTool(ws('a'), 'pass', {});
+  assert.ok(call.poll === null, 'A abstained and the round ended');
+  assert.equal(call.polls[0].result, '"Name?": Nova 2 (Bot C, Bot B), Orbit 0. Winner: Nova.');
+});
+
+test('cast_vote: a wrong option asks again, voting again changes the vote, and no poll means no vote', async () => {
+  const { call, ws, timers } = await three();
+  useTool(ws('a'), 'cast_vote', { option: 'Friday' }, 'Friday.');
+  assert.equal(outputs(ws('a')).at(-1).output, 'No poll is open.');
+  useTool(ws('a'), 'start_poll', { question: 'When?', options: ['Friday', 'Monday'] }, 'Vote time.');
+  fire(timers, call.nextTimer);
+  useTool(ws('b'), 'cast_vote', { option: 'Sunday' });
+  assert.equal(outputs(ws('b')).at(-1).output, '"Sunday" is not an option. Options: Friday; Monday. Vote again with exactly one of them.');
+  assert.equal(ws('b').types().at(-1), 'response.create', 'asked to vote again');
+  useTool(ws('b'), 'cast_vote', { option: 'Friday' }, 'Friday.');
+  useTool(ws('b'), 'cast_vote', { option: 'Monday' }, 'Actually Monday.');
+  assert.equal(call.timeline.at(-2).text, 'Bot B changed its vote to Monday');
+  assert.deepEqual(call.poll.record.votes, [{ bot: 'Bot B', option: 'Monday', reason: '' }]);
+});
+
+test('start_poll refuses a second poll, an empty question, too few options, and a call that is over', async () => {
+  const { call, ws } = await three();
+  const out = () => outputs(ws('a')).at(-1).output;
+  useTool(ws('a'), 'start_poll', { question: ' ', options: ['A', 'B'] }, 'Hm.');
+  assert.equal(out(), 'No poll started: the question was empty.');
+  useTool(ws('a'), 'start_poll', { question: 'Which?', options: ['Only one', 'only one'] }, 'Hm.');
+  assert.equal(out(), 'No poll started: a poll needs two to six different options.');
+  useTool(ws('a'), 'start_poll', { question: 'Which?', options: ['A', 'B'] }, 'Vote.');
+  useTool(ws('a'), 'start_poll', { question: 'Other?', options: ['C', 'D'] }, 'Another.');
+  assert.equal(out(), 'No poll started: a poll is already open ("Which?").');
+  call.leave();
+  assert.deepEqual(call.startPoll('Q', 'A or B'), { error: 'the call is not on.' });
+});
+
+test('a vote from the page starts at once in call order, and the first bot says the result', async () => {
+  const { call, ws, timers } = await three();
+  assert.equal(ws('a').types().includes('response.create'), true, 'A is opening the call');
+  const { poll } = call.startPoll('Pick a name', 'Nova or Orbit');
+  assert.equal(poll.by, 'Shashank');
+  assert.ok(ws('a').said().includes('[Poll]: Shashank asks every bot to vote: "Pick a name" Options: Nova; Orbit. Wait for your turn to vote.'), 'every bot is told');
+  assert.equal(call.poll.current, call.links.get('a'));
+  fire(timers, call.nextTimer);
+  assert.equal(lastSaid(ws('a')), votePrompt(poll));
+  for (const id of ['a', 'b', 'c']) {
+    if (id !== 'a') fire(timers, call.nextTimer);
+    useTool(ws(id), 'cast_vote', { option: id === 'c' ? 'Orbit' : 'Nova' }, `I vote ${id === 'c' ? 'Orbit' : 'Nova'}.`);
+  }
+  assert.equal(poll.result, '"Pick a name": Nova 2 (Bot A, Bot B), Orbit 1 (Bot C). Winner: Nova.');
+  assert.equal(call.announcing, call.links.get('a'), 'nobody asked by name: the first bot tells it');
+});
+
+test('a vote closes early, with the votes so far and no announcement, when Shashank speaks, stops the bots or leaves, or a bot waits', async () => {
+  const start = async () => {
+    const t = await three();
+    useTool(t.ws('a'), 'start_poll', { question: 'Q?', options: ['X', 'Y'] }, 'Vote.');
+    fire(t.timers, t.call.nextTimer);
+    useTool(t.ws('b'), 'cast_vote', { option: 'X' }, 'X.');
+    return t;
+  };
+  let t = await start();
+  hostSays(t.call.ear.ws, 'Actually, let me decide this one.');
+  assert.ok(t.call.poll === null);
+  assert.equal(t.call.polls[0].result, '"Q?": X 1 (Bot B), Y 0. Winner: X.');
+  assert.ok(t.call.timeline.some((e: any) => e.text === 'Poll closed early (you spoke): "Q?": X 1 (Bot B), Y 0. Winner: X.'));
+  assert.ok(t.call.announcing === null);
+
+  t = await start();
+  t.call.stopAll();
+  assert.equal(t.call.timeline.at(-1).text, 'Poll closed early (you stopped the bots): "Q?": X 1 (Bot B), Y 0. Winner: X.');
+  assert.equal(t.call.waitingForHost, true);
+
+  t = await start();
+  fire(t.timers, t.call.nextTimer);
+  useTool(t.ws('c'), 'wait_for_host', {}, 'Let us check with Shashank first.');
+  assert.match(t.call.timeline.at(-1).text, /^Poll closed early \(a bot asked to wait for you\)/);
+
+  t = await start();
+  const p = t.call.wrapUp();
+  assert.match(t.call.timeline.find((e: any) => e.kind === 'poll' && e.text.startsWith('Poll closed early')).text, /\(the call ended\)/);
+  assert.equal(t.call.exportData().polls[0].votes.length, 1);
+  t.call.leave();
+  await p;
+});
+
+test('Shashank speaking while a result is about to be told cancels the telling', async () => {
+  const { call, ws, timers } = await three();
+  call.startPoll('Q?', 'X or Y');
+  for (const id of ['a', 'b', 'c']) {
+    fire(timers, call.nextTimer);
+    useTool(ws(id), 'cast_vote', { option: 'X' }, 'X.');
+  }
+  assert.ok(call.announcing);
+  hostSays(call.ear.ws, 'Great, thanks.');
+  assert.ok(call.announcing === null);
+});
+
+test('the voting bot leaving hands the vote on; with nobody left the call waits for Shashank', async () => {
+  const { call, ws, timers } = await three();
+  useTool(ws('a'), 'start_poll', { question: 'Q?', options: ['X', 'Y'] }, 'Vote.');
+  fire(timers, call.nextTimer);
+  call.removeBot('b');
+  assert.equal(call.poll.current, call.links.get('c'));
+  call.removeBot('a'); // not its turn: the vote goes on
+  assert.equal(call.poll.current, call.links.get('c'));
+  call.removeBot('c');
+  assert.ok(call.poll === null);
+  assert.equal(call.polls[0].result, '"Q?": X 0, Y 0. Nobody voted.');
+  assert.equal(call.waitingForHost, true);
+  assert.ok(call.announcing === null);
+});
+
+test('a vote during a one-on-one is for everyone: the one-on-one ends', async () => {
+  const { call, ws, timers } = await three();
+  hostSays(ws('a'), 'Bot A, what name should we use?');
+  assert.ok(call.focus);
+  useTool(ws('a'), 'start_poll', { question: 'Name?', options: ['Nova', 'Orbit'] }, 'Let us all vote.');
+  assert.ok(call.focus === null);
+  fire(timers, call.nextTimer);
+  assert.equal(lastSaid(ws('b')), votePrompt(call.poll.record));
+});
+
+test('decisions: recorded once, told to the others, pinned in every bot, saved for the next call', async () => {
+  const t = setup();
+  t.call.join([bot('a'), bot('b')], [bot('a'), bot('b')], memory({ decisions: ['Launch in May'] }));
+  await t.ready('a');
+  await t.ready('b');
+  assert.match(lastInstructions(t.ws('a')), /# Decided in earlier calls\n- Launch in May/);
+  assert.match(lastInstructions(t.ws('a')), /# Decided in earlier calls[\s\S]*# Your last call with Shashank/, 'before the last call and the pinned direction');
+  useTool(t.ws('a'), 'record_decision', { decision: 'Price is five dollars a month' }, 'Noted.');
+  assert.equal(outputs(t.ws('a')).at(-1).output, 'Decision 1 recorded.');
+  assert.ok(t.ws('b').said().includes('[Decisions]: Bot A recorded decision 1: "Price is five dollars a month"'));
+  assert.equal(t.call.timeline.at(-2).text, 'Bot A recorded decision 1: "Price is five dollars a month"');
+  assert.match(lastInstructions(t.ws('b')), /# Decided in this call\n1\. Price is five dollars a month/);
+  useTool(t.ws('b'), 'record_decision', { decision: 'price is five dollars a month!' }, 'Noted.');
+  assert.equal(outputs(t.ws('b')).at(-1).output, 'Not recorded: that decision is already recorded.');
+  useTool(t.ws('b'), 'record_decision', {}, 'Hm.');
+  assert.equal(outputs(t.ws('b')).at(-1).output, 'Not recorded: the decision was empty.');
+  const { decision } = t.call.addDecision('Hire one designer');
+  assert.equal(decision.by, 'Shashank');
+  assert.equal(lastSaid(t.ws('a')), '[Decisions]: Shashank recorded decision 2: "Hire one designer"');
+  assert.deepEqual(t.call.view().decisions.map((d: any) => d.text), ['Price is five dollars a month', 'Hire one designer']);
+  assert.deepEqual(t.call.exportData().memory.decisions, ['Launch in May', 'Price is five dollars a month', 'Hire one designer']);
+  assert.equal(t.call.exportData().decisions.length, 2);
+  for (let i = t.call.decisions.length; i < DECISIONS_MAX; i++) t.call.addDecision(`Decision ${i}`);
+  assert.deepEqual(t.call.addDecision('One too many'), { error: `the decision log is full (${DECISIONS_MAX}).` });
+  t.call.leave();
+  assert.deepEqual(t.call.addDecision('After'), { error: 'the call is not on.' });
+});
+
+test('memory without decisions (from before they existed) starts with none; a decision alone makes the call worth saving', async () => {
+  const t = setup();
+  t.call.join([bot('a')], [bot('a')], memory());
+  await t.ready('a');
+  assert.deepEqual(t.call.pastDecisions, []);
+  assert.doesNotMatch(lastInstructions(t.ws('a')), /Decided in earlier calls/);
+  assert.equal(t.call.exportData().notepadChanged, false);
+  t.call.addDecision('Go');
+  assert.equal(t.call.exportData().notepadChanged, true);
+});
+
+test('the past-call search is named in the instructions and the timeline when the backend gives it', async () => {
+  const t = setup({ tools: () => [{ type: 'function', name: 'search_past_calls', parameters: { type: 'object' } }] });
+  t.call.join([bot('a')]);
+  await t.ready('a');
+  assert.match(lastInstructions(t.ws('a')), /- Earlier calls: search_past_calls searches Shashank's saved calls/);
+  useTool(t.ws('a'), 'search_past_calls', { query: 'launch date' }, 'Let me check our earlier calls.');
+  await flush();
+  assert.equal(t.call.timeline.at(-1).text, 'Bot A searched earlier calls for "launch date"');
+  t.toolCalls.at(-1)!.resolve({ kind: 'served', output: { matches: [] } });
+  await flush();
+  useTool(t.ws('a'), 'search_past_calls', {}, 'Checking.');
+  await flush();
+  assert.equal(t.call.timeline.at(-1).text, 'Bot A searched earlier calls');
 });

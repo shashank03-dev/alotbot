@@ -9,9 +9,9 @@ const A = bot('a');
 const B = bot('b');
 const C = bot('c'); // on the account, not in the call
 
-async function twoBots(memory: { summary: string; tasks: any[] } | null = null) {
+async function twoBots(memory: { summary: string; tasks: any[]; decisions?: string[] } | null = null) {
   const h = setup();
-  h.call.joinWith([A, B], [A, B, C], memory);
+  h.call.joinWith([A, B], [A, B, C], memory && { decisions: [], ...memory });
   await h.ready('a', 'b');
   return h;
 }
@@ -198,7 +198,7 @@ test('overlayExport: tasks with real status, memory carries open tasks and keeps
   assert.equal(d.summary, 'New summary.');
   assert.deepEqual(d.actionItems, ['Ship it']);
   assert.equal(d.tasks.find((t) => t.id === 2)!.status, 'done');
-  assert.deepEqual(d.memory, { summary: 'New summary.', tasks: [{ ...board.tasks[0] }] });
+  assert.deepEqual(d.memory, { summary: 'New summary.', tasks: [{ ...board.tasks[0] }], decisions: [] });
   hostSays(ws('a'), 'Hello there everyone.');
   assert.equal(call.overlayExport().saveWorthy, true);
 });
@@ -266,7 +266,10 @@ test('overlayMarkdown writes summary, action items, tasks under parents, the tra
       { id: 3, title: 'Other', owner: 'Bot A', status: 'open' as const, parent: null, waitsOn: [2], by: USER, doneBy: null },
       { id: 2, title: 'Part', owner: 'Bot A', status: 'done' as const, parent: 1, waitsOn: [], by: USER, doneBy: 'Bot A' },
     ],
-    memory: { summary: '', tasks: [] },
+    agenda: [{ id: 1, title: 'Pricing', minutes: 5, status: 'done' as const, startedAt: 0, endedAt: 240_000, outcome: '$5', overtime: false }],
+    decisions: [{ text: 'Price is $5', by: 'Bot A', at: 60_000 }],
+    polls: [{ id: 1, question: 'Q?', options: ['X', 'Y'], by: 'Bot A', votes: [{ bot: 'Bot A', option: 'X', reason: '' }], winners: ['X'], result: '"Q?": X 1 (Bot A), Y 0. Winner: X.' }],
+    memory: { summary: '', tasks: [], decisions: [] },
     timeline: [{ at: 0, kind: 'join', text: 'Bot A joined' }, { at: 75_400, kind: 'tool', text: 'Bot A searched its past chats for "x"' }],
     logFile: 'call-1970-01-01T00-00-00Z.jsonl' as string | null,
     saveWorthy: true,
@@ -278,12 +281,16 @@ test('overlayMarkdown writes summary, action items, tasks under parents, the tra
       '## Summary', '', 'We met.', '',
       '## Action items', '', '- Ship', '',
       '## Tasks', '', '- [ ] #1 Parent (no owner)', '  - [x] #2 Part (owner: Bot A; done by Bot A)', '- [ ] #3 Other (owner: Bot A; waits on #2)', '',
+      '## Agenda', '', '- [x] Pricing (planned 5 min, took 4 min): $5', '',
+      '## Decisions', '', '- Price is $5 (Bot A, at 1:00)', '',
+      '## Polls', '', '- "Q?": X 1 (Bot A), Y 0. Winner: X.', '  - Bot A: X', '',
+      '## Who talked', '', '- Shashank (host): 1 turn, 1 word (50%)', '- Bot A: 1 turn, 1 word (50%), cut off 1x', '',
       '## Transcript', '', '**Shashank (host):** Hi  ', '**Bot A (cut off by the host):** Hello  ', '',
       '## Timeline', '', '- 0:00 join: Bot A joined', '- 1:15 tool: Bot A searched its past chats for "x"', '',
       'Full log: `logs/call-1970-01-01T00-00-00Z.jsonl`', '',
     ].join('\n'),
   );
-  const empty = overlayMarkdown({ ...d, bots: [], lines: [], summary: '', actionItems: [], tasks: [], endedAt: -5, timeline: [], logFile: null });
+  const empty = overlayMarkdown({ ...d, bots: [], lines: [], summary: '', actionItems: [], tasks: [], agenda: [], decisions: [], polls: [], endedAt: -5, timeline: [], logFile: null });
   assert.match(empty, /^# Grok Call, 1970-01-01T00:00:00\.000Z/);
   assert.match(empty, /Bots: none {2}\nLength: 0 min/);
   assert.match(empty, /_No summary was saved\._\n\n## Transcript\n\n_Nothing was said\._/);
@@ -343,4 +350,23 @@ test('parent completion and newly added parts refresh every affected owner', asy
   call.addTask({ title: 'Review', owner: null, parent: 1, waitsOn: [] }, USER);
   assert.match(ws('a').lastSession().instructions, /#1 Launch · owner: Bot A · doing/);
   assert.match(ws('b').lastSession().instructions, /waiting on #1/);
+});
+
+test('decisions from the last Mac call are pinned and carried on; an agenda alone makes a call worth saving', async () => {
+  const { call, ws } = await twoBots({ summary: 'Earlier.', tasks: [], decisions: ['Launch in May'] });
+  assert.match(ws('a').lastSession().instructions, /# Decided in earlier calls\n- Launch in May/);
+  assert.equal(call.overlayExport().saveWorthy, false);
+  call.addDecision('Price is five dollars');
+  const d = call.overlayExport();
+  assert.equal(d.saveWorthy, true);
+  assert.deepEqual(d.memory.decisions, ['Launch in May', 'Price is five dollars']);
+  assert.deepEqual(d.decisions.map((x) => x.text), ['Price is five dollars']);
+  assert.match(overlayMarkdown(d), /## Decisions\n\n- Price is five dollars \(Shashank, at 0:00\)/);
+  const fresh = await twoBots();
+  assert.deepEqual(fresh.call.pastDecisions, []);
+  fresh.call.setAgenda('Pricing (5 min)');
+  assert.equal(fresh.call.overlayExport().saveWorthy, true);
+  assert.equal(fresh.call.overlayExport().agenda[0].title, 'Pricing');
+  fresh.call.leave();
+  call.leave();
 });

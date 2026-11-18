@@ -215,12 +215,40 @@
   #task-list li.done::before { background: var(--accent); border-color: var(--accent); }
   #task-list li.done span { text-decoration: line-through; color: var(--muted); }
   #tasks-empty, #timeline-empty { color: var(--muted); margin: 0; }
+  /* ---------- meeting: agenda, votes, decisions ---------- */
+  .field {
+    width: 100%; min-width: 0; background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px;
+    color: var(--text); font: inherit; padding: 9px 12px; outline: none; resize: vertical;
+  }
+  .field:focus { border-color: var(--accent); }
+  .field::placeholder { color: var(--muted); }
+  .row-form { display: flex; gap: 8px; margin-top: 8px; }
+  .stack-form { display: grid; gap: 8px; margin-top: 8px; }
+  .row-form .ghost, .stack-form .ghost { white-space: nowrap; justify-self: start; }
+  #tasks-body details > summary { cursor: pointer; color: var(--accent); font-size: .9rem; margin-top: 8px; }
+  #tasks-body details > summary::marker { color: var(--muted); }
+  #agenda-list li.current { background: color-mix(in srgb, var(--accent) 14%, var(--surface-2)); box-shadow: inset 3px 0 0 var(--accent); }
+  #agenda-list li.over { box-shadow: inset 3px 0 0 #f59e0b; }
+  #agenda-list li.over small { color: #fcd34d; }
+  #agenda-list li.done span { color: var(--muted); text-decoration: line-through; }
+  #poll-open { display: grid; gap: 6px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); box-shadow: inset 3px 0 0 var(--accent); }
+  #poll-open strong { overflow-wrap: anywhere; }
+  .poll-option { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; font-size: .9rem; }
+  .poll-bar { grid-column: 1 / -1; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; }
+  .poll-bar i { display: block; height: 100%; background: var(--accent); transition: width .3s var(--ease); }
+  .poll-option small { color: var(--muted); grid-column: 1 / -1; }
+  .empty-note { color: var(--muted); margin: 0; font-size: .9rem; }
+  .agenda-box { margin: 4px 0 12px; }
+  .agenda-box > summary { cursor: pointer; color: var(--accent); }
+  .agenda-box .field { margin-top: 8px; }
+  .agenda-box p { margin: 6px 0 0; font-size: .85rem; }
   #timeline-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; display: grid; gap: 2px; align-content: start; }
   #timeline-list li { display: grid; grid-template-columns: 3.2em 1fr; gap: 8px; padding: 5px 4px; font-size: .88rem; line-height: 1.4; overflow-wrap: anywhere; }
   #timeline-list time { color: var(--muted); font-variant-numeric: tabular-nums; }
   #timeline-list [data-kind="host"] span { color: color-mix(in srgb, var(--accent) 70%, #fff); }
   #timeline-list [data-kind="cut"] span { color: var(--muted); font-style: italic; }
   #timeline-list :is([data-kind="tool"], [data-kind="notepad"], [data-kind="join"], [data-kind="leave"], [data-kind="direction"]) span { color: var(--muted); }
+  #timeline-list :is([data-kind="agenda"], [data-kind="poll"], [data-kind="decision"]) span { color: color-mix(in srgb, #fcd34d 75%, var(--text)); }
   #timeline-list :is([data-kind="error"], [data-kind="stop"], [data-kind="stuck"]) span { color: #fca5a5; }
   #people-list { display: grid; gap: 8px; overflow-y: auto; align-content: start; }
   .switch { width: 40px; height: 24px; border-radius: 999px; background: var(--line); position: relative; flex: none; transition: background .15s; }
@@ -268,13 +296,19 @@
         <h2 id="saved-title">Call ended</h2>
         <p id="saved-summary"></p>
         <div id="saved-items-wrap"><h3>Action items</h3><ul id="saved-items"></ul></div>
+        <div id="saved-decisions-wrap"><h3>Decisions</h3><ul id="saved-decisions"></ul></div>
         <p id="saved-where" class="muted" role="status"></p>
         <a id="saved-download" class="ghost" href="#">Download transcript, summary and action items</a>
       </section>
       <h1>Start a call</h1>
       <p class="muted">Pick the Grok Bots you want in the call. You can add or remove bots during the call too.</p>
-      <p id="memory-hint" class="muted" hidden>The bots will get the summary and open action items from your last call.</p>
+      <p id="memory-hint" class="muted" hidden>The bots will get the summary, open action items and decisions from your last call.</p>
       <div id="picker" class="picker" role="group" aria-label="Grok Bots"></div>
+      <details id="agenda-box" class="agenda-box">
+        <summary>Add an agenda <span class="muted">(optional)</span></summary>
+        <textarea id="lobby-agenda" class="field" rows="4" maxlength="2000" aria-label="Agenda: one topic per line" placeholder="One topic per line, with a time if you like:&#10;Pricing (10 min)&#10;Launch date (5 min)&#10;Hiring"></textarea>
+        <p class="muted">Every bot sees the agenda and the current topic. When a topic runs out of time, the bots are told to wrap it up.</p>
+      </details>
       <div class="lobby-actions">
         <span id="count" aria-live="polite"></span>
         <button id="join" class="primary" type="button" disabled>Join call</button>
@@ -301,7 +335,7 @@
     <nav class="controls" aria-label="Call controls">
       <button id="mute" class="round" type="button" aria-pressed="false" aria-label="Mute microphone"></button>
       <button id="people-btn" class="round" type="button" aria-expanded="false" aria-controls="people" aria-label="People: choose bots in the call"></button>
-      <button id="tasks-btn" class="round" type="button" aria-expanded="false" aria-controls="tasks" aria-label="Tasks and current direction"></button>
+      <button id="tasks-btn" class="round" type="button" aria-expanded="false" aria-controls="tasks" aria-label="Meeting: agenda, votes, decisions and tasks"></button>
       <button id="timeline-btn" class="round" type="button" aria-expanded="false" aria-controls="timeline" aria-label="Call timeline"></button>
       <button id="leave" class="round" type="button" aria-label="Leave call"></button>
     </nav>
@@ -313,13 +347,50 @@
       </div>
       <div id="people-list"></div>
     </aside>
-    <aside id="tasks" aria-label="Tasks and current direction" hidden>
+    <aside id="tasks" aria-label="Meeting: agenda, votes, decisions and tasks" hidden>
       <div class="panel-head">
-        <h2>Tasks</h2>
+        <h2>Meeting</h2>
         <button id="tasks-close" class="ghost" type="button">Done</button>
       </div>
       <div id="tasks-body">
         <section id="direction" hidden><h3>Current direction</h3><ul></ul></section>
+        <section id="agenda-sec" aria-labelledby="agenda-title">
+          <h3 id="agenda-title">Agenda</h3>
+          <p id="agenda-empty" class="empty-note">No agenda. Set one here, or ask the bots to.</p>
+          <ul id="agenda-list"></ul>
+          <form id="next-topic" class="row-form" autocomplete="off" hidden>
+            <input id="topic-outcome" class="field" type="text" maxlength="300" placeholder="Outcome (optional)" aria-label="Outcome of the current topic">
+            <button class="ghost" type="submit">Next topic</button>
+          </form>
+          <details id="agenda-edit">
+            <summary>Set the agenda</summary>
+            <form id="agenda-form" class="stack-form" autocomplete="off">
+              <textarea id="agenda-text" class="field" rows="4" maxlength="2000" aria-label="Agenda: one topic per line" placeholder="One topic per line: Pricing (10 min)"></textarea>
+              <button class="ghost" type="submit">Set agenda</button>
+            </form>
+          </details>
+        </section>
+        <section id="poll-sec" aria-labelledby="poll-title">
+          <h3 id="poll-title">Votes</h3>
+          <div id="poll-open" role="status" hidden></div>
+          <ul id="poll-list"></ul>
+          <details id="poll-edit">
+            <summary>Ask the bots to vote</summary>
+            <form id="poll-form" class="stack-form" autocomplete="off">
+              <input id="poll-question" class="field" type="text" maxlength="200" placeholder="Question: Ship on Friday or Monday?" aria-label="Vote question">
+              <input id="poll-options" class="field" type="text" maxlength="500" placeholder="Options: Friday, Monday" aria-label="Vote options, separated by commas or 'or'">
+              <button class="ghost" type="submit">Start the vote</button>
+            </form>
+          </details>
+        </section>
+        <section id="decision-sec" aria-labelledby="decision-title">
+          <h3 id="decision-title">Decisions</h3>
+          <ul id="decision-list"></ul>
+          <form id="decision-form" class="row-form" autocomplete="off">
+            <input id="decision-text" class="field" type="text" maxlength="500" placeholder="Record a decision" aria-label="Record a decision">
+            <button class="ghost" type="submit">Record</button>
+          </form>
+        </section>
         <section id="task-list" hidden><h3>Tasks</h3><ul></ul></section>
         <p id="tasks-empty">No tasks yet. Bots can add action items here. Your corrections are pinned at the top.</p>
       </div>

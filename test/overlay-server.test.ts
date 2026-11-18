@@ -396,7 +396,8 @@ test('a bot made during a call: the bots in the call expect its name and can inv
 test('tasks outside a call are saved, and every mistake is explained', async () => {
   const h = await start();
   const c = await connect(h);
-  assert.deepEqual(await c.ok('tasks'), { version: 0, tasks: [] });
+  assert.deepEqual(await c.ok('tasks'), { version: 0, tasks: [] }, 'no saved memory yet');
+  new OverlayStore(h.dir).writeMemory({ summary: 'Earlier.', tasks: [], decisions: ['Launch in May'] });
   await c.ok('bots');
   const added = await c.ok('taskAdd', { title: 'Launch', owner: USER });
   assert.equal(added.tasks[0].owner, USER);
@@ -411,6 +412,7 @@ test('tasks outside a call are saved, and every mistake is explained', async () 
   await c.ok('taskRemove', { id: 3 });
   const saved = new OverlayStore(path.join(h.dir)).readMemory()!;
   assert.deepEqual(saved.tasks.map((t) => t.id), [1, 2]);
+  assert.deepEqual([saved.summary, saved.decisions], ['Earlier.', ['Launch in May']], 'a task change keeps the decisions');
   await c.fails('taskAdd', { title: 'x', owner: 'Stranger' }, /"Stranger" is not you or one of your bots/);
   await c.fails('taskAdd', { title: 'x', owner: '' }, /owner is required/);
   await c.fails('taskAdd', { title: 'x', parent: 'one' }, /parent must be a whole number/);
@@ -882,4 +884,19 @@ test('malformed HTTP viewer targets close the request without exposing a transpo
  const h=await start(),c=await connect(h);await c.ok('bots');
  const {request}=await import('node:http');const origin=new URL(h.url);origin.protocol='http:';
  await assert.rejects(new Promise<void>((resolve,reject)=>{const req=request(origin,{path:'http://'},res=>{res.resume();res.once('end',()=>resolve());});req.once('error',reject);req.end();}),/socket hang up|ECONNRESET/);
+});
+
+test('a bot searches earlier calls on this Mac: the saved calls answer it, and nothing goes to Grok Bot', async () => {
+  const h = await start(); const c = await connect(h);
+  fs.mkdirSync(path.join(h.dir, 'calls'), { recursive: true });
+  fs.writeFileSync(path.join(h.dir, 'calls', 'call-2026-11-10T14-05-09Z.md'), '# Grok Call, T\n\n## Summary\n\nPricing call.\n\n## Decisions\n\n- Price is five dollars (Bot A, at 1:00)\n');
+  await inCall(h, c);
+  const a = h.sockets.get('a')!;
+  assert.ok(a.lastSession().tools.some((t: any) => t.name === 'search_past_calls'), 'the bot was given the search');
+  reply(a, '', [['search_past_calls', { query: 'what price did we pick' }]]);
+  for (let i = 0; i < 200 && !a.outputs().some((o) => o.includes('Price is five dollars')); i++) await new Promise((r) => setTimeout(r, 5));
+  const found = JSON.parse(a.outputs().find((o) => o.includes('Price is five dollars'))!);
+  assert.equal(found.matches[0].section, 'Decisions');
+  assert.equal(found.calls[0].call, '2026-11-10 14:05 UTC');
+  assert.ok(!(await c.ok('actions')).actions.some((x: any) => x.tool === 'search_past_calls'), 'a local read, not a bot action');
 });

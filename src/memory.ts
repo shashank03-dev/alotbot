@@ -1,11 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-/** What the next call starts with: the last call's summary, open action items and notes. */
+/** What the next call starts with: the last call's summary, open action items, notes and the decisions made so far. */
 export interface Memory {
   summary: string;
   actionItems: string[];
   notes: { text: string; by: string }[];
+  /** The newest decisions across calls, oldest first. Memory saved before decisions existed has none. */
+  decisions: string[];
 }
 
 /** Same limits as the call page (public/core.js). */
@@ -42,6 +44,7 @@ export function parseMemory(raw: unknown): Memory {
         return { text: text(t, LIMITS.item, 'note'), by: text(by, LIMITS.by, 'note author') };
       })
       .filter((n) => n.text),
+    decisions: m.decisions === undefined ? [] : list(m.decisions, 'decisions').map((d) => text(d, LIMITS.item, 'decision')).filter(Boolean),
   };
 }
 
