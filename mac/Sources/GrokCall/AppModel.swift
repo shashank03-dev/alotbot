@@ -427,6 +427,9 @@ final class AppModel: ObservableObject {
         Task { try? await backend.send("meetingLine", ["who": who, "text": String(text.prefix(1000))]) }
     }
 
+    /// Talk on or off in one press, for VoiceOver and the keyboard (they can't hold the button).
+    func toggleTalk() { setTalk(!talkHeld) }
+
     /// Hold to talk: while held, your mic goes to the bots instead of the meeting.
     func setTalk(_ held: Bool) {
         guard view?.meeting != nil, talkHeld != held else { return }

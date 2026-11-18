@@ -284,8 +284,14 @@ struct MeetingControls: View {
                 .background(Capsule().fill(model.talkHeld ? Color.white : Theme.raised))
                 .gesture(DragGesture(minimumDistance: 0).onChanged { _ in model.setTalk(true) }.onEnded { _ in model.setTalk(false) })
                 .help(model.talkKeyAvailable ? "Or hold ⌥Space anywhere" : "Hold while you talk to your bots")
-                .accessibilityLabel("Hold to talk to your bots")
+                .accessibilityLabel("Talk to your bots")
+                .accessibilityValue(model.talkHeld ? "On" : "Off")
+                .accessibilityHint("Turns talking to your bots on or off")
                 .accessibilityAddTraits(.isButton)
+                .accessibilityAction { model.toggleTalk() }
+                // The keyboard toggles it too: Tab to it, then Space or Return.
+                .focusable()
+                .onKeyPress(keys: [.space, .return]) { _ in model.toggleTalk(); return .handled }
         }
         .padding(.horizontal, 14).padding(.vertical, 8)
         .elevated(Capsule())

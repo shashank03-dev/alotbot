@@ -44,3 +44,18 @@ import GrokCallCore
         #expect(made == 2 && available == [true, false], "taken by another app this time")
     }
 }
+
+@Suite struct TalkButtonTests {
+    /// "Hold to talk" was a drag gesture only, so VoiceOver and the keyboard could not use it. They toggle it instead.
+    @Test @MainActor func toggleTalkTurnsTalkingOnAndOffOnlyInAMeeting() {
+        let model = AppModel()
+        model.view = CallView(phase: "in-call", muted: false, userSpeaking: false, waitingForHost: false, focus: nil, bots: [], live: nil, linesSeq: 0, tasksVersion: 0)
+        model.toggleTalk()
+        #expect(!model.talkHeld, "no meeting: nothing to talk over")
+        model.view?.meeting = MeetingState(app: "Zoom", whisper: "text")
+        model.toggleTalk()
+        #expect(model.talkHeld)
+        model.toggleTalk()
+        #expect(!model.talkHeld)
+    }
+}
