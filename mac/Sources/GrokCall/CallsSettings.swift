@@ -180,7 +180,7 @@ struct IncomingSettingsView: View {
                 Spacer()
             }
             .disabled(!q.enabled)
-            Text("Calls that come in then wait and ring when quiet hours end. Standing calls you set still ring.")
+            Text(IncomingText.quietHours)
                 .font(.system(size: 12)).foregroundStyle(Theme.secondary)
             Divider().overlay(Theme.hairline)
             HStack {
@@ -235,6 +235,7 @@ struct IncomingSettingsView: View {
                     Button("Don't ring") { Task { await model.decline(r.id) } }.buttonStyle(QuietButton(tint: Theme.danger))
                 }
             }
+            Text(IncomingText.heldLimit).font(.system(size: 12)).foregroundStyle(Theme.tertiary)
         }
     }
 

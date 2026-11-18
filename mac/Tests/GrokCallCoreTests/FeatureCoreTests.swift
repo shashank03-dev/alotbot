@@ -161,6 +161,15 @@ import Testing
         #expect(DoNotDisturb.morning(after: at(20, 13, 0), calendar: cal) == at(21, 8, 0))
     }
 
+    /// Settings said quiet-hours calls ring when quiet hours end, but the backend lists one held over an hour as missed.
+    @Test func heldRingWordingMatchesTheBackendLimit() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let source = try String(contentsOf: root.appendingPathComponent("src/overlay/incoming.ts"), encoding: .utf8)
+        #expect(source.contains("export const HELD_MAX_MS = 60 * 60_000;"))
+        #expect(IncomingText.quietHours == "Calls that come in then wait and ring when quiet hours end. One that waits more than an hour is listed as missed instead. Standing calls you set still ring.")
+        #expect(IncomingText.heldLimit == "A call that waits more than an hour is listed as missed instead.")
+    }
+
     @Test func weekdaysInWords() {
         #expect(Weekdays.describe([1, 2, 3, 4, 5]) == "Weekdays")
         #expect(Weekdays.describe([0, 1, 2, 3, 4, 5, 6]) == "Every day")

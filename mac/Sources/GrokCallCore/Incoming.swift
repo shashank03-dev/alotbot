@@ -180,3 +180,9 @@ public enum DoNotDisturb {
         return calendar.date(bySettingHour: 8, minute: 0, second: 0, of: tomorrow) ?? tomorrow
     }
 }
+
+/// Settings words about held rings, kept to the backend's limit (HELD_MAX_MS in src/overlay/incoming.ts: an hour).
+public enum IncomingText {
+    public static let quietHours = "Calls that come in then wait and ring when quiet hours end. One that waits more than an hour is listed as missed instead. Standing calls you set still ring."
+    public static let heldLimit = "A call that waits more than an hour is listed as missed instead."
+}
