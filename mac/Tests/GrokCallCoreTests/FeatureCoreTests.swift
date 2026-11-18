@@ -170,6 +170,24 @@ import Testing
         #expect(IncomingText.heldLimit == "A call that waits more than an hour is listed as missed instead.")
     }
 
+    /// News added to the ringing ring (or an approval that retitles it) never reached the card that was showing.
+    @Test func theRingCardFollowsTheRingsContent() {
+        let ring = IncomingRing(id: "r", source: "job", title: "Bot A has results", reason: "Draft ready", botIds: ["a"], agenda: "", createdAt: 0, state: "ringing", until: 9, note: "", scheduleId: nil)
+        var news = ring
+        news.reason = "Draft ready Also: Sheet updated"
+        var approval = news
+        approval.source = "approval"; approval.title = "Bot A needs your OK"
+        var other = ring
+        other.id = "s"
+        #expect(RingCard.change(shown: nil, now: nil) == .none)
+        #expect(RingCard.change(shown: nil, now: ring) == .show)
+        #expect(RingCard.change(shown: ring, now: ring) == .none)
+        #expect(RingCard.change(shown: ring, now: news) == .update, "same ring, new news: the card changes in place")
+        #expect(RingCard.change(shown: news, now: approval) == .update)
+        #expect(RingCard.change(shown: ring, now: other) == .show, "another ring: a new card")
+        #expect(RingCard.change(shown: ring, now: nil) == .hide)
+    }
+
     @Test func weekdaysInWords() {
         #expect(Weekdays.describe([1, 2, 3, 4, 5]) == "Weekdays")
         #expect(Weekdays.describe([0, 1, 2, 3, 4, 5, 6]) == "Every day")

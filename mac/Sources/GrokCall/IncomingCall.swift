@@ -61,7 +61,9 @@ struct IncomingCallView: View {
 final class IncomingCallController: NSObject, UNUserNotificationCenterDelegate {
     private let model: AppModel
     private var panel: NSPanel?
-    private var shown: String?
+    private var host: NSHostingController<IncomingCallView>?
+    /// The ring on the card, as last shown.
+    private var shown: IncomingRing?
     private var subs = Set<AnyCancellable>()
     private var sound: Timer?
     private var asked = false
@@ -77,11 +79,17 @@ final class IncomingCallController: NSObject, UNUserNotificationCenterDelegate {
     }
 
     private func update(_ ring: IncomingRing?) {
-        guard let ring else { return hide() }
-        if shown == ring.id { return }
+        switch RingCard.change(shown: shown, now: ring) {
+        case .none: return
+        case .hide: return hide()
+        case .update: return refresh(ring!)
+        case .show: break
+        }
+        guard let ring else { return }
         hide()
-        shown = ring.id
+        shown = ring
         let host = NSHostingController(rootView: IncomingCallView(model: model, ring: ring))
+        self.host = host
         let p = NSPanel(contentRect: CGRect(x: 0, y: 0, width: 400, height: 200), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         p.isOpaque = false
         p.backgroundColor = .clear
@@ -102,12 +110,25 @@ final class IncomingCallController: NSObject, UNUserNotificationCenterDelegate {
         notify(ring)
     }
 
+    /// The same ring with new content: the card and notification change; the sound and the card's corner stay.
+    private func refresh(_ ring: IncomingRing) {
+        shown = ring
+        host?.rootView = IncomingCallView(model: model, ring: ring)
+        if let panel, let host {
+            let top = CGPoint(x: panel.frame.minX, y: panel.frame.maxY)
+            panel.setContentSize(host.view.fittingSize)
+            panel.setFrameTopLeftPoint(top)
+        }
+        notify(ring)
+    }
+
     private func hide() {
         sound?.invalidate()
         sound = nil
         panel?.orderOut(nil)
         panel = nil
-        if let id = shown { UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [id]) }
+        host = nil
+        if let id = shown?.id { UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [id]) }
         shown = nil
     }
 

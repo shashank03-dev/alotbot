@@ -186,3 +186,16 @@ public enum IncomingText {
     public static let quietHours = "Calls that come in then wait and ring when quiet hours end. One that waits more than an hour is listed as missed instead. Standing calls you set still ring."
     public static let heldLimit = "A call that waits more than an hour is listed as missed instead."
 }
+
+/// What the ringing card does when the ringing ring changes.
+public enum RingCard: Equatable {
+    case none, show, update, hide
+
+    /// `shown` is the ring on the card now. The same ring with new content (news, an approval) updates the card in
+    /// place; another ring gets a new card.
+    public static func change(shown: IncomingRing?, now: IncomingRing?) -> RingCard {
+        guard let now else { return shown == nil ? .none : .hide }
+        guard let shown, shown.id == now.id else { return .show }
+        return shown == now ? .none : .update
+    }
+}
