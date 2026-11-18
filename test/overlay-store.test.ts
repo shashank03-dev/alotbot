@@ -80,3 +80,19 @@ test('deleteCall removes one call file, accepts only call file names, and is fin
   s.deleteCall(name);
   assert.equal(s.readMemory()!.summary, 'A', 'memory is not the store\'s to change here');
 });
+
+// The delete dialog promises the transcript is removed from this Mac; the call's full log holds it too.
+test('deleteCall also removes the full log the call links to, and nothing else', () => {
+  const s = fresh();
+  const logs = path.join(s.dir, 'logs');
+  fs.mkdirSync(logs);
+  for (const n of ['call-2026-11-10T14-00-00Z.jsonl', 'call-2026-11-10T15-00-00Z.jsonl']) fs.writeFileSync(path.join(logs, n), 'secret');
+  fs.writeFileSync(path.join(s.dir, 'auth.json'), '{}');
+  const linked = s.saveCall({ summary: 'A', tasks: [] }, 'Talk\n\nFull log: `logs/call-2026-11-10T14-00-00Z.jsonl`\n', new Date('2026-11-10T14:05:09Z'));
+  const sneaky = s.saveCall({ summary: 'B', tasks: [] }, 'Full log: `logs/../auth.json`\n', new Date('2026-11-10T16:05:09Z'));
+  s.deleteCall(linked);
+  s.deleteCall(sneaky);
+  assert.deepEqual(fs.readdirSync(logs), ['call-2026-11-10T15-00-00Z.jsonl']);
+  assert.ok(fs.existsSync(path.join(s.dir, 'auth.json')));
+  assert.deepEqual(s.listCalls(), []);
+});

@@ -8,6 +8,8 @@ export const SUMMARY_MAX = 2000;
 /** Past calls listed in the app, newest first. */
 export const CALLS_LISTED = 50;
 const CALL_FILE = /^call-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z(-\d+)?\.md$/;
+// The "Full log" line a saved call ends with (call.ts): only a plain log file name in logs/ is accepted.
+const LOG_LINK = /^Full log: `logs\/(call-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z(?:-\d+)?\.jsonl)`$/m;
 
 export interface PastCall {
   file: string;
@@ -91,10 +93,22 @@ export class OverlayStore {
       .slice(0, CALLS_LISTED);
   }
 
-  /** Deletes a saved call's file. Only plain call file names are accepted; a file already gone is fine. */
+  /**
+   * Deletes a saved call's file and the full log it links to, which holds its transcript too. Only plain call file
+   * names are accepted; a file already gone is fine. The log goes first, so a failure leaves the call to delete again.
+   */
   deleteCall(file: string) {
     if (!CALL_FILE.test(file)) throw new Error('not a call file name');
-    fs.rmSync(path.join(this.callsDir, file), { force: true });
+    const target = path.join(this.callsDir, file);
+    let text = '';
+    try {
+      text = fs.readFileSync(target, 'utf8');
+    } catch {
+      // already gone
+    }
+    const log = LOG_LINK.exec(text)?.[1];
+    if (log) fs.rmSync(path.join(this.dir, 'logs', log), { force: true });
+    fs.rmSync(target, { force: true });
   }
 
   /** A saved call's Markdown. Only plain call file names are accepted. */
