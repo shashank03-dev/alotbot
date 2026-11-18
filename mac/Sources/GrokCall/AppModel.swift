@@ -314,7 +314,7 @@ final class AppModel: ObservableObject {
     /// Starts a call: audio first, then the backend's join request (`op` with `args`). False if it didn't start.
     @discardableResult
     private func startCall(_ what: String, op: String, args: [String: Any]) async -> Bool {
-        guard !joining, !inCall else { return false }
+        guard !joining else { return false }
         joining = true
         defer { joining = false }
         guard await startAudio() else { return false }

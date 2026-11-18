@@ -8,7 +8,7 @@ import UserNotifications
 /// The card that shows while a call rings: who is calling and why, Answer, Decline, or ring again later.
 struct IncomingCallView: View {
     @ObservedObject var model: AppModel
-    let ring: Ring
+    let ring: IncomingRing
 
     var body: some View {
         let bots = ring.botIds.compactMap { id in model.bots.first { $0.id == id } }
@@ -76,7 +76,7 @@ final class IncomingCallController: NSObject, UNUserNotificationCenterDelegate {
         model.$incoming.map { $0?.ringing }.removeDuplicates().receive(on: RunLoop.main).sink { [weak self] ring in self?.update(ring) }.store(in: &subs)
     }
 
-    private func update(_ ring: Ring?) {
+    private func update(_ ring: IncomingRing?) {
         guard let ring else { return hide() }
         if shown == ring.id { return }
         hide()
@@ -111,7 +111,7 @@ final class IncomingCallController: NSObject, UNUserNotificationCenterDelegate {
         shown = nil
     }
 
-    private func notify(_ ring: Ring) {
+    private func notify(_ ring: IncomingRing) {
         let center = UNUserNotificationCenter.current()
         let post = {
             let c = UNMutableNotificationContent()

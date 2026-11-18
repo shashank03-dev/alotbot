@@ -242,7 +242,7 @@ struct IncomingSettingsView: View {
 /// Calls you missed, newest first, each with Call back.
 struct MissedCalls: View {
     @ObservedObject var model: AppModel
-    let missed: [Ring]
+    let missed: [IncomingRing]
     var compact = false
 
     var body: some View {

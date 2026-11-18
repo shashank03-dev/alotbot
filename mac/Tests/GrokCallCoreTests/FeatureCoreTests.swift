@@ -122,7 +122,7 @@ import Testing
     }
 
     @Test func ringLabels() {
-        func ring(_ source: String) -> Ring { Ring(id: "x", source: source, title: "t", reason: "r", botIds: [], agenda: "", createdAt: 0, state: "ringing", until: nil, note: "", scheduleId: nil) }
+        func ring(_ source: String) -> IncomingRing { IncomingRing(id: "x", source: source, title: "t", reason: "r", botIds: [], agenda: "", createdAt: 0, state: "ringing", until: nil, note: "", scheduleId: nil) }
         #expect(["schedule", "callback", "job", "approval", "other"].map { ring($0).kindLabel } == ["Standing call", "Calling you back", "Has results for you", "Needs your OK", "Calling"])
     }
 

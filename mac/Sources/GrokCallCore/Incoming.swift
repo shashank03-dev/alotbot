@@ -50,7 +50,7 @@ public struct CallBack: Codable, Equatable, Identifiable, Sendable {
     public var createdAt: Double
 }
 
-public struct Ring: Codable, Equatable, Identifiable, Sendable {
+public struct IncomingRing: Codable, Equatable, Identifiable, Sendable {
     public var id: String
     /// schedule, callback, job, approval
     public var source: String
@@ -85,10 +85,10 @@ public struct IncomingState: Codable, Equatable, Sendable {
     public var settings: IncomingSettings
     public var schedules: [StandingCall]
     public var callbacks: [CallBack]
-    public var ringing: Ring?
-    public var held: [Ring]
+    public var ringing: IncomingRing?
+    public var held: [IncomingRing]
     /// Newest first.
-    public var missed: [Ring]
+    public var missed: [IncomingRing]
     /// When the quiet hours you are in end (ms), or nil.
     public var quietUntil: Double?
 }
