@@ -48,6 +48,8 @@ export const WRAP_UP_MS = 20000;
 export const WRAP_UP_ASKS = 2;
 /** Most action items kept from one summary. */
 export const ACTION_ITEMS_MAX = 50;
+/** Most decisions kept from one call's summary. */
+export const DECISIONS_MAX = 30;
 /** Lines of the call given to the bot writing the summary. */
 export const SUMMARY_LINES = 300;
 /** Longest message Shashank can type to the bots. */
@@ -422,6 +424,7 @@ export const SAVE_SUMMARY_TOOL = fn(
   {
     summary: { type: 'string', description: 'Three to six sentences: what was discussed and decided.' },
     action_items: { type: 'array', items: { type: 'string' }, description: 'Each concrete next step, with who does it if known.' },
+    decisions: { type: 'array', items: { type: 'string' }, description: 'Each decision the call reached, one sentence each, with who made it if known. Leave empty if nothing was decided.' },
   },
   ['summary', 'action_items'],
 );
@@ -474,8 +477,8 @@ export function lastCallText(memory) {
 export function wrapUpInstructions(lines, notes, tasks) {
   return (
     `${USER} is ending this group voice call now. Do not speak. Call the save_summary tool once, right now, with ` +
-    `a summary of three to six sentences on what was discussed and decided, and every concrete next step as an action item ` +
-    `(with who does it, if known). Use only what is in this record.\n\n` +
+    `a summary of three to six sentences on what was discussed and decided, every concrete next step as an action item ` +
+    `(with who does it, if known), and each decision that was reached as a decision. Use only what is in this record.\n\n` +
     `${contextText(lines.slice(-SUMMARY_LINES))}\n\nTasks and saved context:\n${notepadText(notes, tasks)}`
   );
 }
@@ -498,6 +501,7 @@ export function exportMarkdown(data, formatTime = (ms) => new Date(ms).toISOStri
   const mins = Math.max(0, Math.round((data.endedAt - data.startedAt) / 60000));
   const out = [`# Grok Call, ${formatTime(data.startedAt)}`, '', `Bots: ${data.bots.join(', ') || 'none'}  `, `Length: ${mins} min`, ''];
   out.push('## Summary', '', data.summary || '_No summary was saved._', '');
+  if (data.decisions?.length) out.push('## Decisions', '', ...data.decisions.map((d) => `- ${d}`), '');
   out.push('## Action items', '', ...(data.memory.actionItems.length ? data.memory.actionItems.map((a) => `- [ ] ${a}`) : ['_None._']), '');
   const done = data.tasks.filter((t) => t.done);
   if (done.length) out.push('## Done during the call', '', ...done.map((t) => `- [x] ${t.text} (${t.doneBy})`), '');
@@ -1539,6 +1543,7 @@ export class Call {
     this.memory = null; // { summary, actionItems, notes } from the last call
     this.summary = '';
     this.actionItems = [];
+    this.decisions = []; // what the call decided, from save_summary
     this.startedAt = 0;
     this.wrap = null; // while Leave waits for the summary: { replied(link), finish() }
     this.timeline = []; // { seq, at (ms into the call), kind, text }
@@ -1639,6 +1644,7 @@ export class Call {
       bots: this.roster(),
       lines: this.lines,
       summary: this.summary,
+      decisions: this.decisions,
       notes: this.notes,
       tasks: this.tasks,
       direction: this.direction,
@@ -2194,6 +2200,7 @@ export class Call {
         this.summary = cleanNote(a.summary, SUMMARY_MAX_CHARS);
         const items = Array.isArray(a.action_items) ? a.action_items : [];
         this.actionItems = items.map((x) => cleanNote(x)).filter(Boolean).slice(0, ACTION_ITEMS_MAX);
+        this.decisions = (Array.isArray(a.decisions) ? a.decisions : []).map((x) => cleanNote(x)).filter(Boolean).slice(0, DECISIONS_MAX);
         this.event('tool', `${link.bot.name} saved the call summary`);
         this.wrap?.finish();
         return { output: 'Saved.', followUp: false };

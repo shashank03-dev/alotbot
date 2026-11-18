@@ -91,6 +91,12 @@ export class OverlayStore {
       .slice(0, CALLS_LISTED);
   }
 
+  /** Deletes a saved call's file. Only plain call file names are accepted; a file already gone is fine. */
+  deleteCall(file: string) {
+    if (!CALL_FILE.test(file)) throw new Error('not a call file name');
+    fs.rmSync(path.join(this.callsDir, file), { force: true });
+  }
+
   /** A saved call's Markdown. Only plain call file names are accepted. */
   readCall(file: string): string {
     if (!CALL_FILE.test(file)) throw new Error('not a call file name');

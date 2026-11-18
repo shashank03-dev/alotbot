@@ -16,6 +16,7 @@ import { OverlayCall, overlayMarkdown } from './call.ts';
 import { CallLog, loggedSocket, MicStats } from './log.ts';
 import { BadSetting, COLORS, LANGUAGES, OverlayGrokClient, parseNewBot, parseVoiceSettings, PICKER_SHAPES, SHAPES, SPEEDS, VOICES } from './grok.ts';
 import { OverlayStore } from './store.ts';
+import { CALL_KINDS, CallLibrary, type CallKind, callIdOf, LibraryError } from './library.ts';
 import { ActionStore } from '../actions.ts';
 import { CallActions } from '../dispatch.ts';
 import { JobWatcher } from '../jobs.ts';
@@ -46,6 +47,8 @@ export interface OverlayOptions {
   /** Seconds on a steady clock (default: performance.now). */
   clock?: () => number;
   viewMs?: number;
+  /** Opens the call library (tests use this to make it fail). */
+  openLibrary?: (dataDir: string) => CallLibrary;
 }
 
 class ClientError extends Error {}
@@ -105,6 +108,21 @@ export function createOverlayServer(opts: OverlayOptions) {
   const login = new Login({ store, apiUrl, siteUrl: opts.siteUrl ?? SITE_URL, fetch: opts.fetch, pollMs: opts.pollMs, timeoutMs: opts.loginTimeoutMs });
   const grok = new OverlayGrokClient({ store, apiUrl, fetch: opts.fetch });
   const calls = new OverlayStore(opts.dataDir);
+  // Saved calls, searchable. The app still works without it (a broken disk or SQLite): search is then reported unavailable.
+  let library: CallLibrary | null = null;
+  let libraryProblem = '';
+  try {
+    library = (opts.openLibrary ?? ((d: string) => new CallLibrary(d)))(opts.dataDir);
+    library.backfill(calls.callsDir);
+  } catch (err) {
+    library?.close();
+    library = null;
+    libraryProblem = (err as Error).message;
+  }
+  const needLibrary = (): CallLibrary => {
+    if (!library) throw new ClientError(`Call history search is unavailable: ${libraryProblem}`);
+    return library;
+  };
   // Every bot action, kept across calls and relaunches; jobs are watched until their agents answer.
   const actionStore = new ActionStore(opts.dataDir);
   actionStore.recoverInterrupted();
@@ -324,7 +342,7 @@ export function createOverlayServer(opts: OverlayOptions) {
         case 'bots':
           return { bots: await this.refreshBots() };
         case 'join':
-          return this.join(m.botIds);
+          return this.join(m.botIds, m.continueFrom);
         case 'leave':
           return this.leave();
         case 'addBot':
@@ -386,6 +404,25 @@ export function createOverlayServer(opts: OverlayOptions) {
         }
         case 'calls':
           return { calls: calls.listCalls() };
+        case 'library': {
+          if (m.query !== undefined && m.query !== null && typeof m.query !== 'string') throw new ClientError('query must be text');
+          if (m.kind !== undefined && m.kind !== null && !CALL_KINDS.includes(m.kind as CallKind)) throw new ClientError('kind must be call or meeting');
+          const limit = m.limit === undefined || m.limit === null ? undefined : int(m.limit, 'limit');
+          const before = m.before === undefined || m.before === null ? undefined : int(m.before, 'before');
+          return { ...needLibrary().list({ query: (m.query as string | null) ?? '', limit, before, kind: (m.kind as CallKind | null) ?? undefined }), total: needLibrary().count() };
+        }
+        case 'libraryCall': {
+          const found = this.libraryGet(str(m.id, 'id'));
+          let markdown: string | null = null;
+          try {
+            markdown = calls.readCall(found.call.file);
+          } catch {
+            // the file was removed outside the app: the index still has its words
+          }
+          return { ...found, markdown };
+        }
+        case 'libraryDelete':
+          return this.libraryDelete(str(m.id, 'id'));
         case 'callFile':
           return { markdown: calls.readCall(str(m.file, 'file')) };
         default:
@@ -405,9 +442,31 @@ export function createOverlayServer(opts: OverlayOptions) {
       return this.bots;
     }
 
-    async join(raw: unknown) {
+    /** A saved call by id; a bad or unknown id is the app's mistake. */
+    libraryGet(id: string) {
+      try {
+        const found = needLibrary().get(id);
+        if (found) return found;
+      } catch (err) {
+        if (!(err instanceof LibraryError)) throw err;
+      }
+      throw new ClientError('That call is not in your call history any more.');
+    }
+
+    /** Forgets a call: its file, its index entry, and its summary if the next call would start from it. */
+    libraryDelete(id: string) {
+      const { call: c } = this.libraryGet(id);
+      calls.deleteCall(c.file);
+      needLibrary().remove(c.id);
+      const memory = calls.readMemory();
+      if (memory?.summary && c.summary && memory.summary === c.summary) calls.writeMemory({ ...memory, summary: '' });
+      return { deleted: c.id };
+    }
+
+    async join(raw: unknown, continueFrom: unknown = undefined) {
       if (this.call) throw new ClientError('already in a call');
       if (!Array.isArray(raw) || !raw.length || !raw.every((x) => typeof x === 'string')) throw new ClientError('botIds must be a list of bot ids');
+      const continued = continueFrom === undefined || continueFrom === null ? null : this.libraryGet(str(continueFrom, 'continueFrom')).call;
       const all = await grok.listBots();
       this.bots = all;
       const picked = all.filter((b) => raw.includes(b.id));
@@ -451,9 +510,10 @@ export function createOverlayServer(opts: OverlayOptions) {
         now: () => Date.now(),
       });
       call.log = log;
+      call.pastCalls = library;
       this.log = log;
       this.mic = new MicStats(Date.now());
-      call.joinWith(picked, all, calls.readMemory());
+      call.joinWith(picked, all, calls.readMemory(), { continued });
       this.call = call;
       this.linesSent = 0;
       this.tasksSent = -1;
@@ -494,12 +554,20 @@ export function createOverlayServer(opts: OverlayOptions) {
       try {
         if (data.saveWorthy) file = calls.saveCall(data.memory, overlayMarkdown(data, (ms) => new Date(ms).toLocaleString()));
         this.log?.write('saved', { file, logFile: data.logFile });
+        // The file is saved either way; a failed index is rebuilt from it at the next start.
+        if (file && library) {
+          try {
+            library.index({ file, kind: data.kind, startedAt: data.startedAt, endedAt: data.endedAt, bots: data.bots, summary: data.summary, decisions: data.decisions, actionItems: data.actionItems, lines: data.lines });
+          } catch (err) {
+            this.log?.write('library-error', { error: (err as Error).message });
+          }
+        }
       } finally {
         // Even if saving fails, the call ends: the bots hang up and a new call can start.
         this.stopCall();
         this.send({ t: 'ended' });
       }
-      return { file, summary: data.summary, actionItems: data.actionItems };
+      return { file, id: file ? callIdOf(file) : null, summary: data.summary, decisions: data.decisions, actionItems: data.actionItems };
     }
 
     /** A bot's agent sent something: the call hears it now (not at its next check), and the app's list refreshes. */
@@ -623,6 +691,7 @@ export function createOverlayServer(opts: OverlayOptions) {
       watcher.stop();
       actionStore.recoverInterrupted();
       actionStore.close();
+      library?.close();
     },
   };
 }

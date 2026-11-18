@@ -12,6 +12,7 @@ import { AUDIO_LEAD_S, createOverlayServer, decodeMic, defaultOpenSocket, encode
 import { OverlayStore } from '../src/overlay/store.ts';
 import { FakeSocket, flush, hostSays, reply } from './overlay-fakes.ts';
 import { mock, sendJson, type Mock } from './helpers.ts';
+import { CallLibrary } from '../src/overlay/library.ts';
 
 const TOKEN = 't'.repeat(40);
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'grok-call-srv-'));
@@ -84,7 +85,7 @@ afterEach(async () => {
 });
 
 /** `viewMs: null` leaves it out, so the server's default cadence is used. */
-async function start(signedIn = true, viewMs: number | null = 5, workspaceEntries: {agentId:string;body:object}[] = [], workspaceReplies: Record<string,{status?:number;body:unknown}> = {}): Promise<Harness> {
+async function start(signedIn = true, viewMs: number | null = 5, workspaceEntries: {agentId:string;body:object}[] = [], workspaceReplies: Record<string,{status?:number;body:unknown}> = {}, extra: Partial<Parameters<typeof createOverlayServer>[0]> & { prepare?: (dir: string) => void } = {}): Promise<Harness> {
   const agents = [agent('a', 'Bot A'), agent('b', 'Bot B'), agent('c', 'Bot C')];
   const jobs: { agentId: string; callId: string; request: string; at: number }[] = [];
   let minted = 0;
@@ -125,6 +126,8 @@ async function start(signedIn = true, viewMs: number | null = 5, workspaceEntrie
   });
   const dir = fs.mkdtempSync(path.join(tmp, 'd'));
   if (signedIn) new AuthStore(dir).write({ accessToken: 'tok', refreshToken: null, machineId: 'mid' });
+  const { prepare, ...more } = extra;
+  prepare?.(dir);
   const sockets = new Map<string, FakeSocket>();
   let mintFor: string[] = [];
   let now = 100;
@@ -137,6 +140,7 @@ async function start(signedIn = true, viewMs: number | null = 5, workspaceEntrie
     pollMs: 60_000,
     clock: () => now,
     ...(viewMs === null ? {} : { viewMs }),
+    ...more,
     // Each bot's socket is keyed by the order the call asked for voice sessions.
     openSocket: (url: string) => {
       const ws = new FakeSocket(url);
@@ -527,7 +531,7 @@ test('leave without anything said ends the call and saves nothing', async () => 
   const h = await start();
   const c = await connect(h);
   await inCall(h, c);
-  assert.deepEqual(await c.ok('leave'), { file: null, summary: '', actionItems: [] });
+  assert.deepEqual(await c.ok('leave'), { file: null, id: null, summary: '', decisions: [], actionItems: [] });
   await c.next((m) => m.t === 'ended');
   assert.ok(h.sockets.get('a')!.closed);
   assert.deepEqual((await c.ok('calls')).calls, []);
@@ -882,4 +886,169 @@ test('malformed HTTP viewer targets close the request without exposing a transpo
  const h=await start(),c=await connect(h);await c.ok('bots');
  const {request}=await import('node:http');const origin=new URL(h.url);origin.protocol='http:';
  await assert.rejects(new Promise<void>((resolve,reject)=>{const req=request(origin,{path:'http://'},res=>{res.resume();res.once('end',()=>resolve());});req.once('error',reject);req.end();}),/socket hang up|ECONNRESET/);
+});
+
+// ---------- the call library ----------
+
+
+/** Joins, has Bot A answer, and leaves with a summary and decisions. Returns the leave result. */
+async function callAndLeave(h: Harness, c: Client, said: string, summary: string, decisions: string[] = []) {
+  h.sockets.clear();
+  await inCall(h, c, ['a']);
+  const a = h.sockets.get('a')!;
+  hostSays(a, said);
+  reply(a, 'Sounds good.');
+  const leaving = c.op('leave');
+  await askedForSummary(a);
+  reply(a, '', [['save_summary', { summary, action_items: ['Email Sam'], decisions }]]);
+  const r = await leaving;
+  assert.equal(r.ok, true, r.error);
+  return r.result;
+}
+
+test('leaving indexes the call: the library lists it, searches it, opens it and the bots can recall it', async () => {
+  const h = await start();
+  const c = await connect(h);
+  assert.deepEqual(await c.ok('library'), { calls: [], hasMore: false, total: 0 });
+  const first = await callAndLeave(h, c, 'Bot A, what should the price be?', 'We set the price at ten dollars.', ['Price is $10']);
+  assert.match(first.id, /^call-.*Z(-\d+)?$/);
+  assert.equal(`${first.id}.md`, first.file);
+  assert.deepEqual(first.decisions, ['Price is $10']);
+  const md = await c.ok('callFile', { file: first.file });
+  assert.match(md.markdown, /## Decisions\n\n- Price is \$10\n/);
+  const listed = await c.ok('library');
+  assert.equal(listed.total, 1);
+  assert.deepEqual(listed.calls.map((x: any) => [x.id, x.kind, x.summary, x.decisions, x.lineCount]), [[first.id, 'call', 'We set the price at ten dollars.', ['Price is $10'], 2]]);
+  const found = await c.ok('library', { query: 'price', limit: 5, kind: 'call' });
+  assert.match(found.calls[0].match.snippet, /«price»/i);
+  assert.deepEqual((await c.ok('library', { query: 'zebra', before: Date.now() + 1000, kind: null, limit: null })).calls, []);
+  const opened = await c.ok('libraryCall', { id: first.id });
+  assert.deepEqual(opened.lines.map((l: any) => [l.who, l.text]), [[USER, 'Bot A, what should the price be?'], ['Bot A', 'Sounds good.']]);
+  assert.match(opened.markdown, /^# Grok Call/);
+  // The next call's bots are told about it, and recall_calls finds it.
+  h.sockets.clear();
+  await inCall(h, c, ['a']);
+  const a = h.sockets.get('a')!;
+  assert.match(a.lastSession().instructions, /There is 1 saved earlier call with/);
+  reply(a, '', [['recall_calls', { query: 'price' }]]);
+  assert.match(a.outputs().at(-1)!, new RegExp(`\\[id ${first.id}\\]`));
+  await c.ok('leave');
+});
+
+test('library requests check their arguments', async () => {
+  const h = await start();
+  const c = await connect(h);
+  await c.fails('library', { query: 5 }, /query must be text/);
+  await c.fails('library', { kind: 'party' }, /kind must be call or meeting/);
+  await c.fails('library', { limit: 'ten' }, /limit must be a whole number/);
+  await c.fails('library', { before: 1.5 }, /before must be a whole number/);
+  await c.fails('libraryCall', {}, /id is required/);
+  await c.fails('libraryCall', { id: '../../secrets' }, /not in your call history/);
+  await c.fails('libraryCall', { id: 'call-2020-01-01T00-00-00Z' }, /not in your call history/);
+  await c.fails('libraryDelete', { id: 'call-2020-01-01T00-00-00Z' }, /not in your call history/);
+  await c.fails('join', { botIds: ['a'], continueFrom: 'call-2020-01-01T00-00-00Z' }, /not in your call history/);
+  await c.fails('join', { botIds: ['a'], continueFrom: 7 }, /continueFrom is required/);
+});
+
+test('continuing a saved call: the bots start from its summary and decisions', async () => {
+  const h = await start();
+  const c = await connect(h);
+  const first = await callAndLeave(h, c, 'Bot A, launch date?', 'We picked May for the launch.', ['Launch in May']);
+  h.sockets.clear();
+  (h as any).expect(['b']);
+  await c.ok('join', { botIds: ['b'], continueFrom: first.id });
+  for (let i = 0; i < 20 && !h.sockets.get('b'); i++) await new Promise((r) => setTimeout(r, 5));
+  const b = h.sockets.get('b')!;
+  b.onopen!();
+  b.emit('session.updated');
+  assert.match(b.lastSession().instructions, new RegExp(`# This call continues an earlier call \\(.*, id ${first.id}\\)\\nSummary: We picked May for the launch\\.\\nDecisions:\\n- Launch in May`));
+  // The call being continued is left out of searches (it is already in the instructions).
+  reply(b, '', [['recall_calls', { query: 'launch' }]]);
+  assert.match(b.outputs().at(-1)!, /Nothing in earlier calls matches "launch"/);
+  await c.ok('leave');
+});
+
+test('deleting a call removes its file and index entry, and the next call no longer starts from its summary', async () => {
+  const h = await start();
+  const c = await connect(h);
+  const first = await callAndLeave(h, c, 'Bot A, budget?', 'Budget is fifty thousand.');
+  const second = await callAndLeave(h, c, 'Bot A, hiring?', 'Hire two engineers.');
+  assert.equal(new OverlayStore(h.dir).readMemory()!.summary, 'Hire two engineers.');
+  // Deleting an older call keeps the memory, which came from the newer one.
+  assert.deepEqual(await c.ok('libraryDelete', { id: first.id }), { deleted: first.id });
+  assert.equal(fs.existsSync(path.join(h.dir, 'calls', first.file)), false);
+  assert.equal(new OverlayStore(h.dir).readMemory()!.summary, 'Hire two engineers.');
+  // Deleting the call the memory came from forgets its summary, and keeps the open tasks.
+  await c.ok('taskAdd', { title: 'Keep me' });
+  await c.ok('libraryDelete', { id: second.id });
+  const memory = new OverlayStore(h.dir).readMemory()!;
+  assert.equal(memory.summary, '');
+  assert.ok(memory.tasks.some((t) => t.title === 'Keep me'));
+  assert.equal((await c.ok('library')).total, 0);
+  assert.deepEqual((await c.ok('calls')).calls, []);
+});
+
+test('the library is rebuilt from the saved files at start; a file removed by hand still opens from the index', async () => {
+  const md = '# Grok Call, T\n\nBots: Bot A  \nLength: 1 min\n\n## Summary\n\nOld pricing call.\n\n## Transcript\n\n**Bot A:** ten dollars  \n';
+  const h = await start(true, 5, [], {}, {
+    prepare: (dir) => {
+      fs.mkdirSync(path.join(dir, 'calls'), { recursive: true });
+      fs.writeFileSync(path.join(dir, 'calls', 'call-2026-01-02T03-04-05Z.md'), md);
+    },
+  });
+  const c = await connect(h);
+  const listed = await c.ok('library', { query: 'pricing' });
+  assert.deepEqual(listed.calls.map((x: any) => x.id), ['call-2026-01-02T03-04-05Z']);
+  fs.rmSync(path.join(h.dir, 'calls', 'call-2026-01-02T03-04-05Z.md'));
+  const opened = await c.ok('libraryCall', { id: 'call-2026-01-02T03-04-05Z' });
+  assert.equal(opened.markdown, null);
+  assert.equal(opened.call.summary, 'Old pricing call.');
+});
+
+test('without a working library, calls still save and end; history search says why it is unavailable', async () => {
+  const h = await start(true, 5, [], {}, { openLibrary: () => { throw new Error('disk I/O error'); } });
+  const c = await connect(h);
+  await c.fails('library', {}, /Call history search is unavailable: disk I\/O error/);
+  await c.fails('libraryCall', { id: 'call-2026-01-02T03-04-05Z' }, /unavailable/);
+  const r = await callAndLeave(h, c, 'Bot A, hi', 'Said hi.');
+  assert.match(r.file, /^call-/);
+  assert.ok(!h.sockets.get('a')!.lastSession().tools.some((t: any) => t.name === 'recall_calls'));
+});
+
+test('a call whose indexing fails is still saved, and the failure is logged', async () => {
+  class Broken extends CallLibrary {
+    index(): string {
+      throw new Error('database is locked');
+    }
+  }
+  const h = await start(true, 5, [], {}, { openLibrary: (d) => new Broken(d) });
+  const c = await connect(h);
+  const r = await callAndLeave(h, c, 'Bot A, hi', 'Said hi.');
+  assert.ok(fs.existsSync(path.join(h.dir, 'calls', r.file)));
+  const logs = fs.readdirSync(path.join(h.dir, 'logs')).filter((f) => f.endsWith('.jsonl'));
+  const text = logs.map((f) => fs.readFileSync(path.join(h.dir, 'logs', f), 'utf8')).join('');
+  assert.match(text, /"kind":"library-error".*database is locked/);
+  // A call where nothing was said is not saved, so nothing is indexed.
+  h.sockets.clear();
+  await inCall(h, c, ['a']);
+  const left = await c.ok('leave');
+  assert.equal(left.file, null);
+  assert.equal(left.id, null);
+});
+
+test('a library that opens but cannot be rebuilt is closed and reported unavailable', async () => {
+  let closed = false;
+  class Unreadable extends CallLibrary {
+    backfill(): never {
+      throw new Error('calls folder unreadable');
+    }
+    close() {
+      closed = true;
+      super.close();
+    }
+  }
+  const h = await start(true, 5, [], {}, { openLibrary: (d) => new Unreadable(d) });
+  const c = await connect(h);
+  assert.equal(closed, true);
+  await c.fails('library', {}, /unavailable: calls folder unreadable/);
 });
