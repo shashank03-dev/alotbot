@@ -9,7 +9,17 @@ import SwiftUI
 
     static func show(then next: @escaping () -> Void) {
         guard !Theme.reduceMotion, panel == nil, let screen = NSScreen.main else { next(); return }
-        // The whole screen, see-through and click-through, so the closing zoom can fly past the edges.
+        let p = makePanel(on: screen) {
+            panel?.orderOut(nil)
+            panel = nil
+            next()
+        }
+        panel = p
+        p.orderFrontRegardless()
+    }
+
+    /// The whole screen, see-through and click-through, so the closing zoom can fly past the edges.
+    static func makePanel(on screen: NSScreen, done: @escaping () -> Void) -> NSPanel {
         let p = NSPanel(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         p.isOpaque = false
         p.backgroundColor = .clear
@@ -18,13 +28,12 @@ import SwiftUI
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         p.isReleasedWhenClosed = false
         p.ignoresMouseEvents = true
-        p.contentView = NSHostingView(rootView: OpeningView(bots: OpeningBots.load()) {
-            panel?.orderOut(nil)
-            panel = nil
-            next()
-        })
-        panel = p
-        p.orderFrontRegardless()
+        let host = NSHostingView(rootView: OpeningView(bots: OpeningBots.load(), done: done))
+        // By default the hosting view shrinks the panel to the view's own 580 x 300, which left it in a corner.
+        host.sizingOptions = []
+        p.contentView = host
+        p.setFrame(screen.frame, display: false)
+        return p
     }
 }
 

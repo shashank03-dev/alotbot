@@ -44,6 +44,23 @@ import GrokCallCore
         }
     }
 
+    /// The panel stays the size of the screen, so the pill plays in the middle and not shrunk into a corner.
+    @Test @MainActor func coversTheWholeScreenWithThePillInTheMiddle() async throws {
+        _ = NSApplication.shared
+        let screen = try #require(NSScreen.main)
+        let panel = Opening.makePanel(on: screen) {}
+        defer { panel.close() }
+        panel.orderFrontRegardless()
+        // The hosting view resizes its window on a later pass, once SwiftUI has measured the view (launch of
+        // 2026-11-19: 580 x 300 at the bottom-left corner of a 1470 x 956 screen).
+        for _ in 0..<5 {
+            try await Task.sleep(for: .milliseconds(100))
+            panel.displayIfNeeded()
+        }
+        #expect(panel.frame == screen.frame)
+        #expect(panel.contentView?.frame.size == screen.frame.size)
+    }
+
     /// Plays the opening in a real window and checks it draws, then ends by itself.
     /// With OPENING_FRAMES=<dir> it also saves a frame every 0.2 s for review.
     @Test @MainActor func playsAndEndsOnItsOwn() async throws {

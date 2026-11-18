@@ -46,3 +46,9 @@ Status: **pass**, **fail**, **fixed** (with the commit), or **not possible** (wi
 | Delete a call | pass | Deleted `call-2026-11-18T18-20-28Z` (Jensen only) in Call history. After: `calls/call-2026-11-18T18-20-28Z.md` gone; index rows `calls` 1→0, `lines` 2→0, `docs` 5→0; `overlay-memory.json` summary was that call's and is now `""` (open task kept, as the README says). |
 | Delete removes the transcript from this Mac | fixed in `95c4902` | The dialog says "Its file and transcript are removed from this Mac", but `logs/call-2026-11-18T18-20-13Z.jsonl`, the call's full log with every transcript event, was left behind. `OverlayStore.deleteCall` now also removes the log named on the call's `Full log:` line (plain log names only, so `logs/../auth.json` is ignored), log first. New test fails before and passes after. |
 | Damaged index is rebuilt | pass | App quit; index backed up (33 calls, 941 lines), overwritten with 8 KB of random bytes, `-wal`/`-shm` removed. On relaunch: `call-library.sqlite.damaged-1795026218879` (the 8 KB junk) next to a new index with 33 calls and 941 lines, the same as before. Nothing lost, no restore needed. Junk file removed afterwards. |
+
+## Found along the way
+
+| Check | Status | Evidence |
+| --- | --- | --- |
+| Launch animation plays in the middle of the screen | fixed in `OPENING` | You saw the opening pill in a corner. Window list during launch: the opening panel was 580 x 300 at x 0, y 656 on a 1470 x 956 screen (bottom-left). `NSHostingView` resized the full-screen panel to the SwiftUI view's own size on its first pass. Fix: `sizingOptions = []` on the hosting view and the panel set to the screen frame. After: the panel is 1470 x 956 at 0, 0. New test `coversTheWholeScreenWithThePillInTheMiddle` fails before and passes after. Came in with `3550b7a`, not the new features. |
