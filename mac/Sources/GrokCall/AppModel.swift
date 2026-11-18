@@ -54,7 +54,7 @@ final class Prefs: ObservableObject {
     }
 }
 
-enum Tray: Equatable { case add, newBot, chat }
+enum Tray: Equatable { case add, newBot, chat, share }
 
 /// How the call shows on screen: the small circle, the pill with its buttons, or the full view (a tile per bot).
 enum OverlayMode: Equatable { case circle, pill, full }
@@ -91,6 +91,24 @@ final class AppModel: ObservableObject {
     private var actionPoll: Task<Void, Never>?
     @Published var tasks: [TaskItem] = []
     @Published var pastCalls: [PastCall] = []
+    // Calls to you: standing calls, call backs, rings and what you missed.
+    @Published var incoming: IncomingState?
+    /// While answering: the ring being answered (its panel shows a spinner).
+    @Published var answering: String?
+    // The call library.
+    @Published var library: LibraryPage?
+    @Published var libraryDetail: LibraryDetail?
+    @Published var libraryError: String?
+    // Meetings and screen sharing.
+    @Published var meetingApps: [MeetingApp] = []
+    @Published var talkHeld = false
+    /// ⌥Space could be registered (another app may own it); the on-screen talk button always works.
+    @Published var talkKeyAvailable = false
+    @Published var shareTargets: [ShareTarget] = []
+    private(set) var meeting: MeetingSession?
+    private(set) var screenShare: ScreenShareSession?
+    /// Where the mic goes, read on the audio thread.
+    let micRouter = MicRouter()
     @Published var joining = false
     @Published var leaving = false
     @Published var toast: String?
@@ -126,7 +144,14 @@ final class AppModel: ObservableObject {
         }
         backend.onMessage = { [weak self] msg in self?.handle(msg) }
         backend.onAudio = { [weak self] chunk in self?.audio.play(chunk) }
-        audio.onMic = { [weak self] level, pcm in self?.backend.sendMic(AudioFrames.encodeMic(level: level, samples: pcm)) }
+        let router = micRouter
+        audio.onMic = { [weak self] level, pcm in
+            // In a meeting your mic is part of the meeting (your own lines) unless you hold the talk key.
+            switch router.route {
+            case .bots: self?.backend.sendMic(AudioFrames.encodeMic(level: level, samples: pcm))
+            case .meeting: router.meeting?.hostAudio(pcm)
+            }
+        }
         audio.onFailure = { [weak self] why in self?.show(why) }
         if demo ?? Self.demo { startDemo() } else { backend.start() }
     }
@@ -144,6 +169,7 @@ final class AppModel: ObservableObject {
             await refreshLogin()
             await refreshTasks()
             await refreshCalls()
+            await refreshIncoming()
             actionPoll?.cancel()
             actionPoll = Task { [weak self] in
                 while !Task.isCancelled {
@@ -192,6 +218,8 @@ final class AppModel: ObservableObject {
             tasks = t.tasks
         case .stopAudio(let id):
             audio.stopChunk(id)
+        case .incoming(let state):
+            incoming = state
         case .ended:
             endCallLocally()
         case .reply, .unknown:
@@ -270,28 +298,167 @@ final class AppModel: ObservableObject {
 
     func bot(_ id: String) -> Bot? { bots.first { $0.id == id } }
 
-    func join() async {
-        guard !picked.isEmpty, !joining else { return }
-        joining = true
-        defer { joining = false }
+    /// Everything a call needs before the backend joins it: the mic, and audio running on the backend's clock.
+    private func startAudio() async -> Bool {
         macTools.prepareForCall()
-        guard await requestMicrophone() else { show(AudioIO.AudioError.micDenied.localizedDescription); return }
-        guard let clock else { show(BackendError.notConnected.localizedDescription); return }
-        do { try audio.start(clock: clock) } catch { show(error.localizedDescription); return }
+        guard await requestMicrophone() else { show(AudioIO.AudioError.micDenied.localizedDescription); return false }
+        guard let clock else { show(BackendError.notConnected.localizedDescription); return false }
+        do { try audio.start(clock: clock) } catch { show(error.localizedDescription); return false }
         lines = []
         tray = nil
         cardBot = nil
         showAllBots = false
-        let ids = bots.map(\.id).filter(picked.contains) // keep the account's order
-        AppLog.write("join: \(bots.filter { picked.contains($0.id) }.map(\.name).joined(separator: ", "))")
+        return true
+    }
+
+    /// Starts a call: audio first, then the backend's join request (`op` with `args`). False if it didn't start.
+    @discardableResult
+    private func startCall(_ what: String, op: String, args: [String: Any]) async -> Bool {
+        guard !joining, !inCall else { return false }
+        joining = true
+        defer { joining = false }
+        guard await startAudio() else { return false }
         struct R: Decodable { let joined: [String] }
-        guard let _: R = await attempt("Couldn't join", { try await backend.request("join", ["botIds": ids]) }) else {
+        guard let _: R = await attempt(what, { try await backend.request(op, args) }) else {
             audio.stop()
-            return
+            return false
         }
         mode = .pill
         overlayShown = true
         await refreshTasks()
+        return true
+    }
+
+    func join() async {
+        guard !picked.isEmpty else { return }
+        let ids = bots.map(\.id).filter(picked.contains) // keep the account's order
+        AppLog.write("join: \(bots.filter { picked.contains($0.id) }.map(\.name).joined(separator: ", "))")
+        await startCall("Couldn't join", op: "join", args: ["botIds": ids])
+    }
+
+    /// Picks up an earlier call where it left off, with these bots.
+    func continueCall(_ id: String, botIds: [String]) async {
+        guard !botIds.isEmpty else { show("Choose a bot to continue the call with."); return }
+        AppLog.write("continue call \(id)")
+        await startCall("Couldn't continue the call", op: "join", args: ["botIds": botIds, "continueFrom": id])
+    }
+
+    // MARK: calls to you
+
+    func refreshIncoming() async {
+        if let s: IncomingState = try? await backend.request("incoming") { incoming = s }
+    }
+
+    /// Picks up a ringing (or missed) call: its bots join and the one that called opens.
+    func answer(_ ringId: String) async {
+        guard answering == nil else { return }
+        if inCall { show("Leave this call first."); return }
+        answering = ringId
+        defer { answering = nil }
+        AppLog.write("answer ring \(ringId)")
+        await startCall("Couldn't answer", op: "ringAnswer", args: ["id": ringId])
+        await refreshIncoming()
+    }
+
+    func incomingOp(_ op: String, _ args: [String: Any] = [:], _ what: String) async {
+        if let s: IncomingState = await attempt(what, { try await backend.request(op, args) }) { incoming = s }
+    }
+
+    func decline(_ ringId: String) async { await incomingOp("ringDecline", ["id": ringId], "Couldn't decline") }
+    func snooze(_ ringId: String, minutes: Int) async { await incomingOp("ringSnooze", ["id": ringId, "minutes": minutes], "Couldn't snooze") }
+    func cancelCallback(_ id: String) async { await incomingOp("callbackCancel", ["id": id], "Couldn't cancel the call back") }
+    func clearMissed() async { await incomingOp("missedClear", [:], "Couldn't clear missed calls") }
+    func deleteStandingCall(_ id: String) async { await incomingOp("scheduleDelete", ["id": id], "Couldn't delete the standing call") }
+    func ringNow(_ id: String) async { await incomingOp("scheduleRingNow", ["id": id], "Couldn't ring it") }
+    func setIncomingSettings(_ settings: [String: Any]) async { await incomingOp("incomingSettings", ["settings": settings], "Couldn't save") }
+
+    /// Saves a standing call (new or edited). Returns the problem in words, or nil when saved.
+    func saveStandingCall(_ draft: StandingCallDraft) async -> String? {
+        if let p = draft.problem { return p }
+        do {
+            let s: IncomingState = try await backend.request("scheduleSave", ["schedule": draft.body])
+            incoming = s
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    // MARK: meetings
+
+    /// The apps that could be holding a meeting, meeting apps first.
+    func refreshMeetingApps() {
+        let running = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }.map {
+            MeetingApp(name: $0.localizedName ?? "", bundleId: $0.bundleIdentifier ?? "", pid: $0.processIdentifier)
+        }
+        meetingApps = MeetingApps.rank(running, selfBundle: Bundle.main.bundleIdentifier ?? "")
+    }
+
+    /// Joins `botIds` to listen to `app`'s meeting. `consent`: you confirmed the meeting knows it is transcribed.
+    func startMeeting(app: MeetingApp, botIds: [String], consent: Bool) async {
+        guard consent else { show("Confirm that the people in the meeting know it is being transcribed."); return }
+        guard !botIds.isEmpty else { show("Choose a bot to listen with."); return }
+        let session = MeetingSession(app: app, send: { [weak self] who, text in self?.meetingLine(who, text) }, problem: { [weak self] in self?.show($0) })
+        // Your mic belongs to the meeting from the start; hold the talk key to speak to the bots.
+        micRouter.set(route: .meeting, meeting: session)
+        AppLog.write("meeting: \(app.name) with \(botIds.count) bot(s)")
+        guard await startCall("Couldn't start listening", op: "join", args: ["botIds": botIds, "meeting": ["app": app.name, "consent": true] as [String: Any]]) else {
+            micRouter.set(route: .bots, meeting: nil)
+            return
+        }
+        do {
+            try await session.start()
+            meeting = session
+        } catch {
+            micRouter.set(route: .bots, meeting: nil)
+            show(error.localizedDescription)
+            await leave()
+        }
+    }
+
+    private func meetingLine(_ who: String, _ text: String) {
+        guard inCall, meeting != nil else { return }
+        Task { try? await backend.send("meetingLine", ["who": who, "text": String(text.prefix(1000))]) }
+    }
+
+    /// Hold to talk: while held, your mic goes to the bots instead of the meeting.
+    func setTalk(_ held: Bool) {
+        guard view?.meeting != nil, talkHeld != held else { return }
+        talkHeld = held
+        micRouter.set(route: MicRoute.of(inMeeting: true, talkHeld: held), meeting: meeting)
+    }
+
+    func setWhisperAloud(_ aloud: Bool) async {
+        await attempt("Couldn't change how bots whisper") { try await backend.send("setWhisper", ["mode": aloud ? "voice" : "text"]) }
+    }
+
+    // MARK: sharing your screen
+
+    func refreshShareTargets() async {
+        do { shareTargets = try await ShareTarget.available() } catch { show("Couldn't list your windows: \(error.localizedDescription)") }
+    }
+
+    func share(_ target: ShareTarget) async {
+        guard inCall else { return }
+        screenShare?.stop()
+        screenShare = nil
+        guard (await attempt("Couldn't share", { try await backend.send("screenShare", ["app": target.app, "title": target.title, "kind": target.kind.rawValue]) })) != nil else { return }
+        let session = ScreenShareSession(target: target, send: { [weak self] args in
+            guard let self else { return }
+            try await self.backend.send("screenUpdate", args)
+        }, stopped: { [weak self] why in
+            guard let self else { return }
+            self.show(why)
+            Task { await self.stopSharing() }
+        })
+        screenShare = session
+        session.start()
+    }
+
+    func stopSharing() async {
+        screenShare?.stop()
+        screenShare = nil
+        if inCall { await attempt("Couldn't stop sharing") { try await backend.send("screenStop") } }
     }
 
     func leave() async {
@@ -307,11 +474,19 @@ final class AppModel: ObservableObject {
         if let r {
             show(r.file == nil ? "Call ended. Nothing was said, so it wasn't saved." : "Call saved.")
             await refreshCalls()
+            if library != nil { await refreshLibrary() }
         }
+        await refreshIncoming()
         await refreshTasks()
     }
 
     private func endCallLocally() {
+        meeting?.stop()
+        meeting = nil
+        screenShare?.stop()
+        screenShare = nil
+        micRouter.set(route: .bots, meeting: nil)
+        talkHeld = false
         audio.stop()
         view = nil
         tray = nil
@@ -444,11 +619,51 @@ final class AppModel: ObservableObject {
         if let r: R = try? await backend.request("calls") { pastCalls = r.calls }
     }
 
-    func callURL(_ c: PastCall) -> URL? { backend.paths?.dataDir.appendingPathComponent("calls").appendingPathComponent(c.file) }
+    func callURL(_ c: PastCall) -> URL? { callURL(file: c.file) }
+    func callURL(file: String) -> URL? { backend.paths?.dataDir.appendingPathComponent("calls").appendingPathComponent(file) }
 
-    func saveToDownloads(_ c: PastCall) {
-        guard let src = callURL(c) else { return }
-        let dest = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0].appendingPathComponent("grok-\(c.file)")
+    func saveToDownloads(_ c: PastCall) { saveToDownloads(file: c.file) }
+
+    // MARK: call library
+
+    /// Lists saved calls, newest first; with a query, the ones that match. `more` pages on from what is shown.
+    func refreshLibrary(query: String = "", kind: String? = nil, more: Bool = false) async {
+        var args: [String: Any] = ["query": query, "limit": 40]
+        if let kind { args["kind"] = kind }
+        if more, let last = library?.calls.last { args["before"] = Int(last.startedAt) }
+        do {
+            let page: LibraryPage = try await backend.request("library", args)
+            if more, var current = library {
+                current.calls += page.calls.filter { c in !current.calls.contains { $0.id == c.id } }
+                current.hasMore = page.hasMore
+                current.total = page.total
+                library = current
+            } else {
+                library = page
+            }
+            libraryError = nil
+        } catch {
+            libraryError = error.localizedDescription
+        }
+    }
+
+    func openLibraryCall(_ id: String) async {
+        if let d: LibraryDetail = await attempt("Couldn't open the call", { try await backend.request("libraryCall", ["id": id]) }) { libraryDetail = d }
+    }
+
+    /// Deletes a saved call for good: its file, its place in search, and the summary the next call would start from.
+    func deleteLibraryCall(_ id: String) async {
+        struct R: Decodable { let deleted: String }
+        guard let _: R = await attempt("Couldn't delete the call", { try await backend.request("libraryDelete", ["id": id]) }) else { return }
+        if libraryDetail?.call.id == id { libraryDetail = nil }
+        library?.calls.removeAll { $0.id == id }
+        if let total = library?.total { library?.total = max(0, total - 1) }
+        await refreshCalls()
+    }
+
+    func saveToDownloads(file: String) {
+        guard let src = callURL(file: file) else { return }
+        let dest = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0].appendingPathComponent("grok-\(file)")
         do {
             if FileManager.default.fileExists(atPath: dest.path) { try FileManager.default.removeItem(at: dest) }
             try FileManager.default.copyItem(at: src, to: dest)
@@ -481,4 +696,19 @@ final class AppModel: ObservableObject {
     func collapse() { setMode(.circle) }
 
     var ringMode: RingMode { GrokCallCore.ringMode(view) }
+}
+
+/// Where the mic goes, readable from the audio thread: the bots, or the meeting (your own lines).
+final class MicRouter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _route: MicRoute = .bots
+    private var _meeting: MeetingSession?
+    var route: MicRoute { lock.lock(); defer { lock.unlock() }; return _route }
+    var meeting: MeetingSession? { lock.lock(); defer { lock.unlock() }; return _meeting }
+    func set(route: MicRoute, meeting: MeetingSession?) {
+        lock.lock()
+        _route = route
+        _meeting = meeting
+        lock.unlock()
+    }
 }

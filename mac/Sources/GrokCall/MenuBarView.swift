@@ -55,6 +55,7 @@ struct MenuBarView: View {
         switch model.login.state {
         case "signed-in":
             if model.inCall { callSection.transition(Motion.fadeTransition()) } else { pickSection.transition(Motion.fadeTransition()) }
+            if let missed = model.incoming?.missed, !missed.isEmpty { MissedCalls(model: model, missed: missed, compact: true) }
             ApprovalsView(model: model)
             TasksSection(model: model)
         case "signing-in":
@@ -108,6 +109,7 @@ struct MenuBarView: View {
                 .buttonStyle(WideButton(primary: true))
                 .disabled(model.picked.isEmpty || model.joining)
                 .padding(.top, 10)
+                MeetingStartView(model: model)
             }
         }
     }
@@ -122,6 +124,12 @@ struct MenuBarView: View {
                     }
                 }
                 Text(model.callBots.map(\.name).joined(separator: ", ")).font(.system(size: 12.5)).foregroundStyle(Theme.secondary).lineLimit(2)
+            }
+            if let m = model.view?.meeting {
+                Label("Listening to \(m.app)", systemImage: "person.3.fill").font(.system(size: 12.5)).foregroundStyle(Theme.text)
+            }
+            if let sc = model.view?.screen {
+                Label("Sharing \(sc.label)", systemImage: "rectangle.on.rectangle").font(.system(size: 12.5)).foregroundStyle(Theme.text)
             }
             .animation(Motion.layout, value: model.callBots.map(\.id))
             HStack(spacing: 8) {

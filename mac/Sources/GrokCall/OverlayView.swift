@@ -301,6 +301,14 @@ struct OverlayRoot: View {
                     .transition(Motion.surfaceTransition(anchor: traysAbove ? .bottom : .top, lift: traysAbove ? 6 : -6))
                     .modifier(PlaceBelow(x: x, y: traysAbove ? pillY - gap : pillY + PillLayoutCG.height + gap, above: traysAbove))
                     .id(t) // switching trays crossfades one panel into the next
+            } else if model.expanded, let m = model.view?.meeting {
+                // In a meeting, with nothing else open: how bots whisper, and hold to talk to them.
+                MeetingControls(model: model, meeting: m)
+                    .frame(width: trayWidth)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .hitArea()
+                    .transition(Motion.surfaceTransition(anchor: traysAbove ? .bottom : .top, lift: traysAbove ? 6 : -6))
+                    .modifier(PlaceBelow(x: x, y: traysAbove ? pillY - gap : pillY + PillLayoutCG.height + gap, above: traysAbove))
             }
         }
     }
@@ -414,6 +422,7 @@ struct CallButtons: View {
         HStack(spacing: CGFloat(PillLayout.buttonGap)) {
             CircleButton(symbol: "plus", label: "Add a bot", active: model.tray == .add || model.tray == .newBot) { model.toggleTray(.add) }
             CircleButton(symbol: "text.bubble", label: "Conversation", active: model.tray == .chat) { model.toggleTray(.chat) }
+            CircleButton(symbol: "rectangle.on.rectangle", label: model.view?.screen.map { "Sharing \($0.label)" } ?? "Share your screen", active: model.tray == .share || model.view?.screen != nil) { model.toggleTray(.share) }
             CircleButton(symbol: muted ? "mic.slash.fill" : "mic.fill", label: muted ? "Unmute" : "Mute", active: muted) { model.toggleMute() }
             if opensFullView {
                 CircleButton(symbol: "arrow.up.left.and.arrow.down.right", label: "Full view", active: false) { model.setMode(.full) }

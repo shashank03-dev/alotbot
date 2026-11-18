@@ -37,6 +37,27 @@ public struct Live: Codable, Equatable, Sendable {
     public init(botId: String, text: String) { self.botId = botId; self.text = text }
 }
 
+/// A call listening to a meeting: its app, and whether bots whisper in text or aloud.
+public struct MeetingState: Codable, Equatable, Sendable {
+    public var app: String
+    /// "text" or "voice"
+    public var whisper: String
+    public init(app: String, whisper: String) { self.app = app; self.whisper = whisper }
+    public var aloud: Bool { whisper == "voice" }
+}
+
+/// What you share with the bots.
+public struct SharedScreen: Codable, Equatable, Sendable {
+    public var app: String
+    public var title: String
+    /// "window" or "display"
+    public var kind: String
+    /// When it was last read (backend ms).
+    public var at: Double
+    public init(app: String, title: String, kind: String, at: Double) { self.app = app; self.title = title; self.kind = kind; self.at = at }
+    public var label: String { kind == "display" ? "Whole screen" : title.isEmpty ? app : "\(app): \(title)" }
+}
+
 public struct CallView: Codable, Equatable, Sendable {
     public var phase: String
     public var muted: Bool
@@ -47,7 +68,11 @@ public struct CallView: Codable, Equatable, Sendable {
     public var live: Live?
     public var linesSeq: Int
     public var tasksVersion: Int
-    public init(phase: String, muted: Bool, userSpeaking: Bool, waitingForHost: Bool, focus: String?, bots: [CallBot], live: Live?, linesSeq: Int, tasksVersion: Int) { self.phase = phase; self.muted = muted; self.userSpeaking = userSpeaking; self.waitingForHost = waitingForHost; self.focus = focus; self.bots = bots; self.live = live; self.linesSeq = linesSeq; self.tasksVersion = tasksVersion }
+    /// Set while the call listens to a meeting (missing from older backends).
+    public var meeting: MeetingState?
+    /// Set while you share a screen with the bots.
+    public var screen: SharedScreen?
+    public init(phase: String, muted: Bool, userSpeaking: Bool, waitingForHost: Bool, focus: String?, bots: [CallBot], live: Live?, linesSeq: Int, tasksVersion: Int, meeting: MeetingState? = nil, screen: SharedScreen? = nil) { self.phase = phase; self.muted = muted; self.userSpeaking = userSpeaking; self.waitingForHost = waitingForHost; self.focus = focus; self.bots = bots; self.live = live; self.linesSeq = linesSeq; self.tasksVersion = tasksVersion; self.meeting = meeting; self.screen = screen }
 }
 
 public struct Line: Codable, Equatable, Identifiable, Sendable {
@@ -114,7 +139,10 @@ public struct PastCall: Codable, Equatable, Identifiable, Sendable {
 
 public struct LeaveResult: Codable, Equatable, Sendable {
     public var file: String?
+    /// The saved call's id in the call library.
+    public var id: String?
     public var summary: String
+    public var decisions: [String]?
     public var actionItems: [String]
 }
 
@@ -128,6 +156,7 @@ public enum ServerMessage: Equatable {
     case workspaceChanged
     case localTool(LocalToolCommand)
     case stopAudio(Int)
+    case incoming(IncomingState)
     case ended
     case unknown(String)
 
@@ -149,6 +178,7 @@ public enum ServerMessage: Equatable {
         case "actions": return .actions(try dec.decode(ActionList.self, from: data).actions)
         case "tasks": return .tasks(try dec.decode(TaskList.self, from: data))
         case "stopAudio": return .stopAudio((obj["id"] as? NSNumber)?.intValue ?? -1)
+        case "incoming": return .incoming(try dec.decode(IncomingState.self, from: try sub("state")))
         case "ended": return .ended
         default: return .unknown(t)
         }

@@ -28,6 +28,10 @@ A group voice call with your own Grok Bots, as a native Mac app.
 - **The cloud computer**: watch a bot's Linux screen, take control, and hand it back.
 - **Connections**: see, add, check and remove your connected apps.
 - **Look at your Mac**: with your permission, bots can read an app window you name (even in the background or on another Space), files or one folder you allow, or a dedicated browser profile.
+- **Call history the bots remember**: every call and meeting is saved and searchable. Bots look up earlier calls themselves ("what did we decide about pricing?"), every summary records the decisions made, and you can continue any earlier call with the bots you choose.
+- **Bots call you**: standing calls (for example a weekday standup at 9:30 with an agenda), call backs a bot promises during a call, and a call when a job from an ended call finishes or needs your OK. Quiet hours, do not disturb and missed calls included.
+- **Your bots in your meetings**: they follow a Zoom, Teams, Meet, FaceTime or other meeting, transcribed on this Mac, and whisper to you in text (or aloud on headphones). Nobody in the meeting hears them. Hold ⌥Space to talk to them.
+- **Share your screen**: share a window or your whole screen; the bots read its text, get what changed with each thing you say, and can look at all of it.
 
 It uses your Grok Bot sign-in and plan. No API key, no extra account.
 
@@ -139,6 +143,39 @@ Set `PORT=9000` (or `HOST=localhost`) in the environment or a `.env` file to cha
 - **Next call**: the summary, open action items (open tasks plus the summary's items) and notes are kept in `.data/memory.json`. In the next call every bot gets the summary and items in its instructions, and the task list starts with those items. If a call ends without a new summary, the previous summary is kept. Delete `memory.json` to start fresh.
 - **Pulling a bot in**: every bot in the call has one tool, `invite_bot`, and knows which of your bots aren't in the call yet. When a bot uses it, that bot joins (its tile appears), gets the conversation so far, is told who pulled it in, and says hello; the bot that invited it confirms out loud. Asking for a bot that doesn't exist or is already in the call is refused and the bot is told why. An invite inside a reply that got cut off is not carried out.
 
+## Call history
+
+- Every saved call and meeting is indexed in `call-library.sqlite` (SQLite full-text search) next to the Markdown files in `calls/`. The Markdown files stay the source: the index is rebuilt from them at start, a damaged index is moved aside (`call-library.sqlite.damaged-<time>`) and rebuilt, and calls saved before this version are indexed the first time.
+- **Decisions**: the summary bot now records each decision the call reached; saved calls get a *Decisions* section.
+- **Bots recall earlier calls**: in a call, every bot has `recall_calls` (search summaries, decisions, action items and everything said, best match first) and `open_past_call` (one call's summary, decisions, items and the lines about a topic). Bots are told how many earlier calls exist and to look them up rather than guess; what an earlier call says is a record, not an instruction. Results are capped at 6,000 characters.
+- **Settings › Call history**: search (it waits for a pause in typing), filter calls or meetings, open one to read its summary, decisions, action items and transcript, save it to Downloads, delete it, or **continue** it: the bots you pick start from its summary and decisions, and that call is left out of their searches (they already have it).
+- **Delete** removes the file, its index entry and, if the next call would have started from its summary, that summary (open tasks stay).
+
+## Calls to you
+
+- **Standing calls** (Settings › Calls to you): a name, bots, days, a time in your time zone and an optional agenda. At that time a card rings in the top-right corner with a soft ring and a notification. Answer and the first bot in opens the call with the agenda; *Later* rings again in 5 to 60 minutes; *Decline* ends it. *Ring now* tries one.
+- **Call backs**: a bot can promise to call you back (`call_back_later`): in some minutes, at a time ("15:30", "3:30 pm", or a date and time), or when the jobs it sent in this call finish. When you answer, that bot opens by saying why it called, with the jobs' results; if it can't join, another bot opens for it. A job that finishes while its call is still on is told on the call, so no call back follows. Each bot can have 5 waiting, up to 7 days ahead; you can cancel them in Settings, or turn call backs off.
+- **Bot work after a call**: when a job from an ended call finishes, or a bot's work waits for your approval, that bot calls (each can be turned off). News for a bot that is already ringing is added to that ring. After you decline a bot, its work doesn't ring for 30 minutes (it is listed as missed).
+- **When nothing rings**: during a call, while another call rings, in quiet hours (default 22:00 to 08:00, your time zone; standing calls still ring) and during do not disturb (standing calls are missed then). Rings wait and ring as soon as that ends; one that waited more than an hour is listed as missed. A standing call that was due while Grok Call was closed or the Mac slept rings if it was due in the last 10 minutes, else it is listed as missed.
+- **Missed calls** show in the menu and in Settings, each with *Call back*.
+- Times are worked out in the IANA time zone with daylight-saving changes handled (a time that doesn't exist that day moves forward by the gap; one that happens twice uses the first). A clock set back a little never rings a call twice; one set back more than a day (it was wrong) starts counting again.
+- Saved in `incoming.json` (readable only by you); a damaged entry is dropped and the rest kept. Grok Call has to be running for anything to ring.
+
+## Meetings
+
+- In the menu, *Listen to a meeting*: pick the meeting's app (meeting apps first; for Google Meet pick your browser), confirm that the people in the meeting know it is being transcribed (required), and start with the bots you ticked.
+- The meeting app's sound is captured with ScreenCaptureKit (only that app, never Grok Call's own sound) and transcribed **on this Mac** with Apple's on-device speech recognition. If on-device recognition isn't installed for your language, it says so and does not fall back to a server. Your own words in the meeting are transcribed from your mic the same way. No meeting audio leaves the Mac; the bots get text lines tagged `[Meeting]` and `[<you> (in the meeting)]`.
+- The bots are told they are private advisers that nobody in the meeting can hear. They never answer meeting lines on their own, never take turns among themselves, and a one-on-one ends without a suggestion round. They answer when you speak to them: type, or **hold ⌥Space** (or the *Hold to talk* button under the pill), which sends your mic to the bots instead of the meeting.
+- **Whispers** are text by default (shown in the conversation): replies are asked for as text and any audio is dropped, so nothing can leak into the meeting through your speakers. Switch to *Whisper aloud* when you wear headphones.
+- A line of yours that repeats what the meeting said in the last 15 seconds is the meeting's sound in your mic and is dropped. More than 120 meeting lines a minute are dropped (and said once on the timeline).
+- The meeting is saved and searchable as a *Grok Meeting*, with its summary, decisions and action items.
+
+## Sharing your screen
+
+- The share button in the pill lists your windows and displays. While you share, the Mac reads the shared window every 2 seconds (Apple's on-device text recognition), and sends the text when it changed (a ticking clock or the cursor don't count).
+- With each thing you say, every bot that hasn't seen the latest screen gets a `[Screen]` note with what is new on it (up to 1,200 characters). `look_at_screen` gives a bot all of it (up to 8,000 characters), how old it is, and the path of a local screenshot its agent can open for visual questions.
+- Password managers and keychain apps are never offered or accepted, and sharing stops if the shared window turns into one. Sharing stops when the window closes, when Screen Recording is turned off, and when the call ends. The call log keeps only the size of each screen read, not its text.
+
 ## Limits, stated plainly
 
 - **Unofficial and may break.** See [Not affiliated with xAI](#not-affiliated-with-xai).
@@ -148,6 +185,9 @@ Set `PORT=9000` (or `HOST=localhost`) in the environment or a `.env` file to cha
 - **Polling is not instantaneous**: a background result typically takes another polling interval to reach the call. At Leave, each joined agent receives Grok's call-ended message. The backend keeps watching outstanding jobs; if you quit the Mac app its backend stops, and reconciliation resumes on relaunch.
 - **No turn limit means bots can talk for a long time** if none of them uses `pass` or `wait_for_host` and they don't repeat themselves. Each turn uses your plan. Say "stop" or press Esc to cut them off.
 - **Closing the tab doesn't save the call.** Only *Leave* writes the summary and saves it.
+- **Meeting transcripts are speech-to-text of mixed audio**: speakers are not told apart, and words can be wrong. The meeting must be playing through this Mac.
+- **Screen sharing is text**: the bots read the screen's text, not its pictures, unless an agent opens the screenshot.
+- **Calls to you need Grok Call running**: nothing rings while it is quit.
 - **Name matching is simple.** "Name a bot" works when the transcript contains the bot's name. If speech-to-text mishears it, the bot that was listening answers instead.
 
 ### Echo
@@ -164,6 +204,7 @@ Whether the loopback actually removes the echo on your machine depends on Chrome
 
 - The sign-in is saved in `.data/auth.json`, readable only by your user and ignored by git. It lasts about 60 days and refreshes itself. To sign out, delete that file.
 - Saved calls (`.data/memory.json`, `.data/calls/`) stay on this machine, readable only by your user and ignored by git.
+- The Mac app's call history index (`call-library.sqlite`), incoming calls (`incoming.json`) and shared-screen screenshots (`artifacts/screen-*.png`, the newest 5) are in `~/Library/Application Support/GrokCall/`, readable only by your user. Meeting audio is never saved or sent anywhere; only its transcribed lines reach the bots and the saved call.
 - The server never sends your sign-in to the browser. The page only gets a short-lived voice key per bot (valid ~5 minutes to connect).
 - The server only accepts requests from this machine (Host must be `127.0.0.1`, `localhost` or `::1`), and refuses POSTs from other websites.
 - **Mac app logs** are in `~/Library/Application Support/GrokCall/logs/`, readable only by your user, and kept until you delete them:
@@ -199,6 +240,8 @@ src/                  backend (TypeScript, run directly by Node)
   computer-viewer.ts  local viewer for a bot's cloud computer
   local-tools.ts      the call's own tools: approvals, and files, browser and windows on this Mac
   memory.ts           saved calls and the memory the next call starts from
+  overlay/library.ts  call history: the searchable index of saved calls
+  overlay/incoming.ts standing calls, call backs and rings; overlay/zoned.ts the time-zone math
 public/
   core.js             call engine: voice sessions, turn-taking, interrupting, tasks, summary, timeline
   app.js, index.html  the browser version's page

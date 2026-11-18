@@ -3,11 +3,12 @@ import GrokCallCore
 import SwiftUI
 
 enum SettingsTab: String, CaseIterable, Identifiable {
-    case general = "General", connections = "Connections", mac = "This Mac", calls = "Past calls"
+    case general = "General", incoming = "Calls to you", connections = "Connections", mac = "This Mac", calls = "Call history"
     var id: String { rawValue }
     var icon: String {
         switch self {
         case .general: "gearshape"
+        case .incoming: "phone.arrow.down.left"
         case .connections: "puzzlepiece.extension"
         case .mac: "laptopcomputer"
         case .calls: "clock.arrow.circlepath"
@@ -24,15 +25,17 @@ struct SettingsView: View {
     var body: some View {
         VStack(spacing: 0) {
             SlidingSegments(selection: $tab, items: SettingsTab.allCases.map { .init(value: $0, title: $0.rawValue, icon: $0.icon) })
-                .frame(width: 560).padding(.vertical, 14)
+                .frame(width: 720).padding(.vertical, 14)
             Divider().overlay(Theme.hairline)
             Group {
                 switch tab {
                 case .connections:
                     if model.login.state == "signed-in" { ConnectionsView(backend: model.backend, embedded: true) } else { signInFirst }
                 case .general: page { account; look; callWindow; yourBots }
+                case .incoming:
+                    if model.login.state == "signed-in" { page { IncomingSettingsView(model: model) } } else { signInFirst }
                 case .mac: page { LocalToolsSettings(model: model, tools: model.macTools) }
-                case .calls: page { calls }
+                case .calls: LibraryView(model: model)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -55,7 +58,7 @@ struct SettingsView: View {
     }
 
     private var signInFirst: some View {
-        Text("Sign in to connect apps.").foregroundStyle(Theme.secondary).frame(maxWidth: .infinity, maxHeight: .infinity)
+        Text("Sign in first.").foregroundStyle(Theme.secondary).frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var account: some View {
@@ -131,25 +134,6 @@ struct SettingsView: View {
                 }
             }
         }
-    }
-
-    private var calls: some View {
-        SettingsGroup("Past calls") {
-            if model.pastCalls.isEmpty { Text("No saved calls yet.").foregroundStyle(Theme.secondary) }
-            ForEach(model.pastCalls) { c in
-                VStack(alignment: .leading, spacing: 5) {
-                    HStack {
-                        Text(Date(timeIntervalSince1970: c.at / 1000).formatted(date: .abbreviated, time: .shortened)).font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.text)
-                        Spacer()
-                        Button("Show in Finder") { if let u = model.callURL(c) { NSWorkspace.shared.activateFileViewerSelecting([u]) } }.buttonStyle(QuietButton())
-                        Button("Save to Downloads") { model.saveToDownloads(c) }.buttonStyle(QuietButton(tint: Theme.accent))
-                    }
-                    Text(c.summary.isEmpty ? "No summary for this call." : c.summary).font(.system(size: 12.5)).foregroundStyle(Theme.secondary).lineLimit(3)
-                }
-                .padding(.vertical, 4)
-            }
-        }
-        .task { await model.refreshCalls() }
     }
 
     private func pickPhoto() {

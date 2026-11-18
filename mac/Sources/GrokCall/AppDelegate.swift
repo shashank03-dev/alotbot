@@ -138,8 +138,12 @@ final class HotKey {
         self.action = action
         var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
         let me = Unmanaged.passUnretained(self).toOpaque()
-        InstallEventHandler(GetApplicationEventTarget(), { _, _, data in
-            guard let data else { return noErr }
+        InstallEventHandler(GetApplicationEventTarget(), { _, event, data in
+            guard let data, let event else { return noErr }
+            // Only ⌥Esc (id 1): other hot keys of this app, like the talk key, are theirs.
+            var id = EventHotKeyID()
+            GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil, MemoryLayout<EventHotKeyID>.size, nil, &id)
+            guard id.id == 1 else { return OSStatus(eventNotHandledErr) }
             Unmanaged<HotKey>.fromOpaque(data).takeUnretainedValue().action()
             return noErr
         }, 1, &spec, me, &handler)
@@ -195,12 +199,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var overlay: OverlayController!
     private var settings: NSWindow?
     private var hotKey: HotKey?
+    private var talkKey: TalkKey?
+    private var incomingCalls: IncomingCallController?
     private var subs = Set<AnyCancellable>()
 
     func applicationDidFinishLaunching(_ note: Notification) {
         model = AppModel()
         overlay = OverlayController(model: model)
         hotKey = HotKey { [weak self] in DispatchQueue.main.async { self?.model.stopAll() } }
+        talkKey = TalkKey { [weak self] held in DispatchQueue.main.async { self?.model.setTalk(held) } }
+        model.talkKeyAvailable = talkKey?.registered == true
+        incomingCalls = IncomingCallController(model: model)
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = MenuBarIcon.image(inCall: false)

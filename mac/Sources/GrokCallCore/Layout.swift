@@ -65,7 +65,7 @@ public struct PillLayout: Equatable {
     public static let button = 56.0
     public static let buttonGap = 12.0
     public static let padding = 18.0
-    public static let buttons = 5 // add, conversation, mic, full view, hang up
+    public static let buttons = 6 // add, conversation, share screen, mic, full view, hang up
 
     /// Bots drawn as avatars (call order) and how many fold into the +N bubble. When every bot is shown
     /// (`expandedOverflow`) and there are more than `maxShown`, the bubble stays at the end as "−" to fold them back.
