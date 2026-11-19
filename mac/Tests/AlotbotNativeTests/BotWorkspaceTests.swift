@@ -174,7 +174,7 @@ import Vision
                 var fixtureVisible = false
                 for _ in 0..<40 {
                     let text = try await screenText()
-                    if text.contains("GROKCALLDISPOSABLECHECK") && text.contains("CLICKTOVERIFY") { fixtureVisible = true; break }
+                    if text.contains("ALOTBOTDISPOSABLECHECK") && text.contains("CLICKTOVERIFY") { fixtureVisible = true; break }
                     try await Task.sleep(nanoseconds: 250_000_000)
                 }
                 guard fixtureVisible else { Issue.record("Disposable page was not visible; no input was enabled."); return }

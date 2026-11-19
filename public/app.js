@@ -26,16 +26,16 @@ class SignedOut extends Error {}
 const TOKEN = (() => {
   const fromLink = new URLSearchParams(location.hash.slice(1)).get('t');
   if (fromLink) {
-    try { sessionStorage.setItem('grok-call-token', fromLink); } catch {}
+    try { sessionStorage.setItem('alotbot-token', fromLink); } catch {}
     history.replaceState(null, '', location.pathname);
     return fromLink;
   }
-  try { return sessionStorage.getItem('grok-call-token') ?? ''; } catch { return ''; }
+  try { return sessionStorage.getItem('alotbot-token') ?? ''; } catch { return ''; }
 })();
 
 async function api(path, method = 'GET', payload = undefined, timeoutMs = 0) {
   let res;
-  const headers = { 'x-grok-call-token': TOKEN };
+  const headers = { 'x-alotbot-token': TOKEN };
   const opts = payload === undefined ? { method, headers } : { method, headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify(payload) };
   if (timeoutMs) opts.signal = AbortSignal.timeout(timeoutMs);
   try {

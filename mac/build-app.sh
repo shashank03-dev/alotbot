@@ -103,7 +103,7 @@ fi
 # Signed with one local certificate so macOS keeps Microphone, Screen Recording and Accessibility
 # access across rebuilds and updates (an ad hoc signature changes every build, and macOS then asks again).
 # It is not an Apple Developer ID, so a downloaded copy still needs one "Open Anyway" (see the README).
-sign_name="Grok Call Local Signing"
+sign_name="Alotbot Local Signing"
 if ! security find-certificate -c "$sign_name" >/dev/null 2>&1; then
   echo "Creating the local signing certificate \"$sign_name\" in your login keychain (once)."
   /usr/bin/openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -subj "/CN=$sign_name" \

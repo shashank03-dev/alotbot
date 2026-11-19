@@ -74,7 +74,7 @@ test('errorDetail pulls the readable reason out of Connect errors', () => {
 
 // ---------- client against a fake Grok Bot backend ----------
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'grok-call-gb-'));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'alotbot-gb-'));
 after(() => fs.rmSync(tmp, { recursive: true, force: true }));
 let dirN = 0;
 

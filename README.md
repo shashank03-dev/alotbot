@@ -42,10 +42,10 @@ Alotbot is one app. Nothing else to install: Node and the backend are inside it,
 **One line** (downloads the latest release, checks its signature, puts it in Applications and opens it; run it again to update):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/shashank03-dev/grok-call/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/shashank03-dev/alotbot/main/scripts/install.sh | bash
 ```
 
-**Or by hand:** download `Alotbot-macOS.zip` from the [latest release](https://github.com/shashank03-dev/grok-call/releases/latest), unzip it and move `Alotbot.app` to Applications. The app is not signed with an Apple Developer ID, so the first time macOS says it can't check it. Click **Done**, then open **System Settings › Privacy & Security**, scroll down to "Alotbot was blocked" and click **Open Anyway**. You do this once. The one-line install doesn't need it.
+**Or by hand:** download `Alotbot-macOS.zip` from the [latest release](https://github.com/shashank03-dev/alotbot/releases/latest), unzip it and move `Alotbot.app` to Applications. The app is not signed with an Apple Developer ID, so the first time macOS says it can't check it. Click **Done**, then open **System Settings › Privacy & Security**, scroll down to "Alotbot was blocked" and click **Open Anyway**. You do this once. The one-line install doesn't need it.
 
 Alotbot lives in the menu bar. Sign in with your Grok account the first time (a browser tab opens the Grok sign-in page). The first Join asks for Microphone, Screen Recording and Accessibility, once each. Updates are signed with the same certificate, so macOS keeps those permissions.
 
@@ -63,8 +63,8 @@ The bots call you by the first name of your macOS account.
 Needs the Xcode command line tools with Swift 6 (`xcode-select --install`) and Node.js 22.18 or newer (tested on 26.11.1). Node runs the TypeScript files directly, so there is no build step for the backend.
 
 ```bash
-git clone https://github.com/shashank03-dev/grok-call.git
-cd grok-call
+git clone https://github.com/shashank03-dev/alotbot.git
+cd alotbot
 npm install
 bash mac/build-app.sh
 open "mac/build/Alotbot.app"
@@ -74,7 +74,7 @@ open "mac/build/Alotbot.app"
 
 `bash mac/build-app.sh --release` makes the download instead: one universal app with Node (checked against nodejs.org's checksums) and the backend's runtime packages inside, zipped to `mac/build/Alotbot-macOS.zip`.
 
-The first build creates a self-signed certificate named "Grok Call Local Signing" in your login keychain and signs the app with it, so macOS keeps the app's Microphone, Screen Recording and Accessibility permissions across rebuilds. The `alotbot` password in the script only protects the temporary file used to import that certificate; it is not a secret.
+The first build creates a self-signed certificate named "Alotbot Local Signing" in your login keychain and signs the app with it, so macOS keeps the app's Microphone, Screen Recording and Accessibility permissions across rebuilds. The `alotbot` password in the script only protects the temporary file used to import that certificate; it is not a secret.
 
 ### Releasing
 
@@ -168,7 +168,7 @@ Set `PORT=9000` (or `HOST=localhost`) in the environment or a `.env` file to cha
 - The bots are told they are private advisers that nobody in the meeting can hear. They never answer meeting lines on their own, never take turns among themselves, and a one-on-one ends without a suggestion round. They answer when you speak to them: type, or **hold ⌥Space** (or the *Hold to talk* button under the pill), which sends your mic to the bots instead of the meeting.
 - **Whispers** are text by default (shown in the conversation): replies are asked for as text and any audio is dropped, so nothing can leak into the meeting through your speakers. Switch to *Whisper aloud* when you wear headphones.
 - A line of yours that repeats what the meeting said in the last 15 seconds is the meeting's sound in your mic and is dropped. More than 120 meeting lines a minute are dropped (and said once on the timeline).
-- The meeting is saved and searchable as a *Grok Meeting*, with its summary, decisions and action items.
+- The meeting is saved and searchable as a *meeting*, with its summary, decisions and action items.
 
 ## Sharing your screen
 

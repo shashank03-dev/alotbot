@@ -7,7 +7,7 @@ import { after, test } from 'node:test';
 import { AuthStore, Login, pkce } from '../src/auth.ts';
 import { deadUrl, mock, sendJson, until } from './helpers.ts';
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'grok-call-auth-'));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'alotbot-auth-'));
 after(() => fs.rmSync(tmp, { recursive: true, force: true }));
 let n = 0;
 const freshStore = () => new AuthStore(path.join(tmp, `s${n++}`, 'data'));

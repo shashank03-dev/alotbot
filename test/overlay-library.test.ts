@@ -22,7 +22,7 @@ import {
 } from '../src/overlay/library.ts';
 import { overlayMarkdown } from '../src/overlay/call.ts';
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'grok-call-lib-'));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'alotbot-lib-'));
 after(() => fs.rmSync(tmp, { recursive: true, force: true }));
 const dir = () => fs.mkdtempSync(path.join(tmp, 'd'));
 
@@ -69,7 +69,7 @@ test('ftsQuery uses only the words, quoted, with the last one as a prefix', () =
 
 test('parseCallMarkdown reads back what overlayMarkdown writes, and tolerates old or broken files', () => {
   const md = [
-    '# Grok Meeting, T', '', 'Bots: Bot A, Bot B  ', 'Kind: meeting  ', 'Length: 7 min', '',
+    '# Alotbot meeting, T', '', 'Bots: Bot A, Bot B  ', 'Kind: meeting  ', 'Length: 7 min', '',
     '## Summary', '', 'We chose May.', '',
     '## Decisions', '', '- Launch in May', '- Price at $10', '',
     '## Action items', '', '- Email Sam', 'not a bullet', '',

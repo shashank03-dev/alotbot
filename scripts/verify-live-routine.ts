@@ -3,7 +3,7 @@ import fs from 'node:fs';import os from 'node:os';import path from 'node:path';i
 import {AuthStore} from '../src/auth.ts';import {GrokBotClient} from '../src/grokbot.ts';
 const client=new GrokBotClient({store:new AuthStore(path.join(os.homedir(),'Library/Application Support/Alotbot'))}),runtime=client.createRuntime();
 const proposal=JSON.parse(fs.readFileSync(new URL('../docs/verification/bot-workspaces/live-routine-proposal.json',import.meta.url),'utf8'));
-const marker='/tmp/grok-call-verification-'+crypto.randomUUID()+'.txt';proposal.prompt+=` Use this exact temporary file path: ${marker}.`;
+const marker='/tmp/alotbot-verification-'+crypto.randomUUID()+'.txt';proposal.prompt+=` Use this exact temporary file path: ${marker}.`;
 let botId='',createdId:string|null=null;
 const report=(stage:string,data:object={})=>console.log(JSON.stringify({stage,...data}));
 try {

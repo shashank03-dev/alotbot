@@ -1,12 +1,12 @@
 #!/bin/bash
 # Installs (or updates) Alotbot from the latest GitHub release:
-#   curl -fsSL https://raw.githubusercontent.com/shashank03-dev/grok-call/main/scripts/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/shashank03-dev/alotbot/main/scripts/install.sh | bash
 # Updates an installed copy in place, or puts "Alotbot.app" in /Applications (~/Applications if not writable), and opens it.
 set -euo pipefail
 
-url="https://github.com/shashank03-dev/grok-call/releases/latest/download/Alotbot-macOS.zip"
+url="https://github.com/shashank03-dev/alotbot/releases/latest/download/Alotbot-macOS.zip"
 # The release's signing certificate. Anything signed differently is refused.
-leaf='certificate leaf = H"76ad9344822a11b58842358d88ef427ff9740c99"'
+leaf='certificate leaf = H"220842bdcd29943d1141a6e0c594f3c5ab2d2065"'
 
 if [[ "$(uname -s)" != "Darwin" ]]; then echo "Alotbot runs on macOS only." >&2; exit 1; fi
 major="$(sw_vers -productVersion | cut -d. -f1)"

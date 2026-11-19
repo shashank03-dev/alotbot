@@ -15,7 +15,7 @@ import { mock, sendJson, type Mock } from './helpers.ts';
 import { CallLibrary } from '../src/overlay/library.ts';
 
 const TOKEN = 't'.repeat(40);
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'grok-call-srv-'));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'alotbot-srv-'));
 after(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
 const SEND_TASK = { type: 'function', name: 'send_task', description: 'Send a job.', parameters: { type: 'object', properties: { request: { type: 'string' } }, required: ['request'] } };
@@ -1314,7 +1314,7 @@ test('a meeting call: lines from the Mac reach the bots, whispers switch, and it
   reply(a, '', [['save_summary', { summary: 'Renewal discussed.', action_items: [], decisions: ['Offer 40k'] }]]);
   const left = (await leaving).result;
   const md = await c.ok('callFile', { file: left.file });
-  assert.match(md.markdown, /^# Grok Meeting, .*\n\nBots: Bot A, Bot B  \nKind: meeting  \nLength: \d+ min\n/);
+  assert.match(md.markdown, /^# Alotbot meeting, .*\n\nBots: Bot A, Bot B  \nKind: meeting  \nLength: \d+ min\n/);
   assert.match(md.markdown, /\*\*Meeting:\*\* The renewal is 40 thousand/);
   const meetings = await c.ok('library', { kind: 'meeting' });
   assert.deepEqual(meetings.calls.map((x: any) => [x.kind, x.decisions]), [['meeting', ['Offer 40k']]]);

@@ -27,7 +27,7 @@ import {
   SCHEDULES_MAX,
 } from '../src/overlay/incoming.ts';
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'grok-call-inc-'));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'alotbot-inc-'));
 after(() => fs.rmSync(tmp, { recursive: true, force: true }));
 const newDir = () => fs.mkdtempSync(path.join(tmp, 'd'));
 

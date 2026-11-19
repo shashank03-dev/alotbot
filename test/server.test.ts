@@ -11,7 +11,7 @@ import { createApp, isAllowed, parseLanded, parseToolCall, readJson, TOOL_BODY_L
 
 const TOKEN = 'k'.repeat(48);
 /** Every request in this file carries the run's key, as the page does; tests that check refusals leave it out. */
-const fetch = (url: string | URL, init: RequestInit = {}) => globalThis.fetch(url, { ...init, headers: { 'x-grok-call-token': TOKEN, ...(init.headers as Record<string, string>) } });
+const fetch = (url: string | URL, init: RequestInit = {}) => globalThis.fetch(url, { ...init, headers: { 'x-alotbot-token': TOKEN, ...(init.headers as Record<string, string>) } });
 import { mock, sendJson, until, type Mock } from './helpers.ts';
 
 let up: Mock;
@@ -20,7 +20,7 @@ let base: string;
 let port: number;
 let signedIn = false;
 let upstreamFail = false;
-const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'grok-call-srv-'));
+const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'alotbot-srv-'));
 const SEARCH = { type: 'function', name: 'search_conversations', description: 'Search.', parameters: { type: 'object', properties: {} } };
 const toolBodies: unknown[] = [];
 let transcriptAt = Date.now() + 60_000; // later than the first check, so it counts as news
@@ -67,7 +67,7 @@ after(async () => {
 /** Raw request so tests can set Host and Origin freely. */
 function raw(method: string, p: string, headers: Record<string, string> = {}): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: string }> {
   return new Promise((resolve, reject) => {
-    const req = http.request({ host: '127.0.0.1', port, method, path: p, headers: { host: `127.0.0.1:${port}`, 'x-grok-call-token': TOKEN, ...headers } }, (res) => {
+    const req = http.request({ host: '127.0.0.1', port, method, path: p, headers: { host: `127.0.0.1:${port}`, 'x-alotbot-token': TOKEN, ...headers } }, (res) => {
       let body = '';
       res.on('data', (c) => (body += c));
       res.on('end', () => resolve({ status: res.statusCode!, headers: res.headers, body }));
@@ -96,7 +96,7 @@ test('serves the call page and its scripts with a strict CSP', async () => {
 
 test('the API needs this run\'s key; the page itself does not', async () => {
   for (const key of [undefined, '', 'k'.repeat(47), 'x'.repeat(48)]) {
-    const r = await globalThis.fetch(`${base}/api/state`, key === undefined ? {} : { headers: { 'x-grok-call-token': key } });
+    const r = await globalThis.fetch(`${base}/api/state`, key === undefined ? {} : { headers: { 'x-alotbot-token': key } });
     assert.equal(r.status, 403, String(key));
     assert.match((await r.json()).error, /link printed in the terminal/);
   }
@@ -174,7 +174,7 @@ test('unknown routes and methods', async () => {
 });
 
 test('closing the server stops a pending sign-in', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'grok-call-srv2-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'alotbot-srv2-'));
   const other = createApp({ dataDir: dir, token: TOKEN, apiUrl: up.url, siteUrl: 'https://site.test', pollMs: 5 });
   await new Promise<void>((r) => other.listen(0, '127.0.0.1', r));
   const url = `http://127.0.0.1:${(other.address() as AddressInfo).port}`;
@@ -189,7 +189,7 @@ test('closing the server stops a pending sign-in', async () => {
 });
 
 test('defaults to the real Grok Bot sign-in page', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'grok-call-srv3-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'alotbot-srv3-'));
   const real = createApp({ dataDir: dir, token: TOKEN, pollMs: 60_000 });
   await new Promise<void>((r) => real.listen(0, '127.0.0.1', r));
   const url = `http://127.0.0.1:${(real.address() as AddressInfo).port}`;

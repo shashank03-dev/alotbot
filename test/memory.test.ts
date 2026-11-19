@@ -32,7 +32,7 @@ test('callFileName is safe on every file system', () => {
 });
 
 test('CallStore saves memory and one export per call, private to you', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'grok-call-mem-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'alotbot-mem-'));
   const store = new CallStore(path.join(dir, 'data'));
   assert.equal(store.readMemory(), null, 'no file yet');
   const now = new Date('2026-11-10T14:05:09Z');

@@ -18,7 +18,7 @@ import {
 } from '../src/overlay/grok.ts';
 import { mock, sendJson } from './helpers.ts';
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'grok-call-ov-'));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'alotbot-ov-'));
 after(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
 const agent = (id: string, extra: object = {}) => ({ id, name: `Bot ${id}`, kind: 'GROK_BOT_AGENT_KIND_AGENT', avatarShape: 'blob', avatarColor: 'blue', ...extra });

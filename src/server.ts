@@ -20,7 +20,7 @@ class HttpError extends Error {
 export interface AppOptions {
   /** Where the sign-in is kept (auth.json). */
   dataDir: string;
-  /** This run's key: every /api request must send it as x-grok-call-token. Random when left out. */
+  /** This run's key: every /api request must send it as x-alotbot-token. Random when left out. */
   token?: string;
   apiUrl?: string;
   siteUrl?: string;
@@ -112,7 +112,7 @@ function json(res: http.ServerResponse, status: number, body: unknown) {
 
 /** True if the request carries this run's key (compared in constant time). */
 export function hasToken(req: http.IncomingMessage, token: string): boolean {
-  const got = Buffer.from(String(req.headers['x-grok-call-token'] ?? ''));
+  const got = Buffer.from(String(req.headers['x-alotbot-token'] ?? ''));
   const want = Buffer.from(token);
   return got.length === want.length && crypto.timingSafeEqual(got, want);
 }

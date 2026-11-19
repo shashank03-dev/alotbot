@@ -5,7 +5,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { CallLog, loggedSocket, MicStats } from '../src/overlay/log.ts';
 
-const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'grok-call-log-'));
+const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'alotbot-log-'));
 const read = (log: CallLog) => fs.readFileSync(log.file, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
 
 test('a log is a private JSON-lines file per call; two calls in the same second get their own files', () => {

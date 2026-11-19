@@ -24,7 +24,7 @@ struct BackendPaths {
         let entry = "src/overlay/main.ts"
         let repo = env["ALOTBOT_REPO"] ?? (exists("\(bundled)/\(entry)") ? bundled : info["GCRepoPath"] as? String)
         guard let repo else {
-            throw BackendError.setup("This copy of Alotbot is incomplete. Download it again from github.com/shashank03-dev/grok-call.")
+            throw BackendError.setup("This copy of Alotbot is incomplete. Download it again from github.com/shashank03-dev/alotbot.")
         }
         guard exists(URL(fileURLWithPath: repo).appendingPathComponent(entry).path) else {
             throw BackendError.setup("The Alotbot folder moved: \(repo) has no \(entry). Rebuild the app from its new place.")

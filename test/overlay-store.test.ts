@@ -5,7 +5,7 @@ import path from 'node:path';
 import { after, test } from 'node:test';
 import { CALLS_LISTED, OverlayStore, parseOverlayMemory, summaryOf } from '../src/overlay/store.ts';
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'grok-call-store-'));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'alotbot-store-'));
 after(() => fs.rmSync(tmp, { recursive: true, force: true }));
 const fresh = () => new OverlayStore(fs.mkdtempSync(path.join(tmp, 's')));
 const task = { id: 1, title: 'Plan', owner: 'Bot A', status: 'open', parent: null, waitsOn: [], by: 'Shashank', doneBy: null };

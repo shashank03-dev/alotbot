@@ -800,7 +800,7 @@ const nums = (v: unknown): number[] => (Array.isArray(v) ? v.map((x) => Number(S
 /** The call as Markdown: summary, tasks, action items and the transcript. */
 export function overlayMarkdown(d: ReturnType<OverlayCall['overlayExport']>, formatTime = (ms: number) => new Date(ms).toISOString()): string {
   const mins = Math.max(0, Math.round((d.endedAt - d.startedAt) / 60000));
-  const out = [`# ${d.kind === 'meeting' ? 'Grok Meeting' : 'Alotbot'}, ${formatTime(d.startedAt)}`, '', `Bots: ${d.bots.join(', ') || 'none'}  `];
+  const out = [`# ${d.kind === 'meeting' ? 'Alotbot meeting' : 'Alotbot'}, ${formatTime(d.startedAt)}`, '', `Bots: ${d.bots.join(', ') || 'none'}  `];
   if (d.kind === 'meeting') out.push('Kind: meeting  ');
   out.push(`Length: ${mins} min`, '', '## Summary', '', d.summary || '_No summary was saved._', '');
   if (d.decisions.length) out.push('## Decisions', '', ...d.decisions.map((x) => `- ${x}`), '');

@@ -40,7 +40,7 @@ The names are the joke, nothing more. The bots use Grok voices and never act lik
 2. **Apps:** **Settings → Connections**. Check that GitHub and Gmail are connected.
 3. **Screen:** **Settings → This Mac → Let bots see your open windows** must be on.
 4. **Mac jobs:** Grok Bot must be running on the Mac. Do one test call with Tim: "Tim, run the test suite in the Alotbot folder." Approve anything it asks, so it won't ask on camera.
-5. **Test call:** with Satya, ask "What was my last commit on grok-call?" That confirms it can reach GitHub. Then hang up.
+5. **Test call:** with Satya, ask "What was my last commit on alotbot?" That confirms it can reach GitHub. Then hang up.
 6. **Jensen's computer, about 10 minutes before recording:** click Jensen's avatar → **Open workspace → Computer → Wake up**, and wait until the desktop shows.
 7. **Browser:** open Zen on a public page with a clear headline, such as Hacker News. Then switch to another app, so Zen is behind.
 8. **Desk:**
@@ -95,7 +95,7 @@ The names are the joke, nothing more. The bots use Grok voices and never act lik
 >
 > "Dario, draft the launch email to me in Gmail. Don't send it, just draft it."
 >
-> "Satya, check GitHub. What was my last commit on grok-call?"
+> "Satya, check GitHub. What was my last commit on alotbot?"
 
 **Do:**
 - Jensen's avatar → **Open workspace → Computer**.
@@ -190,7 +190,7 @@ Every bot goes quiet. Then:
 
 > "So yeah, that's Alotbot. One call, a full crew of bots, each with its own computer, and I'm managing all of it from one place, just by talking. Native Mac app, built it end to end. Code's on my GitHub. If you're building with Grok, I'd love to talk."
 
-**End card (3 s):** `Alotbot · built by Shashank · shashankdev03.me · github.com/shashank03-dev/grok-call`
+**End card (3 s):** `Alotbot · built by Shashank · shashankdev03.me · github.com/shashank03-dev/alotbot`
 
 ---
 
@@ -250,7 +250,7 @@ Burn in subtitles for you and the bots; most people watch muted. Labels:
 4  BOTS     Jensen: Hacker News, voice agents, on your computer
             Tim: test suite, Alotbot folder, my Mac
             Dario: launch email draft in Gmail, don't send
-            Satya: GitHub, last commit on grok-call
+            Satya: GitHub, last commit on alotbot
    CLICK    Jensen → Open workspace → Computer | Dario → Activity | side by side
 5  BOTS     "Hold on, hold on, everyone stop." → "One at a time. Jensen first."
 6  CLICK    Take control → scroll → Stop controlling

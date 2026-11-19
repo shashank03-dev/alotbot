@@ -298,7 +298,7 @@ test('overlayMarkdown writes summary, action items, tasks under parents, the tra
   assert.match(empty, /## Timeline\n\n_Nothing happened\._\n\n<!-- started: 1970-01-01T00:00:00\.000Z -->\n$/);
   assert.doesNotMatch(empty, /Full log/);
   const meeting = overlayMarkdown({ ...d, kind: 'meeting', decisions: ['Ship in May', 'Price at $10'] }, () => 'T');
-  assert.match(meeting, /^# Grok Meeting, T\n\nBots: Bot A  \nKind: meeting  \nLength: 2 min\n\n## Summary\n\nWe met\.\n\n## Decisions\n\n- Ship in May\n- Price at \$10\n\n## Action items/);
+  assert.match(meeting, /^# Alotbot meeting, T\n\nBots: Bot A  \nKind: meeting  \nLength: 2 min\n\n## Summary\n\nWe met\.\n\n## Decisions\n\n- Ship in May\n- Price at \$10\n\n## Action items/);
 });
 
 test('a bot added mid-call gets the conversation so far; bad tool arguments count as none', async () => {
@@ -505,7 +505,7 @@ test('open_past_call returns the call and the lines about a topic, capped, and r
 });
 
 test('recall against a real library: search, open, and the default time format', async () => {
-  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'grok-call-recall-'));
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'alotbot-recall-'));
   try {
     const lib = new CallLibrary(d);
     lib.index({ ...pastRecord(), lines: [{ who: 'Bot A', text: 'We should launch in May' }] });
