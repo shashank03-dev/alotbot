@@ -417,13 +417,13 @@ export class IncomingCalls {
       if (due === null || due > now) continue;
       // Already ringing or waiting (Ring now just before its time): that ring is this one.
       if (this.s.rings.some((r) => r.scheduleId === s.id && (r.state === 'held' || r.state === 'ringing'))) continue;
-      // Snoozed: this ring takes its place, so the call rings once.
-      for (const r of this.s.rings.filter((x) => x.scheduleId === s.id && x.state === 'snoozed')) this.end(r, 'declined', 'Its standing call came due.');
       dirty = true;
       const ring = this.newRing('schedule', s.title, s.agenda ? `Standing call. Agenda: ${s.agenda}` : 'Standing call.', s.botIds, s.agenda, s.id);
       if (now - due > LATE_GRACE_MS) this.miss(ring, 'It was due while Alotbot was closed or the Mac was asleep.');
       else if (this.dndActive(now)) this.miss(ring, 'Do not disturb was on.');
       else this.offer(ring);
+      // Snoozed: a ring that rings or waits takes its place, so the call rings once. A missed one leaves the snooze.
+      if (ring.state !== 'missed') for (const r of this.s.rings.filter((x) => x.scheduleId === s.id && x.state === 'snoozed')) this.end(r, 'declined', 'Its standing call came due.');
     }
     this.s.checkedAt = Math.max(this.s.checkedAt, now);
     // Snoozed rings ring again as the same call; one due long ago (the app was closed) is missed.

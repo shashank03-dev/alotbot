@@ -690,6 +690,19 @@ test('a standing call that comes due while snoozed rings once', () => {
   assert.equal(h.inc.state().ringing, null);
 });
 
+test('a standing call missed during do not disturb leaves its snoozed ring alone', () => {
+  const h = harness(newDir(), WED_1300 + 2 * MIN);
+  h.inc.start();
+  const s = h.inc.saveSchedule(weekly(), KNOWN); // 13:05
+  h.inc.snooze(h.inc.ringNow(s.id).id, 5); // rings again at 13:07
+  h.inc.setSettings({ doNotDisturbUntil: WED_1300 + 6 * MIN });
+  h.advance(3 * MIN);
+  assert.equal(h.inc.state().missed[0].note, 'Do not disturb was on.');
+  assert.equal(h.inc.state().snoozed.length, 1, 'the snooze is kept');
+  h.advance(2 * MIN);
+  assert.equal(h.inc.state().ringing!.scheduleId, s.id, 'and rings at its time');
+});
+
 test('news for a bot whose job ring is snoozed joins that ring', () => {
   const h = harness();
   h.inc.start();
