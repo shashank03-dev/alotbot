@@ -1,6 +1,7 @@
 #!/bin/bash
 # Publishes a release from this Mac, no CI needed: runs every check, builds the download, pushes, and uploads
-# it to GitHub as v<package.json version>. Running it again for the same version replaces the download.
+# it to GitHub as v<package.json version>. Running it again for the same version (and commit) replaces the download;
+# a version already tagged on another commit is refused.
 #   bash mac/release.sh notes.md
 set -euo pipefail
 notes="${1:?Usage: bash mac/release.sh <release-notes.md>}"
@@ -9,6 +10,7 @@ cd "$repo"
 if [[ -n "$(git status --porcelain)" ]]; then echo "Commit your changes first: the release is built from the last commit." >&2; exit 1; fi
 version="$(node -p "require('./package.json').version")"
 tag="v$version"
+bash "$repo/mac/release-tag-check.sh" "$tag"
 
 npm test
 npm run typecheck

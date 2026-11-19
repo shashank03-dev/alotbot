@@ -1,6 +1,6 @@
 {
   "name": "alotbot",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "A group voice call with your own Grok Bots: join, pick which bots are in the call, talk to them, and hear them talk to each other.",
   "type": "module",
