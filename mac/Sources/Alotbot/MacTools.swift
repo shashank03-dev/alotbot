@@ -224,7 +224,7 @@ import ScreenCaptureKit
             let config = SCStreamConfiguration()
             config.width = max(1, Int(window.frame.width)); config.height = max(1, Int(window.frame.height))
             let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
-            let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Alotbot/artifacts")
+            let dir = DataFolder.location.appendingPathComponent("artifacts")
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             let file = dir.appendingPathComponent("window-\(UUID().uuidString).png")
             guard let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { throw failure("Could not encode the capture.") }

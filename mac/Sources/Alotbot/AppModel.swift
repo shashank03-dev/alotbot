@@ -23,7 +23,7 @@ final class Prefs: ObservableObject {
     @Published var photo: NSImage?
 
     var photoURL: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Alotbot/host-photo.png")
+        DataFolder.location.appendingPathComponent("host-photo.png")
     }
 
     init() {

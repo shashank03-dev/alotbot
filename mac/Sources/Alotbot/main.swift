@@ -12,6 +12,9 @@ if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--contact-shee
     }
 }
 
+// Moves the data folder and settings from the old GrokCall name before anything else reads them.
+LaunchMigration.run()
+
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory) // menu bar only, no Dock icon
 let delegate = MainActor.assumeIsolated { AppDelegate() }

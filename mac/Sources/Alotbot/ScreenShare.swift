@@ -140,7 +140,7 @@ final class ScreenShareSession {
 
     /// Saves a screenshot (readable only by you) for an agent to look at; keeps the newest few.
     static func save(_ image: CGImage) throws -> String {
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Alotbot/artifacts")
+        let dir = DataFolder.location.appendingPathComponent("artifacts")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let file = dir.appendingPathComponent("screen-\(UUID().uuidString).png")
         guard let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { throw CocoaError(.fileWriteUnknown) }

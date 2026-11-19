@@ -1,6 +1,6 @@
 import Foundation
 
-/// The app's own log: ~/Library/Application Support/GrokCall/logs/app.log, next to the backend's per-call logs.
+/// The app's own log: ~/Library/Application Support/Alotbot/logs/app.log, next to the backend's per-call logs.
 /// It records what the backend can't see: messages shown to you, audio start-up and device changes, and the
 /// backend process's own errors. Only this user can read it. Writing never blocks or breaks the app.
 enum AppLog {
@@ -14,8 +14,7 @@ enum AppLog {
     /// GROK_CALL_APP_LOG moves it (the tests use this so they never write into your real log).
     static var url: URL {
         if let path = ProcessInfo.processInfo.environment["GROK_CALL_APP_LOG"], !path.isEmpty { return URL(fileURLWithPath: path) }
-        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Alotbot/logs/app.log")
+        return DataFolder.location.appendingPathComponent("logs/app.log")
     }
 
     static func write(_ text: String) {

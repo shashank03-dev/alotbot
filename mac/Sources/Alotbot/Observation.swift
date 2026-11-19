@@ -51,7 +51,7 @@ import AlotbotCore
         // Re-enumerate after capture so a closed/replaced window is never presented as current.
         let current = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
         guard current.windows.contains(where: { $0.windowID == window.windowID && $0.owningApplication?.processID == window.owningApplication?.processID && $0.title == window.title }) else { throw failure("The window closed or changed while being captured. Ask the user to select the requested page again, then make a fresh read.") }
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Alotbot/artifacts")
+        let dir = DataFolder.location.appendingPathComponent("artifacts")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         // Only prune this feature's artifacts; retain up to 50 recent observations for agent jobs.
         let old = try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey])

@@ -11,7 +11,7 @@ struct BackendPaths {
     let dataDir: URL
 
     static func resolve() throws -> BackendPaths {
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Alotbot", isDirectory: true)
+        let support = DataFolder.location
         let paths = try resolve(env: ProcessInfo.processInfo.environment, info: Bundle.main.infoDictionary ?? [:], bundle: Bundle.main.bundleURL, dataDir: support,
                                 exists: { FileManager.default.fileExists(atPath: $0) }, executable: { FileManager.default.isExecutableFile(atPath: $0) })
         try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
