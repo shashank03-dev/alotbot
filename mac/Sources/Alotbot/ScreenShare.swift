@@ -23,6 +23,23 @@ struct ShareTarget: Identifiable, Hashable {
         pid == me || isPrivate(name) || isPrivate(bundleId)
     }
 
+    /// A window on screen, as far as a whole-display share needs it. `pid` is nil for a window with no owning app.
+    struct WindowInfo {
+        let id: CGWindowID
+        let pid: pid_t?
+        let app: String
+        let bundleId: String
+        let title: String
+    }
+
+    /// Windows a whole-display share leaves out: every window of a hidden app, and any window whose title shows a
+    /// password manager (a browser tab on a vault, say), whatever app it belongs to. Ordered by id.
+    static func hiddenWindows(_ windows: [WindowInfo], me: pid_t) -> [CGWindowID] {
+        windows.filter { w in
+            isPrivate(w.title) || w.pid.map { hiddenFromDisplay(pid: $0, name: w.app, bundleId: w.bundleId, me: me) } == true
+        }.map(\.id).sorted()
+    }
+
     /// Windows you could share (other apps' content windows, on screen), then each display.
     static func available() async throws -> [ShareTarget] {
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
@@ -118,9 +135,12 @@ final class ScreenShareSession {
             let k = min(1, 2048 / Double(max(d.width, d.height, 1)))
             config.width = max(1, Int(Double(d.width) * k))
             config.height = max(1, Int(Double(d.height) * k))
-            let me = ProcessInfo.processInfo.processIdentifier
-            let hidden = content.applications.filter { ShareTarget.hiddenFromDisplay(pid: $0.processID, name: $0.applicationName, bundleId: $0.bundleIdentifier, me: me) }
-            filter = SCContentFilter(display: d, excludingApplications: hidden, exceptingWindows: [])
+            let info = content.windows.map { w in
+                ShareTarget.WindowInfo(id: w.windowID, pid: w.owningApplication?.processID, app: w.owningApplication?.applicationName ?? "",
+                                       bundleId: w.owningApplication?.bundleIdentifier ?? "", title: w.title ?? "")
+            }
+            let hidden = Set(ShareTarget.hiddenWindows(info, me: ProcessInfo.processInfo.processIdentifier))
+            filter = SCContentFilter(display: d, excludingWindows: content.windows.filter { hidden.contains($0.windowID) })
         }
         let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
         let text = try await Task.detached(priority: .utility) {

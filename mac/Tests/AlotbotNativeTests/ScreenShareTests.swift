@@ -14,4 +14,20 @@ import Testing
         #expect(!ShareTarget.hiddenFromDisplay(pid: 15, name: "Safari", bundleId: "com.apple.Safari", me: me))
         #expect(!ShareTarget.hiddenFromDisplay(pid: 16, name: "", bundleId: "", me: me))
     }
+
+    /// A browser tab titled like a password vault was still captured in a whole-display share: only apps were left out.
+    @Test func displayShareLeavesOutPrivateWindowsOfAnyApp() {
+        let me: pid_t = 10
+        let windows = [
+            ShareTarget.WindowInfo(id: 1, pid: 20, app: "Safari", bundleId: "com.apple.Safari", title: "Bitwarden Web Vault"),
+            ShareTarget.WindowInfo(id: 2, pid: 20, app: "Safari", bundleId: "com.apple.Safari", title: "Pricing page"),
+            ShareTarget.WindowInfo(id: 3, pid: 21, app: "1Password", bundleId: "com.1password.1password", title: ""),
+            ShareTarget.WindowInfo(id: 4, pid: me, app: "Alotbot", bundleId: "dev.alotbot", title: "Call"),
+            ShareTarget.WindowInfo(id: 5, pid: 22, app: "Google Chrome", bundleId: "com.google.Chrome", title: "1password.com — Sign in"),
+            ShareTarget.WindowInfo(id: 6, pid: nil, app: "", bundleId: "", title: ""),
+            ShareTarget.WindowInfo(id: 7, pid: nil, app: "", bundleId: "", title: "LastPass"),
+        ]
+        #expect(ShareTarget.hiddenWindows(windows, me: me) == [1, 3, 4, 5, 7])
+        #expect(ShareTarget.hiddenWindows([], me: me).isEmpty)
+    }
 }
