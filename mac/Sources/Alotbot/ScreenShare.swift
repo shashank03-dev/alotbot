@@ -83,11 +83,11 @@ final class ScreenShareSession {
     private var loop: Task<Void, Never>?
     private var gate = ScreenTextGate(minInterval: ScreenShareSession.every)
     private var lastTitle: String
-    private let send: ([String: Any]) async throws -> Void
+    private let send: ([String: Any]) async throws -> Bool
     private let stopped: (String) -> Void
 
-    /// `send` posts a screenUpdate; `stopped` is told why sharing ended on its own.
-    init(target: ShareTarget, send: @escaping ([String: Any]) async throws -> Void, stopped: @escaping (String) -> Void) {
+    /// `send` posts a screenUpdate and says whether the backend took it in; `stopped` is told why sharing ended on its own.
+    init(target: ShareTarget, send: @escaping ([String: Any]) async throws -> Bool, stopped: @escaping (String) -> Void) {
         self.target = target
         self.send = send
         self.stopped = stopped
@@ -167,10 +167,10 @@ final class ScreenShareSession {
         }.value
         let retitled = title != lastTitle
         guard let changed = gate.accept(text, at: Date().timeIntervalSinceReferenceDate) ?? (retitled ? ScreenTextGate.normalize(text) : nil) else { return }
-        lastTitle = title
         var args: [String: Any] = ["text": changed, "title": title]
         if let shot = try? Self.save(image) { args["screenshot"] = shot }
-        try await send(args)
+        // Not taken in (too soon for the backend): it is not counted as sent, so the next read sends it again.
+        if try await send(args) { lastTitle = title } else { gate.reset() }
     }
 
     /// Saves a screenshot (readable only by you) for an agent to look at; keeps the newest few.

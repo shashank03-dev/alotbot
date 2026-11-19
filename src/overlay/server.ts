@@ -257,6 +257,8 @@ export function createOverlayServer(opts: OverlayOptions) {
     joining = false;
     /** When the shared screen was last taken in (ms). */
     screenAt = 0;
+    /** Numbers each screen share, so a late read from the one before is told apart. */
+    shareId = 0;
     /** This call's log (logs/call-<time>.jsonl), open while the call is. */
     log: CallLog | null = null;
     mic = new MicStats(0);
@@ -441,7 +443,8 @@ export function createOverlayServer(opts: OverlayOptions) {
           const call = this.inCall();
           call.shareScreen(parseScreenSource(m));
           this.screenAt = 0;
-          return { sharing: true };
+          // Each share has its number: a late read from the window shared before carries the old one and is ignored.
+          return { sharing: true, share: ++this.shareId };
         }
         case 'screenUpdate': {
           const call = this.inCall();
@@ -450,6 +453,9 @@ export function createOverlayServer(opts: OverlayOptions) {
           const shot = m.screenshot ?? null;
           if (shot !== null && (typeof shot !== 'string' || !ownScreenshot(shot, opts.dataDir))) throw new ClientError('screenshot must be one of Alotbot\'s own screen captures');
           if (m.title !== undefined && m.title !== null && typeof m.title !== 'string') throw new ClientError('title must be text');
+          const share = m.share === undefined || m.share === null ? null : int(m.share, 'share');
+          // From a share that was switched away from: not this window's text, and it must not use this share's first read.
+          if (share !== null && share !== this.shareId) return { changed: false, ignored: true };
           const now = Date.now();
           if (now - this.screenAt < SCREEN_MIN_MS) return { changed: false, ignored: true };
           this.screenAt = now;

@@ -449,13 +449,22 @@ final class AppModel: ObservableObject {
 
     func share(_ target: ShareTarget) async {
         guard inCall else { return }
-        // The current share stops only once the backend takes the new one: a refused switch keeps sharing what it was.
-        guard (await attempt("Couldn't share", { try await backend.send("screenShare", target.screenShareArgs) })) != nil else { return }
-        screenShare?.stop()
+        // The current share pauses while the switch is asked for, so it reads nothing more; it ends once the backend takes
+        // the new one, and goes on if the switch is refused. A read already on its way carries the old share's number.
+        let old = screenShare
+        old?.stop()
+        guard let reply: ScreenShareReply = await attempt("Couldn't share", { try await backend.request("screenShare", target.screenShareArgs) }) else {
+            old?.start()
+            return
+        }
         screenShare = nil
+        let share = reply.share
         let session = ScreenShareSession(target: target, send: { [weak self] args in
-            guard let self else { return }
-            try await self.backend.send("screenUpdate", args)
+            guard let self else { return false }
+            var args = args
+            if let share { args["share"] = share }
+            let r: ScreenShareReply = try await self.backend.request("screenUpdate", args)
+            return r.taken
         }, stopped: { [weak self] why in
             guard let self else { return }
             self.show(why)

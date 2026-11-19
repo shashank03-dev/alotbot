@@ -1356,6 +1356,28 @@ test('parseScreenSource and screenshot paths: what may be shared, and never a pa
   ]) assert.ok(!ownScreenshot(bad, data), bad);
 });
 
+// Switching windows: the old window's last read arrived after the switch, was taken as the new window's text (and used
+// the new share's first read), so the bots were told the old window's private text.
+test('switching the shared window ignores a late read from the old one, and the new one still gets its first read', async () => {
+  const h = await start();
+  const c = await connect(h);
+  await inCall(h, c, ['a']);
+  const mail = await c.ok('screenShare', { app: 'Mail', title: 'Inbox', kind: 'window' });
+  const safari = await c.ok('screenShare', { app: 'Safari', title: 'Pricing', kind: 'window' });
+  assert.notEqual(safari.share, mail.share);
+  await c.fails('screenUpdate', { text: 'x', share: 'one' }, /share must be a whole number/);
+  assert.deepEqual(await c.ok('screenUpdate', { text: 'Mail: private message', title: 'Inbox', share: mail.share }), { changed: false, ignored: true });
+  assert.deepEqual(await c.ok('screenUpdate', { text: 'TOTAL 4,200', title: 'Pricing', share: safari.share }), { changed: true });
+  const a = h.sockets.get('a')!;
+  await c.ok('say', { text: 'What is on my screen?' });
+  assert.ok(a.said().some((l) => l.includes('TOTAL 4,200')));
+  assert.ok(!a.said().some((l) => l.includes('private message')));
+  // A late read from a window that shows a password manager does not stop the new share.
+  await new Promise((r) => setTimeout(r, SCREEN_MIN_MS + 50));
+  assert.deepEqual(await c.ok('screenUpdate', { text: 'vault', title: '1Password', share: mail.share }), { changed: false, ignored: true });
+  await c.ok('screenStop');
+});
+
 test('logArgs keeps only the size of screen text and meeting lines', () => {
   assert.deepEqual(logArgs('screenUpdate', { text: 'secret numbers' }, { text: 'secret numbers' }), { chars: 14 });
   assert.deepEqual(logArgs('meetingLine', { who: 'meeting', text: 'abc' }, {}), { who: 'meeting', chars: 3 });
@@ -1372,7 +1394,7 @@ test('sharing a screen through the app: updates are checked, throttled, kept out
   await inCall(h, c, ['a']);
   await c.fails('screenUpdate', { text: 'x' }, /not sharing a screen/);
   await c.fails('screenShare', { app: '1Password', kind: 'window' }, /holds passwords/);
-  assert.deepEqual(await c.ok('screenShare', { app: 'Safari', title: 'Pricing', kind: 'window' }), { sharing: true });
+  assert.deepEqual(await c.ok('screenShare', { app: 'Safari', title: 'Pricing', kind: 'window' }), { sharing: true, share: 1 });
   await c.next((m) => m.t === 'view' && m.view.screen?.app === 'Safari', true);
   await c.fails('screenUpdate', { text: 5 }, /text must be text/);
   await c.fails('screenUpdate', { text: 'x', screenshot: '/etc/passwd' }, /own screen captures/);

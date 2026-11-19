@@ -102,6 +102,18 @@ import Testing
     }
 }
 
+@Suite struct ScreenShareReplyTests {
+    /// A switch gives the share a number; an update the backend ignored is not counted as sent.
+    @Test func repliesSayWhichShareAndWhetherAnUpdateWasTaken() throws {
+        func reply(_ json: String) throws -> ScreenShareReply { try JSONDecoder().decode(ScreenShareReply.self, from: Data(json.utf8)) }
+        #expect(try reply(#"{"sharing":true,"share":2}"#).share == 2)
+        #expect(try reply(#"{"changed":true}"#).taken)
+        #expect(try reply(#"{"changed":false}"#).taken, "the same text: taken, nothing new")
+        #expect(try !reply(#"{"changed":false,"ignored":true}"#).taken)
+        #expect(try reply(#"{"sharing":true}"#).share == nil, "an older backend")
+    }
+}
+
 @Suite struct IncomingTypesTests {
     static let state = #"""
     {"settings":{"botCallbacks":true,"jobResults":false,"approvals":true,"quietHours":{"enabled":true,"start":"22:00","end":"08:00","timezone":"Europe/London"},"doNotDisturbUntil":null,"ringSeconds":45},

@@ -138,3 +138,13 @@ public struct ScreenTextGate: Equatable, Sendable {
     /// A new window or display: anything is news again.
     public mutating func reset() { last = nil; sentAt = -.infinity }
 }
+
+/// The backend's answer to screenShare or screenUpdate.
+public struct ScreenShareReply: Decodable, Equatable, Sendable {
+    /// screenShare: this share's number, sent with each of its updates so a late one from the share before is ignored.
+    public var share: Int?
+    /// screenUpdate: not taken in (too soon after the last, or from an earlier share).
+    public var ignored: Bool?
+    /// The update was taken in; when not, its text must be sent again.
+    public var taken: Bool { ignored != true }
+}
