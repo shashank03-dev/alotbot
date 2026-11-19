@@ -386,7 +386,7 @@ export function createOverlayServer(opts: OverlayOptions) {
         case 'login':
           return { loginUrl: login.start() };
         case 'logout':
-          if (this.call) throw new ClientError('leave the call before signing out');
+          if (this.call || this.joining) throw new ClientError('leave the call before signing out');
           login.cancel();
           this.connections.close();
           this.viewers.closeAll(); this.runtime.close(); this.runtime = this.createRuntime();

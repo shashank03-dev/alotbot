@@ -1130,6 +1130,13 @@ test('two join requests at once start one call; so do an answer and a join', asy
   assert.deepEqual([one.ok, two.ok, two.error, three.ok, three.error], [true, false, 'already in a call', false, 'Leave the current call first.']);
   await settle();
   assert.equal(h.sockets.size, 1, 'one bot socket: one call');
+  // Signing out while a call is still starting is refused like signing out in a call.
+  const h3 = await start(true, 5, [], {}, { zone: () => 'UTC' });
+  const c3 = await connect(h3);
+  (h3 as any).expect(['a']);
+  const [started, out] = await Promise.all([c3.op('join', { botIds: ['a'] }), c3.op('logout')]);
+  assert.deepEqual([started.ok, out.ok, out.error], [true, false, 'leave the call before signing out']);
+  assert.equal((await c3.ok('state')).state, 'signed-in');
   const h2 = await start(true, 5, [], {}, { zone: () => 'UTC' });
   const c2 = await connect(h2);
   const saved = await c2.ok('scheduleSave', { schedule: { title: 'Standup', botIds: ['a', 'b'], days: [0, 1, 2, 3, 4, 5, 6], time: '09:00', timezone: 'UTC' } });
