@@ -40,6 +40,21 @@ struct ShareTarget: Identifiable, Hashable {
         }.map(\.id).sorted()
     }
 
+    /// The screenShare request: app and title tidied and cut to the backend's limits (100 and 300 characters), so a long
+    /// window title is shared, not refused.
+    var screenShareArgs: [String: Any] {
+        // The backend counts UTF-16 units, as JavaScript does; an emoji is never split.
+        func clean(_ s: String, _ max: Int) -> String {
+            var out = ""
+            for ch in s.split(whereSeparator: \.isWhitespace).joined(separator: " ") {
+                if out.utf16.count + ch.utf16.count > max { break }
+                out.append(ch)
+            }
+            return out
+        }
+        return ["app": clean(app, 100), "title": clean(title, 300), "kind": kind.rawValue]
+    }
+
     /// Windows you could share (other apps' content windows, on screen), then each display.
     static func available() async throws -> [ShareTarget] {
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)

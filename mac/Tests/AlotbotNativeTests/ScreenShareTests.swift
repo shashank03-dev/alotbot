@@ -30,4 +30,20 @@ import Testing
         #expect(ShareTarget.hiddenWindows(windows, me: me) == [1, 3, 4, 5, 7])
         #expect(ShareTarget.hiddenWindows([], me: me).isEmpty)
     }
+
+    /// A window title over 300 characters was refused by the backend, after the app had already stopped the old share.
+    @Test func screenShareArgsFitTheBackendLimits() {
+        let long = ShareTarget(kind: .window, app: "Safari", title: "  Very   long\n" + String(repeating: "x", count: 400), windowID: 1, displayID: nil)
+        let args = long.screenShareArgs
+        let title = args["title"] as? String ?? ""
+        #expect(title.count == 300)
+        #expect(title.hasPrefix("Very long x"), "spaces collapsed as the backend does before it counts")
+        #expect(args["app"] as? String == "Safari")
+        #expect(args["kind"] as? String == "window")
+        let app = ShareTarget(kind: .display, app: String(repeating: "a", count: 150), title: "", windowID: nil, displayID: 1).screenShareArgs
+        #expect((app["app"] as? String)?.count == 100)
+        #expect(app["title"] as? String == "")
+        let emoji = ShareTarget(kind: .window, app: "Notes", title: String(repeating: "x", count: 299) + "🙂🙂", windowID: 2, displayID: nil).screenShareArgs
+        #expect(emoji["title"] as? String == String(repeating: "x", count: 299), "counted as the backend counts, and never split")
+    }
 }
