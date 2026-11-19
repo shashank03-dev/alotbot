@@ -26,17 +26,28 @@ dest=""
 for d in "/Applications" "$HOME/Applications"; do [[ -d "$d/Alotbot.app" ]] && { dest="$d"; break; }; done
 if [[ -z "$dest" ]]; then dest="/Applications"; [[ -w "$dest" ]] || dest="$HOME/Applications"; fi
 mkdir -p "$dest"
-if pgrep -xq Alotbot; then
-  echo "Quitting the running Alotbot..."
-  osascript -e 'quit app "Alotbot"' >/dev/null 2>&1 || true
-  for _ in {1..20}; do pgrep -xq Alotbot || break; sleep 0.5; done
-fi
+# Quits an app and waits until it and its backend (the Node inside the app, started from its Contents) have exited.
+# Grok Call, the app before the rename, too: its backend would otherwise make a new GrokCall data folder after Alotbot
+# moved the old one.
+quit_app() {
+  local name="$1" inside="/$1.app/Contents/"
+  pgrep -f "$inside" >/dev/null || return 0
+  echo "Quitting the running $name..."
+  osascript -e "quit app \"$name\"" >/dev/null 2>&1 || true
+  for _ in {1..40}; do pgrep -f "$inside" >/dev/null || return 0; sleep 0.5; done
+  echo "$name is still running. Quit it, then run this again. Nothing was installed." >&2
+  exit 1
+}
+quit_app "Alotbot"
+quit_app "Grok Call"
 rm -rf "$dest/Alotbot.app"
 ditto "$app" "$dest/Alotbot.app"
 echo "Installed: $dest/Alotbot.app"
-# The copy from before the rename, once the new one is in place.
-if [[ -d "/Applications/Grok Call.app" ]]; then
-  rm -rf "/Applications/Grok Call.app"
-  echo "Removed the old Grok Call copy: /Applications/Grok Call.app"
-fi
+# The copies from before the rename, once the new one is in place.
+for old in "/Applications/Grok Call.app" "$HOME/Applications/Grok Call.app"; do
+  if [[ -d "$old" ]]; then
+    rm -rf "$old"
+    echo "Removed the old Grok Call copy: $old"
+  fi
+done
 open "$dest/Alotbot.app"

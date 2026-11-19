@@ -27,6 +27,30 @@ import Testing
         #expect(try String(contentsOf: new.appendingPathComponent("app.log"), encoding: .utf8) == "kept")
     }
 
+    /// The installer deleted Grok Call.app while it ran; its backend then made a new GrokCall folder next to the moved
+    /// one. While Grok Call runs, the folder is not moved: it moves on a later launch.
+    @Test func theFolderIsNotMovedWhileGrokCallRuns() throws {
+        let (root, old, new) = try sandbox()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try makeFolder(old, file: "auth.json")
+
+        let waiting = FolderMigration.decide(old: old, new: new, fileManager: .default, oldAppRunning: { true })
+        #expect(waiting == FolderMigration.Decision(folder: old, outcome: .oldAppRunning))
+        #expect(FileManager.default.fileExists(atPath: old.appendingPathComponent("auth.json").path))
+        #expect(!FileManager.default.fileExists(atPath: new.path))
+
+        let later = FolderMigration.decide(old: old, new: new, fileManager: .default, oldAppRunning: { false })
+        #expect(later == FolderMigration.Decision(folder: new, outcome: .moved))
+        #expect(FileManager.default.fileExists(atPath: new.appendingPathComponent("auth.json").path))
+        #expect(FolderMigration.grokCallBundleId == "me.shashankdev.grokcall")
+        // Already moved, and a running Grok Call made a new GrokCall folder: Alotbot is still the one used.
+        try makeFolder(old, file: "app.log")
+        var asked = false
+        let after = FolderMigration.decide(old: old, new: new, fileManager: .default, oldAppRunning: { asked = true; return true })
+        #expect(after == FolderMigration.Decision(folder: new, outcome: .inPlace))
+        #expect(!asked, "nothing to move: no need to ask")
+    }
+
     @Test func onlyTheNewFolderIsUsedAsItIs() throws {
         let (root, old, new) = try sandbox()
         defer { try? FileManager.default.removeItem(at: root) }

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 /// Where the app keeps its files: ~/Library/Application Support/Alotbot. Before the rename they lived in GrokCall,
@@ -18,12 +19,16 @@ enum DataFolder {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return FolderMigration.decide(old: support.appendingPathComponent(legacyName, isDirectory: true),
                                       new: support.appendingPathComponent(name, isDirectory: true),
-                                      fileManager: .default)
+                                      fileManager: .default,
+                                      oldAppRunning: { !NSRunningApplication.runningApplications(withBundleIdentifier: FolderMigration.grokCallBundleId).isEmpty })
     }()
 }
 
 /// The folder decision. Its only side effect is the one move it may make, so tests can run it on temp folders.
 enum FolderMigration {
+    /// The app before the rename. While it runs it writes to GrokCall, so the folder is not moved under it.
+    static let grokCallBundleId = "me.shashankdev.grokcall"
+
     enum Outcome: Equatable {
         /// GrokCall was renamed to Alotbot.
         case moved
@@ -34,6 +39,8 @@ enum FolderMigration {
         case inPlace
         /// The move failed, so GrokCall is kept and used. The reason is for the log.
         case failed(String)
+        /// Grok Call is still running, so GrokCall is kept and used; the move happens on a later launch.
+        case oldAppRunning
     }
 
     struct Decision: Equatable {
@@ -46,15 +53,19 @@ enum FolderMigration {
         ["auth.json", "calls"].contains { fileManager.fileExists(atPath: folder.appendingPathComponent($0).path) }
     }
 
-    static func decide(old: URL, new: URL, fileManager: FileManager, now: Date = Date()) -> Decision {
+    /// `oldAppRunning` says whether Grok Call is running (checked only when there is a GrokCall folder to move).
+    static func decide(old: URL, new: URL, fileManager: FileManager, now: Date = Date(), oldAppRunning: () -> Bool = { false }) -> Decision {
         guard fileManager.fileExists(atPath: old.path) else { return Decision(folder: new, outcome: .inPlace) }
+        let both = fileManager.fileExists(atPath: new.path)
+        // Both present. Something made an Alotbot folder before the first launch (local test runs did, on
+        // 2026-11-19): if it holds none of your data and GrokCall does, set it aside (never delete) and move.
+        if both, holdsData(new, fileManager: fileManager) || !holdsData(old, fileManager: fileManager) {
+            return Decision(folder: new, outcome: .inPlace)
+        }
+        // A move is due, but not under a running Grok Call: it would go on writing to GrokCall.
+        if oldAppRunning() { return Decision(folder: old, outcome: .oldAppRunning) }
         var aside: URL?
-        if fileManager.fileExists(atPath: new.path) {
-            // Both present. Something made an Alotbot folder before the first launch (local test runs did, on
-            // 2026-11-19): if it holds none of your data and GrokCall does, set it aside (never delete) and move.
-            guard !holdsData(new, fileManager: fileManager), holdsData(old, fileManager: fileManager) else {
-                return Decision(folder: new, outcome: .inPlace)
-            }
+        if both {
             let spare = new.deletingLastPathComponent().appendingPathComponent("\(new.lastPathComponent).unused-\(Int(now.timeIntervalSince1970))", isDirectory: true)
             do { try fileManager.moveItem(at: new, to: spare) } catch {
                 return Decision(folder: old, outcome: .failed(error.localizedDescription))
@@ -101,6 +112,8 @@ enum LaunchMigration {
             AppLog.write("Moved the data folder from GrokCall to Alotbot. An Alotbot folder with no calls or sign-in was set aside: \(path)")
         case .failed(let why):
             AppLog.write("Could not move the data folder from GrokCall to Alotbot (\(why)). Using GrokCall, so no data is lost.")
+        case .oldAppRunning:
+            AppLog.write("Grok Call is still running, so the data folder stays in GrokCall for now. It moves to Alotbot on a later launch, once Grok Call has quit.")
         case .inPlace:
             break
         }
