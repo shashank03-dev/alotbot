@@ -8,7 +8,7 @@ import { after, afterEach, test } from 'node:test';
 import { WebSocket, WebSocketServer } from 'ws';
 import { USER } from '../public/core.js';
 import { AuthStore } from '../src/auth.ts';
-import { actionView, AUDIO_LEAD_S, createOverlayServer, logArgs, parseMeeting, parseScreenSource, SCREEN_MIN_MS, SCREENSHOT_PATH, decodeMic, defaultOpenSocket, encodeBotAudio, MSG, upgradeAllowed } from '../src/overlay/server.ts';
+import { actionView, AUDIO_LEAD_S, createOverlayServer, logArgs, parseMeeting, parseScreenSource, SCREEN_MIN_MS, ownScreenshot, decodeMic, defaultOpenSocket, encodeBotAudio, MSG, upgradeAllowed } from '../src/overlay/server.ts';
 import { OverlayStore } from '../src/overlay/store.ts';
 import { FakeSocket, flush, hostSays, reply } from './overlay-fakes.ts';
 import { mock, sendJson, type Mock } from './helpers.ts';
@@ -1346,9 +1346,14 @@ test('parseScreenSource and screenshot paths: what may be shared, and never a pa
     [{ app: 'Keychain Access', kind: 'window' }, /never shared/],
     [{ app: 'Safari', title: 'Bitwarden vault', kind: 'window' }, /never shared/],
   ] as [Record<string, unknown>, RegExp][]) assert.throws(() => parseScreenSource(m), why);
-  assert.ok(SCREENSHOT_PATH.test('/Users/me/Library/Application Support/Alotbot/artifacts/screen-AB12-cd.png'));
-  assert.ok(SCREENSHOT_PATH.test('/Users/me/Library/Application Support/GrokCall/artifacts/screen-AB12-cd.png'), 'the fallback folder when the move failed');
-  for (const bad of ['relative/Alotbot/artifacts/screen-1.png', '/Users/me/Alotbot/artifacts/observation-1.png', '/Users/me/Alotbot/artifacts/screen-1.png.sh', '/etc/passwd']) assert.ok(!SCREENSHOT_PATH.test(bad), bad);
+  // Only the data folder in use (Alotbot, the GrokCall fallback, or ALOTBOT_DATA_DIR in tests) counts.
+  const data = '/Users/me/Library/Application Support/Alotbot';
+  assert.ok(ownScreenshot(`${data}/artifacts/screen-AB12-cd.png`, data));
+  assert.ok(ownScreenshot('/tmp/alotbot-test/data/artifacts/screen-1.png', '/tmp/alotbot-test/data/'));
+  for (const bad of [
+    'relative/Alotbot/artifacts/screen-1.png', `${data}/artifacts/observation-1.png`, `${data}/artifacts/screen-1.png.sh`, '/etc/passwd',
+    '/Users/me/Library/Application Support/GrokCall/artifacts/screen-1.png', `${data}/artifacts/../artifacts/screen-1.png`, `${data}/artifacts/x/screen-1.png`, `${data}/artifacts/screen-.png`,
+  ]) assert.ok(!ownScreenshot(bad, data), bad);
 });
 
 test('logArgs keeps only the size of screen text and meeting lines', () => {
@@ -1374,7 +1379,8 @@ test('sharing a screen through the app: updates are checked, throttled, kept out
   await c.fails('screenUpdate', { text: 'x', screenshot: '/a/Alotbot/artifacts/../artifacts/screen-1.png' }, /own screen captures/);
   await c.fails('screenUpdate', { text: 'x', screenshot: 7 }, /own screen captures/);
   await c.fails('screenUpdate', { text: 'x', title: 7 }, /title must be text/);
-  const shot = '/Users/me/Library/Application Support/Alotbot/artifacts/screen-1.png';
+  // The data folder in use, whatever it is called (ALOTBOT_DATA_DIR in tests).
+  const shot = path.join(h.dir, 'artifacts', 'screen-1.png');
   assert.deepEqual(await c.ok('screenUpdate', { text: 'TOTAL 4,200 secret', screenshot: shot, title: '  Pricing  ' }), { changed: true });
   assert.deepEqual(await c.ok('screenUpdate', { text: 'TOTAL 9', title: null }), { changed: false, ignored: true }, 'too soon after the last one');
   await new Promise((r) => setTimeout(r, SCREEN_MIN_MS + 50));

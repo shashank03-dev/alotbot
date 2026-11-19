@@ -7,6 +7,7 @@ import { argumentError } from '../validation.ts';
 
 import crypto from 'node:crypto';
 import http from 'node:http';
+import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { WebSocket, WebSocketServer, type RawData } from 'ws';
 import { floatTo16, USER } from '../../public/core.js';
@@ -153,9 +154,13 @@ export function logArgs(op: string, msg: Record<string, unknown>, args: Record<s
   return args;
 }
 
-/** A screenshot the app saved of the shared screen: only its own artifacts folder's screen-*.png files. */
-// The app's data folder is Alotbot, or GrokCall when a move from the old name failed (mac/Sources/Alotbot/Migration.swift).
-export const SCREENSHOT_PATH = /^\/(?:[^/\0]+\/)*(?:Alotbot|GrokCall)\/artifacts\/screen-[A-Za-z0-9-]{1,64}\.png$/;
+// A screenshot the app saved of the shared screen. The app passes the data folder it uses as OVERLAY_DATA_DIR
+// (Alotbot, GrokCall when a move from the old name failed, or ALOTBOT_DATA_DIR), so only that folder is accepted.
+const SCREENSHOT_NAME = /^screen-[A-Za-z0-9-]{1,64}\.png$/;
+/** One of the app's own screen captures: exactly `<dataDir>/artifacts/screen-<id>.png`, so no other file can be named. */
+export function ownScreenshot(shot: string, dataDir: string): boolean {
+  return path.dirname(shot) === path.join(path.resolve(dataDir), 'artifacts') && SCREENSHOT_NAME.test(path.basename(shot));
+}
 /** The shared screen is read at most this often; faster updates are ignored. */
 export const SCREEN_MIN_MS = 900;
 
@@ -443,7 +448,7 @@ export function createOverlayServer(opts: OverlayOptions) {
           if (!call.screen) throw new ClientError('not sharing a screen');
           if (typeof m.text !== 'string') throw new ClientError('text must be text');
           const shot = m.screenshot ?? null;
-          if (shot !== null && (typeof shot !== 'string' || !SCREENSHOT_PATH.test(shot) || shot.includes('/../'))) throw new ClientError('screenshot must be one of Alotbot\'s own screen captures');
+          if (shot !== null && (typeof shot !== 'string' || !ownScreenshot(shot, opts.dataDir))) throw new ClientError('screenshot must be one of Alotbot\'s own screen captures');
           if (m.title !== undefined && m.title !== null && typeof m.title !== 'string') throw new ClientError('title must be text');
           const now = Date.now();
           if (now - this.screenAt < SCREEN_MIN_MS) return { changed: false, ignored: true };
