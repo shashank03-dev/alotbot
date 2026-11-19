@@ -650,6 +650,60 @@ test('Later rings the same call again: same bots, agenda and title, through quie
   assert.equal(h3.inc.state().missed[0].note, 'It was due while Alotbot was closed or the Mac was asleep.');
 });
 
+test('deleting a standing call stops its snoozed, held and ringing rings', () => {
+  const h = harness();
+  h.inc.start();
+  const s = h.inc.saveSchedule(weekly(), KNOWN);
+  h.inc.snooze(h.inc.ringNow(s.id).id, 10);
+  const other = h.inc.saveSchedule(weekly({ title: 'Other' }), KNOWN);
+  const ringing = h.inc.ringNow(other.id);
+  const held = h.inc.saveSchedule(weekly({ title: 'Held' }), KNOWN);
+  assert.equal(h.inc.ringNow(held.id).state, 'held');
+  h.inc.deleteSchedule(s.id);
+  assert.deepEqual(h.inc.state().snoozed, []);
+  h.inc.deleteSchedule(other.id);
+  assert.equal(h.inc.ring(ringing.id)!.note, 'The standing call was deleted.');
+  assert.equal(h.inc.state().ringing!.title, 'Held', 'the next one rings');
+  h.inc.deleteSchedule(held.id);
+  assert.equal(h.inc.state().ringing, null);
+  h.advance(10 * MIN);
+  assert.equal(h.inc.state().ringing, null, 'the snoozed one never rings');
+  assert.deepEqual(h.inc.state().held, []);
+});
+
+test('a standing call that comes due while snoozed rings once', () => {
+  const h = harness(newDir(), WED_1300 + 2 * MIN);
+  h.inc.start();
+  const s = h.inc.saveSchedule(weekly(), KNOWN); // 13:05
+  const first = h.inc.ringNow(s.id);
+  h.inc.snooze(first.id, 5);
+  h.advance(3 * MIN);
+  const due = h.inc.state().ringing!;
+  assert.equal(due.scheduleId, s.id);
+  assert.deepEqual(h.inc.state().snoozed, [], 'the due ring takes the snoozed one\'s place');
+  h.inc.answer(due.id);
+  h.busy = true;
+  h.advance(10 * MIN);
+  assert.deepEqual(h.inc.state().held, []);
+  h.busy = false;
+  h.inc.freed();
+  assert.equal(h.inc.state().ringing, null);
+});
+
+test('news for a bot whose job ring is snoozed joins that ring', () => {
+  const h = harness();
+  h.inc.start();
+  h.inc.seed([view({ id: 'j1' }), view({ id: 'j2' })]);
+  h.inc.observe([view({ id: 'j1', status: 'completed', summary: 'First' })], null);
+  h.inc.snooze(h.inc.state().ringing!.id, 10);
+  h.inc.observe([view({ id: 'j2', status: 'completed', summary: 'Second' })], null);
+  assert.equal(h.inc.state().ringing, null);
+  assert.deepEqual(h.inc.state().held, []);
+  assert.deepEqual(h.inc.state().snoozed.map((r) => r.reason), ['First Also: Second']);
+  h.advance(10 * MIN);
+  assert.equal(h.inc.state().ringing!.reason, 'First Also: Second');
+});
+
 test('only the newest finished rings are kept', () => {
   const h = harness();
   h.inc.start();

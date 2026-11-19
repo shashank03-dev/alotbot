@@ -417,6 +417,8 @@ export class IncomingCalls {
       if (due === null || due > now) continue;
       // Already ringing or waiting (Ring now just before its time): that ring is this one.
       if (this.s.rings.some((r) => r.scheduleId === s.id && (r.state === 'held' || r.state === 'ringing'))) continue;
+      // Snoozed: this ring takes its place, so the call rings once.
+      for (const r of this.s.rings.filter((x) => x.scheduleId === s.id && x.state === 'snoozed')) this.end(r, 'declined', 'Its standing call came due.');
       dirty = true;
       const ring = this.newRing('schedule', s.title, s.agenda ? `Standing call. Agenda: ${s.agenda}` : 'Standing call.', s.botIds, s.agenda, s.id);
       if (now - due > LATE_GRACE_MS) this.miss(ring, 'It was due while Alotbot was closed or the Mac was asleep.');
@@ -667,6 +669,11 @@ export class IncomingCalls {
     const i = this.s.schedules.findIndex((x) => x.id === id);
     if (i < 0) throw new IncomingError('That standing call is no longer there.');
     this.s.schedules.splice(i, 1);
+    // Its rings go too: none rings for a call that no longer exists.
+    for (const r of this.s.rings.filter((x) => x.scheduleId === id && (x.state === 'ringing' || x.state === 'held' || x.state === 'snoozed'))) {
+      this.end(r, 'declined', 'The standing call was deleted.');
+    }
+    this.release(this.d.now());
     this.commit();
     this.tick();
   }
@@ -810,7 +817,7 @@ export class IncomingCalls {
 
   /** One ring per bot at a time: news for a bot that is already ringing or waiting to is added to that ring. */
   private botRing(a: ActionView, source: 'job' | 'approval', title: string, reason: string, cooling: boolean) {
-    const open = this.s.rings.find((r) => (r.state === 'ringing' || r.state === 'held') && (r.source === 'job' || r.source === 'approval') && r.botIds[0] === a.botId);
+    const open = this.s.rings.find((r) => (r.state === 'ringing' || r.state === 'held' || r.state === 'snoozed') && (r.source === 'job' || r.source === 'approval') && r.botIds[0] === a.botId);
     if (open) {
       open.reason = oneLine(`${open.reason} Also: ${reason}`, REASON_MAX * 4);
       if (source === 'approval') {
