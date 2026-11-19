@@ -223,12 +223,14 @@ test('backend result refusals are returned intact and unusable results are error
 });
 
 test('tool HTTP failures and timeouts are surfaced without automatically retrying', async () => {
-  const { call } = await setup(50);
+  // 400 ms: a local round trip under a full parallel test run can pass 50 ms (2026-11-19, twice), and the
+  // 503 case must reach the tool call, not time out while listing apps. The slow reply below stays far past it.
+  const { call } = await setup(400);
   executeStatus = 503;
   result = { message: 'Unavailable' };
   await assert.rejects(call('use_app_tool', { app: 'Mail', tool: 'user-Mail-profile', arguments: {} }), /Unavailable/);
   executeStatus = 200;
-  delay = 300;
+  delay = 1500;
   await assert.rejects(call('use_app_tool', { app: 'Mail', tool: 'user-Mail-profile', arguments: {} }), /did not answer/);
   assert.equal(executions().length, 2);
 });
