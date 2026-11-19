@@ -74,7 +74,7 @@ open "mac/build/Alotbot.app"
 
 `bash mac/build-app.sh --release` makes the download instead: one universal app with Node (checked against nodejs.org's checksums) and the backend's runtime packages inside, zipped to `mac/build/Alotbot-macOS.zip`.
 
-The first build creates a self-signed certificate named "Alotbot Local Signing" in your login keychain and signs the app with it, so macOS keeps the app's Microphone, Screen Recording and Accessibility permissions across rebuilds. The `alotbot` password in the script only protects the temporary file used to import that certificate; it is not a secret.
+The first build creates a self-signed certificate named "Grok Call Local Signing" in your login keychain and signs the app with it, so macOS keeps the app's Microphone, Screen Recording and Accessibility permissions across rebuilds. The `alotbot` password in the script only protects the temporary file used to import that certificate; it is not a secret.
 
 ### Releasing
 
