@@ -1,4 +1,4 @@
-// Draws the Grok Call app icon (four bot tiles with eyes) and writes mac/Resources/AppIcon.icns.
+// Draws the Alotbot app icon (four bot tiles with eyes) and writes mac/Resources/AppIcon.icns.
 // Run: swift mac/tools/make-icon.swift   (needs iconutil, part of macOS)
 import AppKit
 
@@ -57,7 +57,7 @@ func draw(_ px: Int) -> Data {
 }
 
 let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-let set = FileManager.default.temporaryDirectory.appendingPathComponent("GrokCall-\(UUID().uuidString).iconset")
+let set = FileManager.default.temporaryDirectory.appendingPathComponent("Alotbot-\(UUID().uuidString).iconset")
 try FileManager.default.createDirectory(at: set, withIntermediateDirectories: true)
 defer { try? FileManager.default.removeItem(at: set) }
 for base in [16, 32, 128, 256, 512] {

@@ -2,15 +2,15 @@
 import PackageDescription
 
 let package = Package(
-    name: "GrokCall",
+    name: "Alotbot",
     platforms: [.macOS(.v14)],
     targets: [
         // Everything that can be tested without a screen: the avatar engine, the backend protocol, layout math.
-        .target(name: "GrokCallCore", resources: [.copy("Resources/morph-data.json")]),
+        .target(name: "AlotbotCore", resources: [.copy("Resources/morph-data.json")]),
         // The app: menu bar, overlay, audio, backend process.
-        .executableTarget(name: "GrokCall", dependencies: ["GrokCallCore"]),
-        .testTarget(name: "GrokCallCoreTests", dependencies: ["GrokCallCore"]),
-        .testTarget(name: "GrokCallNativeTests", dependencies: ["GrokCall", "GrokCallCore"]),
+        .executableTarget(name: "Alotbot", dependencies: ["AlotbotCore"]),
+        .testTarget(name: "AlotbotCoreTests", dependencies: ["AlotbotCore"]),
+        .testTarget(name: "AlotbotNativeTests", dependencies: ["Alotbot", "AlotbotCore"]),
     ],
     swiftLanguageModes: [.v5]
 )
