@@ -46,4 +46,56 @@ import Testing
         let emoji = ShareTarget(kind: .window, app: "Notes", title: String(repeating: "x", count: 299) + "🙂🙂", windowID: 2, displayID: nil).screenShareArgs
         #expect(emoji["title"] as? String == String(repeating: "x", count: 299), "counted as the backend counts, and never split")
     }
+
+    /// A read still on its way when the share was switched away from (or stopped) found its window gone and ended
+    /// sharing: the stop it reported ended the new share instead. A stopped session reports nothing.
+    @MainActor @Test func aStoppedShareNeverReportsThatItEnded() async {
+        final class Box { var stops: [String] = []; var reads = 0; var waiting: CheckedContinuation<Void, Never>? }
+        let target = ShareTarget(kind: .window, app: "Mail", title: "Inbox", windowID: 1, displayID: nil)
+        func session(_ box: Box) -> ScreenShareSession {
+            ScreenShareSession(target: target, send: { _ in true }, stopped: { box.stops.append($0) }, read: { _ in
+                box.reads += 1
+                await withCheckedContinuation { box.waiting = $0 }
+                throw ScreenShareSession.ShareEnded(why: "The shared window closed, so sharing stopped.")
+            })
+        }
+        // Still sharing: the end is reported.
+        let live = Box()
+        let a = session(live)
+        a.start()
+        while live.waiting == nil { await Task.yield() }
+        live.waiting?.resume()
+        for _ in 0..<200 where live.stops.isEmpty { await Task.yield() }
+        #expect(live.stops == ["The shared window closed, so sharing stopped."])
+        // Stopped while its read was on its way: nothing is reported.
+        let switched = Box()
+        let b = session(switched)
+        b.start()
+        while switched.waiting == nil { await Task.yield() }
+        b.stop()
+        switched.waiting?.resume()
+        for _ in 0..<200 { await Task.yield() }
+        #expect(switched.stops.isEmpty)
+        #expect(switched.reads == 1)
+    }
+
+    /// The same for a third failed read in a row (which ends a share that is still on): stopped first, it reports nothing.
+    @MainActor @Test func aStoppedShareNeverReportsItsThirdFailedRead() async {
+        final class Box { var stops: [String] = []; var reads = 0; var waiting: CheckedContinuation<Void, Never>? }
+        struct Unreadable: Error {}
+        let box = Box()
+        let s = ScreenShareSession(target: ShareTarget(kind: .window, app: "Mail", title: "Inbox", windowID: 1, displayID: nil), send: { _ in true },
+                                   stopped: { box.stops.append($0) }, read: { _ in
+            box.reads += 1
+            if box.reads == 3 { await withCheckedContinuation { box.waiting = $0 } }
+            throw Unreadable()
+        })
+        s.start()
+        while box.waiting == nil { try? await Task.sleep(for: .milliseconds(50)) }
+        s.stop()
+        box.waiting?.resume()
+        for _ in 0..<200 { await Task.yield() }
+        #expect(box.reads == 3)
+        #expect(box.stops.isEmpty)
+    }
 }

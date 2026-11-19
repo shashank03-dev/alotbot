@@ -85,12 +85,16 @@ final class ScreenShareSession {
     private var lastTitle: String
     private let send: ([String: Any]) async throws -> Bool
     private let stopped: (String) -> Void
+    /// Reads the screen once; tests replace it (the real one needs ScreenCaptureKit).
+    private let read: ((ScreenShareSession) async throws -> Void)?
 
     /// `send` posts a screenUpdate and says whether the backend took it in; `stopped` is told why sharing ended on its own.
-    init(target: ShareTarget, send: @escaping ([String: Any]) async throws -> Bool, stopped: @escaping (String) -> Void) {
+    init(target: ShareTarget, send: @escaping ([String: Any]) async throws -> Bool, stopped: @escaping (String) -> Void,
+         read: ((ScreenShareSession) async throws -> Void)? = nil) {
         self.target = target
         self.send = send
         self.stopped = stopped
+        self.read = read
         lastTitle = target.title
     }
 
@@ -102,12 +106,14 @@ final class ScreenShareSession {
             while !Task.isCancelled {
                 guard let self else { return }
                 do {
-                    try await self.readOnce()
+                    if let read = self.read { try await read(self) } else { try await self.readOnce() }
                     failures = 0
                 } catch let e as ShareEnded {
-                    self.end(e.why)
+                    // Stopped (switched away from) while this read was on its way: the share it would end is gone.
+                    if !Task.isCancelled { self.end(e.why) }
                     return
                 } catch {
+                    if Task.isCancelled { return }
                     // A missed read now and then is fine; three in a row means it can't be read.
                     failures += 1
                     if failures >= 3 { self.end("Couldn't read the shared screen: \(error.localizedDescription)"); return }
@@ -127,7 +133,7 @@ final class ScreenShareSession {
         stopped(why)
     }
 
-    private struct ShareEnded: Error { let why: String }
+    struct ShareEnded: Error { let why: String }
 
     private func readOnce() async throws {
         guard CGPreflightScreenCaptureAccess() else { throw ShareEnded(why: "Screen Recording is off for Alotbot, so sharing stopped.") }
