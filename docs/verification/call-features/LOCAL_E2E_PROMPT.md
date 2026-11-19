@@ -4,7 +4,7 @@ Paste everything below the line into Claude Code, started on your Mac from the r
 
 ---
 
-You are testing and fixing **Grok Call** end to end on this Mac, against my real Grok account. Work on the `main` branch of this repository. Your job is to:
+You are testing and fixing **Alotbot** end to end on this Mac, against my real Grok account. Work on the `main` branch of this repository. Your job is to:
 
 1. Get it building.
 2. Prove every feature works for real.
@@ -29,7 +29,7 @@ You are testing and fixing **Grok Call** end to end on this Mac, against my real
 
 ## Where to look
 
-- **App log:** `~/Library/Application Support/GrokCall/logs/app.log`. The backend's per-call logs are next to it.
+- **App log:** `~/Library/Application Support/Alotbot/logs/app.log`. The backend's per-call logs are next to it.
 - **Backend data:** the folder `OVERLAY_DATA_DIR` points to (see `src/overlay/main.ts`), or the app's Application Support folder for the built app. Find out which one the running app uses before you begin. It holds:
   - `call-library.sqlite`: the call history index. Query it with `sqlite3`.
   - `incoming.json`: standing calls, call backs and missed calls.
@@ -46,7 +46,7 @@ You are testing and fixing **Grok Call** end to end on this Mac, against my real
    - These Mac files were written in a container with **no macOS or Xcode** and have **never been compiled**: `Meeting.swift`, `ScreenShare.swift`, `IncomingCall.swift`, `CallsSettings.swift`, `LibraryView.swift`, `MeetingStartView.swift`, and the `AppModel.swift` / `Trays.swift` / `OverlayView.swift` / `AppDelegate.swift` / `SettingsView.swift` / `MenuBarView.swift` changes.
    - Expect compile errors. Fix each one properly: keep Swift 6 concurrency correct, and don't sprinkle `@unchecked Sendable` or `nonisolated(unsafe)` to silence errors.
    - Commit the fixes once `mac/test.sh` passes and the app builds.
-4. Quit any running copy of Grok Call. Open `mac/build/Grok Call.app`, and tail `app.log` in the background for the whole session.
+4. Quit any running copy of Alotbot. Open `mac/build/Alotbot.app`, and tail `app.log` in the background for the whole session.
 
 ## Phase 1: baseline call (regression)
 
@@ -110,7 +110,7 @@ You are testing and fixing **Grok Call** end to end on this Mac, against my real
 
 1. **The share list.**
    - It should show windows and displays.
-   - It must not include Grok Call's own windows or any password manager. Test with Keychain Access, Passwords.app, and 1Password if it's installed.
+   - It must not include Alotbot's own windows or any password manager. Test with Keychain Access, Passwords.app, and 1Password if it's installed.
 2. **Sharing a window.**
    - Share a text window, such as TextEdit. Type something new into it, then ask a bot what is on screen. It should know.
    - Check that `look_at_screen` works, and that the screenshots in the artifacts folder are mode 600 with only the newest 5 kept.
@@ -120,7 +120,7 @@ You are testing and fixing **Grok Call** end to end on this Mac, against my real
    - Close the shared window: sharing should stop, with a message.
    - Switch the shared app to a password manager window, if possible: sharing should stop.
    - Turn off Screen Recording: sharing should stop, with a message.
-4. **Whole display.** Share the whole display: Grok Call's own pill and trays must not appear in the captured text.
+4. **Whole display.** Share the whole display: Alotbot's own pill and trays must not appear in the captured text.
 
 ## Phase 6: wrap up
 

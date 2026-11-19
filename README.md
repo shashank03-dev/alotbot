@@ -1,6 +1,6 @@
-<img src="mac/Resources/AppIcon.png" width="112" alt="Grok Call icon">
+<img src="mac/Resources/AppIcon.png" width="112" alt="Alotbot icon">
 
-# Grok Call
+# Alotbot
 
 A group voice call with your own Grok Bots, as a native Mac app.
 
@@ -8,7 +8,7 @@ A group voice call with your own Grok Bots, as a native Mac app.
 
 - This is an independent personal project. It is not made, endorsed or supported by xAI.
 - Grok, Grok Bot and xAI are trademarks of xAI and are used here only to describe what this works with.
-- The Mac app's avatar shapes, eye shapes and animation timing (`mac/Sources/GrokCallCore/Resources/morph-data.json`) come from the Grok Bot app, so the bots look the same as they do there. That design belongs to xAI. It's included only for that compatibility, and `mac/tools` has the scripts that read it from your own installed copy of Grok Bot.
+- The Mac app's avatar shapes, eye shapes and animation timing (`mac/Sources/AlotbotCore/Resources/morph-data.json`) come from the Grok Bot app, so the bots look the same as they do there. That design belongs to xAI. It's included only for that compatibility, and `mac/tools` has the scripts that read it from your own installed copy of Grok Bot.
 - Grok Bot has no public API. The app talks to Grok Bot's private endpoints with your own signed-in account, the same way the Grok Bot desktop app (v0.79.4) does. They may change or break, and sign-in or voice may then stop working until this app is updated. xAI's Acceptable Use Policy bars access "through unauthorized bots or scripts", so using them may go against xAI's terms. You use it at your own risk and are responsible for your own account.
 - If you are from xAI and want anything changed or removed, open an issue or email via [shashankdev03.me](https://shashankdev03.me) and it will be done promptly.
 - No warranty.
@@ -37,7 +37,7 @@ It uses your Grok Bot sign-in and plan. No API key, no extra account.
 
 ## Install
 
-Grok Call is one app. Nothing else to install: Node and the backend are inside it, and it runs on Apple Silicon and Intel Macs.
+Alotbot is one app. Nothing else to install: Node and the backend are inside it, and it runs on Apple Silicon and Intel Macs.
 
 **One line** (downloads the latest release, checks its signature, puts it in Applications and opens it; run it again to update):
 
@@ -45,9 +45,9 @@ Grok Call is one app. Nothing else to install: Node and the backend are inside i
 curl -fsSL https://raw.githubusercontent.com/shashank03-dev/grok-call/main/scripts/install.sh | bash
 ```
 
-**Or by hand:** download `Grok-Call-macOS.zip` from the [latest release](https://github.com/shashank03-dev/grok-call/releases/latest), unzip it and move `Grok Call.app` to Applications. The app is not signed with an Apple Developer ID, so the first time macOS says it can't check it. Click **Done**, then open **System Settings › Privacy & Security**, scroll down to "Grok Call was blocked" and click **Open Anyway**. You do this once. The one-line install doesn't need it.
+**Or by hand:** download `Alotbot-macOS.zip` from the [latest release](https://github.com/shashank03-dev/grok-call/releases/latest), unzip it and move `Alotbot.app` to Applications. The app is not signed with an Apple Developer ID, so the first time macOS says it can't check it. Click **Done**, then open **System Settings › Privacy & Security**, scroll down to "Alotbot was blocked" and click **Open Anyway**. You do this once. The one-line install doesn't need it.
 
-Grok Call lives in the menu bar. Sign in with your Grok account the first time (a browser tab opens the Grok sign-in page). The first Join asks for Microphone, Screen Recording and Accessibility, once each. Updates are signed with the same certificate, so macOS keeps those permissions.
+Alotbot lives in the menu bar. Sign in with your Grok account the first time (a browser tab opens the Grok sign-in page). The first Join asks for Microphone, Screen Recording and Accessibility, once each. Updates are signed with the same certificate, so macOS keeps those permissions.
 
 The bots call you by the first name of your macOS account.
 
@@ -67,18 +67,18 @@ git clone https://github.com/shashank03-dev/grok-call.git
 cd grok-call
 npm install
 bash mac/build-app.sh
-open "mac/build/Grok Call.app"
+open "mac/build/Alotbot.app"
 ```
 
-`mac/build-app.sh` checks Node, runs `swift build -c release`, and puts `Grok Call.app` in `mac/build/`. This developer build runs this folder's backend (`src/overlay/main.ts`) with the Node it found at build time, so keep the folder where it is, or rebuild after moving it. Set `GROK_CALL_NODE=/path/to/node` to pick a different Node.
+`mac/build-app.sh` checks Node, runs `swift build -c release`, and puts `Alotbot.app` in `mac/build/`. This developer build runs this folder's backend (`src/overlay/main.ts`) with the Node it found at build time, so keep the folder where it is, or rebuild after moving it. Set `ALOTBOT_NODE=/path/to/node` to pick a different Node.
 
-`bash mac/build-app.sh --release` makes the download instead: one universal app with Node (checked against nodejs.org's checksums) and the backend's runtime packages inside, zipped to `mac/build/Grok-Call-macOS.zip`.
+`bash mac/build-app.sh --release` makes the download instead: one universal app with Node (checked against nodejs.org's checksums) and the backend's runtime packages inside, zipped to `mac/build/Alotbot-macOS.zip`.
 
-The first build creates a self-signed certificate named "Grok Call Local Signing" in your login keychain and signs the app with it, so macOS keeps the app's Microphone, Screen Recording and Accessibility permissions across rebuilds. The `grokcall` password in the script only protects the temporary file used to import that certificate; it is not a secret.
+The first build creates a self-signed certificate named "Alotbot Local Signing" in your login keychain and signs the app with it, so macOS keeps the app's Microphone, Screen Recording and Accessibility permissions across rebuilds. The `alotbot` password in the script only protects the temporary file used to import that certificate; it is not a secret.
 
 ### Releasing
 
-There is no CI. `bash mac/release.sh notes.md` runs every check (`npm test`, `npm run typecheck`, `bash mac/test.sh`), builds the download, pushes, and creates or updates the GitHub release `v<version from package.json>` with `Grok-Call-macOS.zip`. Bump `version` in `package.json` for a new release. Releases must be signed with the same certificate, so updates keep their permissions and `scripts/install.sh` accepts them.
+There is no CI. `bash mac/release.sh notes.md` runs every check (`npm test`, `npm run typecheck`, `bash mac/test.sh`), builds the download, pushes, and creates or updates the GitHub release `v<version from package.json>` with `Alotbot-macOS.zip`. Bump `version` in `package.json` for a new release. Releases must be signed with the same certificate, so updates keep their permissions and `scripts/install.sh` accepts them.
 
 ### Browser version
 
@@ -134,9 +134,9 @@ Set `PORT=9000` (or `HOST=localhost`) in the environment or a `.env` file to cha
 - **Background bot work**: Grok's own `send_task` and `search_conversations` tools remain available for work on the bot's computer and searching its history. `send_task` gives a background receipt, and what the bot's agent sends back about the job comes back into the call (see **Job results** below). Connected-app work uses the direct tools above instead: the group rules and `send_task`'s own description (as the call offers it) tell every bot never to send anything a connected app can do (your X posts and their numbers, mail, GitHub, T3 Code) as a background job, even after a search came up empty. Without native Mac tools, `send_task` is for work on your computer, files or browser, and for anything you ask to be done on your computer (a terminal command such as `gh` or `git`, a file, a Mac app), even if a connected app could do it too. Duplicate pending and accepted background requests are blocked, and failures get a follow-up. When Grok Bot accepts a bot's job, every other bot in the call is told `[Call]: <bot> sent its agent a background job: "..."` and to leave that work to it unless you ask them by name, so one request doesn't become a job per bot. Refused and failed jobs are not announced. Grok's `end_the_call` is left out because "stop" must not hang up the group.
 - **Job results and action history**: the backend records each tool before dispatch in SQLite (`actions.sqlite`), with its bot, call, execution target, status, timestamps and result. It polls Grok transcripts with `beforeSeq`, retains request mappings across pages and restarts, and deduplicates replayed entries. Background jobs keep being watched after Leave and resume when the backend starts again. Polls run every 3 seconds during a call or a recent job, then every 15 seconds, for up to 24 hours. Voice reads local history every 3 seconds. Agent results and typed chat messages use held `async_update` entries; a server that refuses those gets seeded tool items instead. The Mac app shows Actions during and after calls; select a row for its full result. Running direct actions interrupted by a restart become **Outcome unknown**, and are never replayed automatically.
 - **Approvals**: pending Grok Auto Review and Mac permission requests appear with their exact action ID and summary. Approve once or Deny uses Grok's own resolver. Voice can list its bot's pending actions and resolve one only after your explicit instruction. Explicit Grok blocks remain blocked; connector sign-in requests still open in Grok Bot. A successful approval means the job may continue, not that it has finished.
-- **This Mac**: Settings lets you select a read-only folder (UTF-8 text up to 256 KiB; directory lists up to 500 names), enable a dedicated Playwright browser profile, or share one window with Apple's picker. File paths must stay inside the selected folder, including after resolving symlinks. Window controls use Accessibility and single-use control IDs, and verify the controls after a press. Screenshots are saved privately under `~/Library/Application Support/GrokCall/artifacts`; this voice connection does not interpret images. Window tools require macOS 15.2+, Accessibility, and screen-sharing permission. Grok's agent remains available for its computer and its own local executor; the call instructions identify which target is in use.
+- **This Mac**: Settings lets you select a read-only folder (UTF-8 text up to 256 KiB; directory lists up to 500 names), enable a dedicated Playwright browser profile, or share one window with Apple's picker. File paths must stay inside the selected folder, including after resolving symlinks. Window controls use Accessibility and single-use control IDs, and verify the controls after a press. Screenshots are saved privately under `~/Library/Application Support/Alotbot/artifacts`; this voice connection does not interpret images. Window tools require macOS 15.2+, Accessibility, and screen-sharing permission. Grok's agent remains available for its computer and its own local executor; the call instructions identify which target is in use.
 - **Skills, routines and files**: voice setup discovers each bot's skills and routines using its agent UUID. Settings can refresh these catalogs and list agent/store files. A skill is invoked through `send_task` by name, using the existing Grok agent.
-- **Grok Bot's phone-call rules, adapted**: each bot's own call instructions are written for a one-to-one phone call ("keep the call going with a question", "hang up on stop"). Grok Call adds group-call rules after them that override those: no hang-up, "stop" means go quiet, no question just to keep talking, and tools are silent actions.
+- **Grok Bot's phone-call rules, adapted**: each bot's own call instructions are written for a one-to-one phone call ("keep the call going with a question", "hang up on stop"). Alotbot adds group-call rules after them that override those: no hang-up, "stop" means go quiet, no question just to keep talking, and tools are silent actions.
 - **No spoken "pass"**: when the call gives a bot its turn, that bot's voice is held until it says a real word. A turn that is only "Pass.", "Silence.", "Nothing to add from me." or a stage direction is dropped unheard and counts as a pass. Such a line is never passed on to the other bots in any reply, so they don't start copying it.
 - **Nothing waits forever**: a reply that hasn't started after 10 s, or goes silent for 45 s, is dropped and the next bot speaks. If you were waiting on that bot, it is asked again instead. A bot that drops mid-turn hands the turn on, and the mic moves to a bot that is up. A voice session that isn't up within 15 s, or that Grok Bot's server doesn't answer (each setup request gets 10 s), is tried again after 3 s and then 8 s, with a Timeline line each time; a bot that joins on a later try gets the conversation as it is by then. After the third try it fails, with the reason on its tile ("Could not reach Grok Bot's server" names the server, instead of a bare "fetch failed"). Errors that trying again can't fix (signed out, no usage left, an unknown bot, a refused setup) fail at once. A refused setup is retried without search, then without the bot's Grok Bot tools, before giving up. Each of these shows in the Timeline.
 - **Ending the call**: *Leave* asks the listening bot to call `save_summary` silently with a summary and action items. The call is then saved to `.data/calls/call-<time>.md` (summary, action items, finished tasks, notes, current direction, transcript), and the lobby shows the summary with a download link. Its reply is text only, so it can't talk while you leave. If it replies without saving a summary, it is asked once more; if it still doesn't, or no bot answers within 20 seconds, the call is saved without a summary. A call where nothing was said and no tasks changed is not saved.
@@ -156,15 +156,15 @@ Set `PORT=9000` (or `HOST=localhost`) in the environment or a `.env` file to cha
 - **Standing calls** (Settings › Calls to you): a name, bots, days, a time in your time zone and an optional agenda. At that time a card rings in the top-right corner with a soft ring and a notification. Answer and the first bot in opens the call with the agenda; *Later* rings again in 5 to 60 minutes; *Decline* ends it. *Ring now* tries one.
 - **Call backs**: a bot can promise to call you back (`call_back_later`): in some minutes, at a time ("15:30", "3:30 pm", or a date and time), or when the jobs it sent in this call finish. When you answer, that bot opens by saying why it called, with the jobs' results; if it can't join, another bot opens for it. A job that finishes while its call is still on is told on the call, so no call back follows. Each bot can have 5 waiting, up to 7 days ahead; you can cancel them in Settings, or turn call backs off.
 - **Bot work after a call**: when a job from an ended call finishes, or a bot's work waits for your approval, that bot calls (each can be turned off). News for a bot that is already ringing is added to that ring. After you decline a bot, its work doesn't ring for 30 minutes (it is listed as missed).
-- **When nothing rings**: during a call, while another call rings, in quiet hours (default 22:00 to 08:00, your time zone; standing calls still ring) and during do not disturb (standing calls are missed then). Rings wait and ring as soon as that ends; one that waited more than an hour is listed as missed. A standing call that was due while Grok Call was closed or the Mac slept rings if it was due in the last 10 minutes, else it is listed as missed.
+- **When nothing rings**: during a call, while another call rings, in quiet hours (default 22:00 to 08:00, your time zone; standing calls still ring) and during do not disturb (standing calls are missed then). Rings wait and ring as soon as that ends; one that waited more than an hour is listed as missed. A standing call that was due while Alotbot was closed or the Mac slept rings if it was due in the last 10 minutes, else it is listed as missed.
 - **Missed calls** show in the menu and in Settings, each with *Call back*.
 - Times are worked out in the IANA time zone with daylight-saving changes handled (a time that doesn't exist that day moves forward by the gap; one that happens twice uses the first). A clock set back a little never rings a call twice; one set back more than a day (it was wrong) starts counting again.
-- Saved in `incoming.json` (readable only by you); a damaged entry is dropped and the rest kept. Grok Call has to be running for anything to ring.
+- Saved in `incoming.json` (readable only by you); a damaged entry is dropped and the rest kept. Alotbot has to be running for anything to ring.
 
 ## Meetings
 
 - In the menu, *Listen to a meeting*: pick the meeting's app (meeting apps first; for Google Meet pick your browser), confirm that the people in the meeting know it is being transcribed (required), and start with the bots you ticked.
-- The meeting app's sound is captured with ScreenCaptureKit (only that app, never Grok Call's own sound) and transcribed **on this Mac** with Apple's on-device speech recognition. If on-device recognition isn't installed for your language, it says so and does not fall back to a server. Your own words in the meeting are transcribed from your mic the same way. No meeting audio leaves the Mac; the bots get text lines tagged `[Meeting]` and `[<you> (in the meeting)]`.
+- The meeting app's sound is captured with ScreenCaptureKit (only that app, never Alotbot's own sound) and transcribed **on this Mac** with Apple's on-device speech recognition. If on-device recognition isn't installed for your language, it says so and does not fall back to a server. Your own words in the meeting are transcribed from your mic the same way. No meeting audio leaves the Mac; the bots get text lines tagged `[Meeting]` and `[<you> (in the meeting)]`.
 - The bots are told they are private advisers that nobody in the meeting can hear. They never answer meeting lines on their own, never take turns among themselves, and a one-on-one ends without a suggestion round. They answer when you speak to them: type, or **hold ⌥Space** (or the *Hold to talk* button under the pill), which sends your mic to the bots instead of the meeting.
 - **Whispers** are text by default (shown in the conversation): replies are asked for as text and any audio is dropped, so nothing can leak into the meeting through your speakers. Switch to *Whisper aloud* when you wear headphones.
 - A line of yours that repeats what the meeting said in the last 15 seconds is the meeting's sound in your mic and is dropped. More than 120 meeting lines a minute are dropped (and said once on the timeline).
@@ -187,7 +187,7 @@ Set `PORT=9000` (or `HOST=localhost`) in the environment or a `.env` file to cha
 - **Closing the tab doesn't save the call.** Only *Leave* writes the summary and saves it.
 - **Meeting transcripts are speech-to-text of mixed audio**: speakers are not told apart, and words can be wrong. The meeting must be playing through this Mac.
 - **Screen sharing is text**: the bots read the screen's text, not its pictures, unless an agent opens the screenshot.
-- **Calls to you need Grok Call running**: nothing rings while it is quit.
+- **Calls to you need Alotbot running**: nothing rings while it is quit.
 - **Name matching is simple.** "Name a bot" works when the transcript contains the bot's name. If speech-to-text mishears it, the bot that was listening answers instead.
 
 ### Echo
@@ -204,17 +204,17 @@ Whether the loopback actually removes the echo on your machine depends on Chrome
 
 - The sign-in is saved in `.data/auth.json`, readable only by your user and ignored by git. It lasts about 60 days and refreshes itself. To sign out, delete that file.
 - Saved calls (`.data/memory.json`, `.data/calls/`) stay on this machine, readable only by your user and ignored by git.
-- The Mac app's call history index (`call-library.sqlite`), incoming calls (`incoming.json`) and shared-screen screenshots (`artifacts/screen-*.png`, the newest 5) are in `~/Library/Application Support/GrokCall/`, readable only by your user. Meeting audio is never saved or sent anywhere; only its transcribed lines reach the bots and the saved call.
+- The Mac app's call history index (`call-library.sqlite`), incoming calls (`incoming.json`) and shared-screen screenshots (`artifacts/screen-*.png`, the newest 5) are in `~/Library/Application Support/Alotbot/`, readable only by your user. Meeting audio is never saved or sent anywhere; only its transcribed lines reach the bots and the saved call.
 - The server never sends your sign-in to the browser. The page only gets a short-lived voice key per bot (valid ~5 minutes to connect).
 - The server only accepts requests from this machine (Host must be `127.0.0.1`, `localhost` or `::1`), and refuses POSTs from other websites.
-- **Mac app logs** are in `~/Library/Application Support/GrokCall/logs/`, readable only by your user, and kept until you delete them:
+- **Mac app logs** are in `~/Library/Application Support/Alotbot/logs/`, readable only by your user, and kept until you delete them:
   - `call-<time>.jsonl`, one per call, written as the call happens: every message to and from each bot's voice session (tool calls, what each bot heard and said, errors, the instructions it was given), Grok Bot tool requests and results, every timeline event, the app's requests, and once a second the mic loudness, which bot hears you and whether a bot was playing. Audio and word-by-word partial text are left out. Voice secrets are never written. The saved call (`calls/*.md`) ends with the timeline and the name of its log.
   - `app.log`: what the app itself saw: messages it showed you, joins and leaves, audio start-up and device changes, and the backend's errors.
 
 ## Tests
 
 ```bash
-npm test          # fails below 100% line/branch/function coverage of src/ and public/core.js (runs with GROK_CALL_USER=Shashank as the host's name)
+npm test          # fails below 100% line/branch/function coverage of src/ and public/core.js (runs with ALOTBOT_USER=Shashank as the host's name)
 npm run typecheck
 ```
 
@@ -246,8 +246,8 @@ public/
   core.js             call engine: voice sessions, turn-taking, interrupting, tasks, summary, timeline
   app.js, index.html  the browser version's page
 mac/
-  Sources/GrokCall/     the Mac app (SwiftUI): menu bar, call window, opening animation, workspaces, cloud computer, Connections, settings
-  Sources/GrokCallCore/ code tested without a screen: avatar, backend protocol, layout, permissions
+  Sources/Alotbot/     the Mac app (SwiftUI): menu bar, call window, opening animation, workspaces, cloud computer, Connections, settings
+  Sources/AlotbotCore/ code tested without a screen: avatar, backend protocol, layout, permissions
   Tests/                Swift tests
   Resources/            the app icon (made by tools/make-icon.swift)
   build-app.sh, test.sh build and test the app; release.sh publishes a release from this Mac

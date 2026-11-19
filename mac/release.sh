@@ -16,11 +16,11 @@ bash mac/test.sh
 bash mac/build-app.sh --release
 
 git push origin HEAD
-zip="mac/build/Grok-Call-macOS.zip"
+zip="mac/build/Alotbot-macOS.zip"
 if gh release view "$tag" >/dev/null 2>&1; then
   gh release upload "$tag" "$zip" --clobber
   gh release edit "$tag" --notes-file "$notes"
 else
-  gh release create "$tag" "$zip" --target "$(git rev-parse HEAD)" --title "Grok Call $version" --notes-file "$notes"
+  gh release create "$tag" "$zip" --target "$(git rev-parse HEAD)" --title "Alotbot $version" --notes-file "$notes"
 fi
 echo "Released $tag: $(gh release view "$tag" --json url --jq .url)"

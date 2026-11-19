@@ -1,6 +1,6 @@
-# Grok Call: Shashank's demo video
+# Alotbot: Shashank's demo video
 
-**What this is:** my face-cam demo of Grok Call, shot with a real live call. Nothing is mocked: real Grok bots, a real cloud computer, my real Mac and my real apps.
+**What this is:** my face-cam demo of Alotbot, shot with a real live call. Nothing is mocked: real Grok bots, a real cloud computer, my real Mac and my real apps.
 **Length:** about 3 minutes. The 90 s cut for X is at the end.
 **Goal:** whoever watches it, the people at xAI especially, should come away thinking "this guy runs a whole team of agents from one voice call."
 
@@ -36,10 +36,10 @@ The names are the joke, nothing more. The bots use Grok voices and never act lik
 
 ## Prep (the day before, about 30 min)
 
-1. **App:** open Grok Call from `~/Applications`. The menu bar list should show Satya, Jensen, Tim, Dario and Elon. If it doesn't, quit and reopen.
+1. **App:** open Alotbot from `~/Applications`. The menu bar list should show Satya, Jensen, Tim, Dario and Elon. If it doesn't, quit and reopen.
 2. **Apps:** **Settings → Connections**. Check that GitHub and Gmail are connected.
 3. **Screen:** **Settings → This Mac → Let bots see your open windows** must be on.
-4. **Mac jobs:** Grok Bot must be running on the Mac. Do one test call with Tim: "Tim, run the test suite in the Grok Call folder." Approve anything it asks, so it won't ask on camera.
+4. **Mac jobs:** Grok Bot must be running on the Mac. Do one test call with Tim: "Tim, run the test suite in the Alotbot folder." Approve anything it asks, so it won't ask on camera.
 5. **Test call:** with Satya, ask "What was my last commit on grok-call?" That confirms it can reach GitHub. Then hang up.
 6. **Jensen's computer, about 10 minutes before recording:** click Jensen's avatar → **Open workspace → Computer → Wake up**, and wait until the desktop shows.
 7. **Browser:** open Zen on a public page with a clear headline, such as Hacker News. Then switch to another app, so Zen is behind.
@@ -79,7 +79,7 @@ The names are the joke, nothing more. The bots use Grok voices and never act lik
 > "Four bots, all real Grok bots from my account."
 
 **Me → bots:**
-> "Hey crew. Okay so we're shipping Grok Call today. Satya, you're the lead. Split the work between everyone and let's go."
+> "Hey crew. Okay so we're shipping Alotbot today. Satya, you're the lead. Split the work between everyone and let's go."
 
 **What happens:** Satya hands out jobs by name, and the others answer. The avatars turn to whoever's talking.
 
@@ -91,7 +91,7 @@ The names are the joke, nothing more. The bots use Grok voices and never act lik
 **Me → bots** (back to back; don't wait for answers):
 > "Jensen, on your computer, open Hacker News and find what people are saying about voice agents."
 >
-> "Tim, run the test suite in the Grok Call folder on my Mac."
+> "Tim, run the test suite in the Alotbot folder on my Mac."
 >
 > "Dario, draft the launch email to me in Gmail. Don't send it, just draft it."
 >
@@ -188,9 +188,9 @@ Every bot goes quiet. Then:
 
 ### 12 · Close · 2:55–3:10 · me → camera
 
-> "So yeah, that's Grok Call. One call, a full crew of bots, each with its own computer, and I'm managing all of it from one place, just by talking. Native Mac app, built it end to end. Code's on my GitHub. If you're building with Grok, I'd love to talk."
+> "So yeah, that's Alotbot. One call, a full crew of bots, each with its own computer, and I'm managing all of it from one place, just by talking. Native Mac app, built it end to end. Code's on my GitHub. If you're building with Grok, I'd love to talk."
 
-**End card (3 s):** `Grok Call · built by Shashank · shashankdev03.me · github.com/shashank03-dev/grok-call`
+**End card (3 s):** `Alotbot · built by Shashank · shashankdev03.me · github.com/shashank03-dev/grok-call`
 
 ---
 
@@ -246,9 +246,9 @@ Burn in subtitles for you and the bots; most people watch muted. Labels:
 2  CAMERA   Started: bots stuck in a loop, wouldn't listen. Fixed that layer.
             Gave them the Grok app's tools. They do the work.
 3  CLICK    Satya Jensen Tim Dario → Start call → Full view
-   BOTS     "Hey crew, shipping Grok Call today. Satya, lead. Split it and go."
+   BOTS     "Hey crew, shipping Alotbot today. Satya, lead. Split it and go."
 4  BOTS     Jensen: Hacker News, voice agents, on your computer
-            Tim: test suite, Grok Call folder, my Mac
+            Tim: test suite, Alotbot folder, my Mac
             Dario: launch email draft in Gmail, don't send
             Satya: GitHub, last commit on grok-call
    CLICK    Jensen → Open workspace → Computer | Dario → Activity | side by side

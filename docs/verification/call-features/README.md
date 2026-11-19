@@ -11,7 +11,7 @@ Backend (Node, run in this repository's test suite, 100% line/branch/function co
 - `test/core.test.ts`: decisions in the summary; text-only replies (output text, audio dropped).
 - `test/overlay-server.test.ts`: every new app request against a fake Grok Bot, including a job that finishes after its call ringing the bot, a call back on jobs, answering, deleted bots, disk failures, password-manager refusals, and screen text kept out of the call log.
 
-Mac app logic without a screen (`mac/Tests/GrokCallCoreTests/FeatureCoreTests.swift`, Swift Testing): the transcript segmenter, meeting app ranking, mic routing, the screen text gate, incoming and library message decoding, standing call drafts, snippets. These were run with Swift 6.1.2 on Linux, together with the existing Protocol, Observation, Motion and CallPermission suites (52 tests passed).
+Mac app logic without a screen (`mac/Tests/AlotbotCoreTests/FeatureCoreTests.swift`, Swift Testing): the transcript segmenter, meeting app ranking, mic routing, the screen text gate, incoming and library message decoding, standing call drafts, snippets. These were run with Swift 6.1.2 on Linux, together with the existing Protocol, Observation, Motion and CallPermission suites (52 tests passed).
 
 ## Not verified here
 

@@ -145,7 +145,7 @@ struct OpeningView: View {
         for i in Wordmark.letters.indices {
             let bot = Wordmark.speaker[i]
             if bot != speaking { speaking = bot; await pause(0.05) }
-            if Wordmark.letters[i] != " " { said[bot] = Date() }
+            said[bot] = Date()
             withAnimation(.spring(response: 0.8, dampingFraction: 0.7)) { landed = i + 1 }
             await pause(0.12)
         }
@@ -196,8 +196,8 @@ private struct SpeechRipple: View {
 /// "Alotbot" in Helvetica Neue. Each letter flies out of the bot that says it, in a small arc, and lands.
 private struct Wordmark: View {
     static let letters = Array("Alotbot")
-    /// Which bot says each letter: "Gr", "ok", "Ca", "ll" (the space goes with the third).
-    static let speaker = [0, 0, 1, 1, 2, 2, 2, 3, 3]
+    /// Which bot says each letter: "Al", "ot", "bo", "t".
+    static let speaker = [0, 0, 1, 1, 2, 2, 3]
     static let font = NSFont(name: "HelveticaNeue-Bold", size: 38) ?? .boldSystemFont(ofSize: 38)
     static let tracking: CGFloat = -1.2
     static let widths = letters.map { NSAttributedString(string: String($0), attributes: [.font: font]).size().width }
