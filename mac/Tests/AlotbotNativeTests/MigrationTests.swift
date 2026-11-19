@@ -51,6 +51,63 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: new.appendingPathComponent("new.log").path))
     }
 
+    /// Local run of 2026-11-19: a test run made an Alotbot folder (logs, artifacts) before the first launch, so the
+    /// move was skipped and the app started with none of your calls.
+    @Test func anAlotbotFolderWithNoDataIsSetAsideAndTheOldOneMovedIn() throws {
+        let (root, old, new) = try sandbox()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try makeFolder(old, file: "auth.json")
+        try makeFolder(old.appendingPathComponent("calls"), file: "call-2026-11-18T18-11-02Z.md")
+        try makeFolder(new.appendingPathComponent("artifacts"), file: "screen-1.png")
+
+        let decision = FolderMigration.decide(old: old, new: new, fileManager: .default, now: Date(timeIntervalSince1970: 1_795_000_000))
+
+        let spare = root.appendingPathComponent("Alotbot.unused-1795000000", isDirectory: true)
+        #expect(decision == FolderMigration.Decision(folder: new, outcome: .movedAfterSettingAside(spare.path)))
+        #expect(!FileManager.default.fileExists(atPath: old.path))
+        #expect(FileManager.default.fileExists(atPath: new.appendingPathComponent("calls/call-2026-11-18T18-11-02Z.md").path))
+        #expect(FileManager.default.fileExists(atPath: spare.appendingPathComponent("artifacts/screen-1.png").path), "set aside, never deleted")
+    }
+
+    @Test func anAlotbotFolderWithDataIsNeverReplaced() throws {
+        let (root, old, new) = try sandbox()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try makeFolder(old, file: "auth.json")
+        try makeFolder(new.appendingPathComponent("calls"), file: "call-2026-11-20T09-00-00Z.md")
+
+        let decision = FolderMigration.decide(old: old, new: new, fileManager: .default)
+
+        #expect(decision == FolderMigration.Decision(folder: new, outcome: .inPlace))
+        #expect(FileManager.default.fileExists(atPath: old.appendingPathComponent("auth.json").path))
+        #expect(FileManager.default.fileExists(atPath: new.appendingPathComponent("calls/call-2026-11-20T09-00-00Z.md").path))
+    }
+
+    @Test func settingTheEmptyFolderAsideCanFailWithoutLosingAnything() throws {
+        let (root, old, new) = try sandbox()
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.path)
+            try? FileManager.default.removeItem(at: root)
+        }
+        try makeFolder(old, file: "auth.json")
+        try makeFolder(new, file: "app.log")
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: root.path)
+
+        let decision = FolderMigration.decide(old: old, new: new, fileManager: .default)
+
+        guard case .failed = decision.outcome else { Issue.record("Expected a failed move, got \(decision.outcome)"); return }
+        #expect(decision.folder == old, "keeps using the folder with your data")
+        #expect(FileManager.default.fileExists(atPath: old.appendingPathComponent("auth.json").path))
+        #expect(FileManager.default.fileExists(atPath: new.appendingPathComponent("app.log").path))
+    }
+
+    /// mac/test.sh points the app at a temp folder, so no test can read, create or move your real data folder.
+    @Test func theTestsNeverUseTheRealDataFolder() throws {
+        let override = try #require(ProcessInfo.processInfo.environment["ALOTBOT_DATA_DIR"])
+        #expect(DataFolder.location.path == URL(fileURLWithPath: override).path)
+        #expect(DataFolder.migration.outcome == .inPlace)
+        #expect(!DataFolder.location.path.contains("/Library/Application Support/"))
+    }
+
     @Test func whenNeitherExistsNothingIsCreatedHere() throws {
         let (root, old, new) = try sandbox()
         defer { try? FileManager.default.removeItem(at: root) }

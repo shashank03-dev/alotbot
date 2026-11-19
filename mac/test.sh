@@ -8,6 +8,8 @@ export ALOTBOT_DEMO=1
 logs="$(mktemp -d)"
 trap 'rm -rf "$logs"' EXIT
 export ALOTBOT_APP_LOG="$logs/app.log"
+# ...and never read, create or move your real data folder.
+export ALOTBOT_DATA_DIR="$logs/data"
 # CLT's new build driver does not always discover the bundled Swift Testing macro plugin.
 plugin="$(dirname "$swift_bin")/../lib/swift/host/plugins/testing/libTestingMacros.dylib"
 if [[ -f "$plugin" ]]; then

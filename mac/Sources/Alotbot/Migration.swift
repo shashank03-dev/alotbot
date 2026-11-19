@@ -10,7 +10,11 @@ enum DataFolder {
     static var location: URL { migration.folder }
 
     /// Decided once, on first use. `LaunchMigration.run()` asks before anything else touches the folder.
+    /// ALOTBOT_DATA_DIR replaces it and nothing is moved: the tests use it so they never touch your real folders.
     static let migration: FolderMigration.Decision = {
+        if let path = ProcessInfo.processInfo.environment["ALOTBOT_DATA_DIR"], !path.isEmpty {
+            return FolderMigration.Decision(folder: URL(fileURLWithPath: path, isDirectory: true), outcome: .inPlace)
+        }
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return FolderMigration.decide(old: support.appendingPathComponent(legacyName, isDirectory: true),
                                       new: support.appendingPathComponent(name, isDirectory: true),
@@ -23,6 +27,9 @@ enum FolderMigration {
     enum Outcome: Equatable {
         /// GrokCall was renamed to Alotbot.
         case moved
+        /// An Alotbot folder with none of your data (no sign-in, no calls) was set aside at this path, then GrokCall
+        /// was renamed to Alotbot.
+        case movedAfterSettingAside(String)
         /// Alotbot is used and nothing was moved: it already exists, or neither folder exists.
         case inPlace
         /// The move failed, so GrokCall is kept and used. The reason is for the log.
@@ -34,14 +41,29 @@ enum FolderMigration {
         let outcome: Outcome
     }
 
-    static func decide(old: URL, new: URL, fileManager: FileManager) -> Decision {
-        // Both folders present: leave both and use the new one. Only the new one, or neither: nothing to move.
-        guard !fileManager.fileExists(atPath: new.path), fileManager.fileExists(atPath: old.path) else {
-            return Decision(folder: new, outcome: .inPlace)
+    /// A folder that holds your data: a sign-in or saved calls. Logs and screenshots alone don't count.
+    static func holdsData(_ folder: URL, fileManager: FileManager) -> Bool {
+        ["auth.json", "calls"].contains { fileManager.fileExists(atPath: folder.appendingPathComponent($0).path) }
+    }
+
+    static func decide(old: URL, new: URL, fileManager: FileManager, now: Date = Date()) -> Decision {
+        guard fileManager.fileExists(atPath: old.path) else { return Decision(folder: new, outcome: .inPlace) }
+        var aside: URL?
+        if fileManager.fileExists(atPath: new.path) {
+            // Both present. Something made an Alotbot folder before the first launch (local test runs did, on
+            // 2026-11-19): if it holds none of your data and GrokCall does, set it aside (never delete) and move.
+            guard !holdsData(new, fileManager: fileManager), holdsData(old, fileManager: fileManager) else {
+                return Decision(folder: new, outcome: .inPlace)
+            }
+            let spare = new.deletingLastPathComponent().appendingPathComponent("\(new.lastPathComponent).unused-\(Int(now.timeIntervalSince1970))", isDirectory: true)
+            do { try fileManager.moveItem(at: new, to: spare) } catch {
+                return Decision(folder: old, outcome: .failed(error.localizedDescription))
+            }
+            aside = spare
         }
         do {
             try fileManager.moveItem(at: old, to: new)
-            return Decision(folder: new, outcome: .moved)
+            return Decision(folder: new, outcome: aside.map { .movedAfterSettingAside($0.path) } ?? .moved)
         } catch {
             return Decision(folder: old, outcome: .failed(error.localizedDescription))
         }
@@ -75,6 +97,8 @@ enum LaunchMigration {
         switch folder.outcome {
         case .moved:
             AppLog.write("Moved the data folder from GrokCall to Alotbot.")
+        case .movedAfterSettingAside(let path):
+            AppLog.write("Moved the data folder from GrokCall to Alotbot. An Alotbot folder with no calls or sign-in was set aside: \(path)")
         case .failed(let why):
             AppLog.write("Could not move the data folder from GrokCall to Alotbot (\(why)). Using GrokCall, so no data is lost.")
         case .inPlace:
