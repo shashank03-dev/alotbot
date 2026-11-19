@@ -444,11 +444,11 @@ test('landedText turns each kind of agent message into words the bot can say', (
   assert.equal(landedText({ type: 'text', content: '  Posted it.  ' }), 'Posted it.');
   assert.equal(landedText({ type: 'text', content: '   ' }), null);
   assert.equal(landedText({ type: 'text' }), null);
-  assert.equal(landedText({ type: 'auto-review-approval', approval: { summary: 'Post a comment on PR 1249' } }), 'It is waiting for approval in Grok Call’s Activity: Post a comment on PR 1249.');
-  assert.equal(landedText({ type: 'auto-review-approval' }), 'It is waiting for approval in Grok Call’s Activity: an action it wants to take.');
-  assert.equal(landedText({ type: 'connector', connector: 'X', variant: 'connect' }), 'It needs X connected in Grok Call’s Connections first.');
-  assert.equal(landedText({ type: 'connector', connector: 'Gmail', variant: 'reauth' }), 'It needs Gmail signed in again in Grok Call’s Connections first.');
-  assert.equal(landedText({ type: 'connector' }), 'It needs an app signed in again in Grok Call’s Connections first.');
+  assert.equal(landedText({ type: 'auto-review-approval', approval: { summary: 'Post a comment on PR 1249' } }), 'It is waiting for approval in Alotbot’s Activity: Post a comment on PR 1249.');
+  assert.equal(landedText({ type: 'auto-review-approval' }), 'It is waiting for approval in Alotbot’s Activity: an action it wants to take.');
+  assert.equal(landedText({ type: 'connector', connector: 'X', variant: 'connect' }), 'It needs X connected in Alotbot’s Connections first.');
+  assert.equal(landedText({ type: 'connector', connector: 'Gmail', variant: 'reauth' }), 'It needs Gmail signed in again in Alotbot’s Connections first.');
+  assert.equal(landedText({ type: 'connector' }), 'It needs an app signed in again in Alotbot’s Connections first.');
   assert.equal(landedText({ type: 'widget', widget: { prompt: 'Which one?', options: [{ label: 'A' }, { label: ' ' }, null, { label: 'B' }] } }), 'Which one? Options: A, B.');
   assert.equal(landedText({ type: 'widget', widget: { options: 'nope' } }), 'It asks a question');
   assert.equal(landedText({ type: 'draft-card' }), 'It sent a draft-card card, which only shows in the Grok Bot app chat.');
@@ -578,7 +578,7 @@ test('file catalogs and approvals use the UUID and exact request contracts', asy
 
  test('supported interactive results direct the call to the bot workspace without reading secure values',()=>{
   for(const type of ['user-form','secret-request','email-draft','slack-draft','imessage-draft','meeting-chat-draft']){
-   const result=landedText({type,content:'PRIVATE-VALUE'});assert.match(result!,/Activity in Grok Call/);assert.doesNotMatch(result!,/PRIVATE-VALUE/);
+   const result=landedText({type,content:'PRIVATE-VALUE'});assert.match(result!,/Activity in Alotbot/);assert.doesNotMatch(result!,/PRIVATE-VALUE/);
   }
  });
 

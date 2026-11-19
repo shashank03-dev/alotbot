@@ -17,7 +17,7 @@ class Client extends GrokBotClient {
 const base = path.resolve('.data/live-checks'); fs.mkdirSync(base, { recursive: true, mode: 0o700 });
 const dir = fs.mkdtempSync(path.join(base, 'approval-'));
 const nonce = crypto.randomBytes(12).toString('hex'); const file = path.join(dir, 'proof.txt'); fs.writeFileSync(file, nonce, { mode: 0o600 });
-const grok = new Client({ store: new AuthStore(process.env.GROK_CALL_DATA_DIR ?? path.join(os.homedir(), 'Library/Application Support/GrokCall')), setupTimeoutMs: 20_000 });
+const grok = new Client({ store: new AuthStore(process.env.ALOTBOT_DATA_DIR ?? path.join(os.homedir(), 'Library/Application Support/Alotbot')), setupTimeoutMs: 20_000 });
 const store = new ActionStore(dir);
 const watcher = new JobWatcher({ grok, store, setTimer: () => 0, clearTimer: () => {}, now: Date.now });
 const actions = new CallActions(grok, store, watcher);

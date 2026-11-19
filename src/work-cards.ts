@@ -13,13 +13,13 @@ export const DRAFT_ATTACHMENT_MAX=10*1024*1024;
 /** True when a provider value would be cut by the projection, so sending it would silently change it. */
 const overLimit=(v:unknown,len:number,max=1)=>Array.isArray(v)?v.length>max||v.some(x=>typeof x==='string'&&x.length>len):typeof v==='string'&&v.length>len;
 const httpsUrl=(v:unknown)=>{if(typeof v!=='string'||v.length>2000)return false;try{const u=new URL(v);return u.protocol==='https:'&&!u.username&&!u.password;}catch{return false;}};
-const LIMIT_REASON='This draft has more recipients or longer fields than Grok Call can send unchanged. Review it in Grok Bot.';
+const LIMIT_REASON='This draft has more recipients or longer fields than Alotbot can send unchanged. Review it in Grok Bot.';
 const strings=(v:unknown,max:number,len:number)=>Array.isArray(v)?v.filter((x):x is string=>typeof x==='string').slice(0,max).map(x=>x.slice(0,len)):[];
 const plain=(html:string)=>html.replace(/<br\b[^>]*>|<\/(?:p|div|tr)>/gi,'\n').replace(/<[^>]*>/g,'').replace(/&nbsp;/g,' ').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&amp;/g,'&').replace(/\n{3,}/g,'\n\n').trim().slice(0,2000);
 /**
  * Draft projection mirrors Grok Bot's native composer: email routing comes from the verified route, Slack
  * destinations from the verified channel, and attachments stay server-held on the entry (the send request has
- * no attachment field). Anything Grok Call cannot send faithfully carries an honest blockedReason instead.
+ * no attachment field). Anything Alotbot cannot send faithfully carries an honest blockedReason instead.
  */
 function projectDraft(kind:string,message:any,body:any):Record<string,unknown>{
   const d=message.draft,route=body.draftRoute&&typeof body.draftRoute==='object'?body.draftRoute:{},verified=body.draftRouteVerified&&typeof body.draftRouteVerified==='object'?body.draftRouteVerified:{};
@@ -30,7 +30,7 @@ function projectDraft(kind:string,message:any,body:any):Record<string,unknown>{
     const raw=emailRoute.attachments,attachments:{filename:string;path:string;sizeBytes:number}[]=[];let blockedReason='';
     if(raw!==undefined&&raw!==null){
       const valid=Array.isArray(raw)&&raw.length<=25&&raw.every((a:any)=>a&&typeof a==='object'&&typeof a.path==='string'&&a.path.length>0&&a.path.length<=4096&&!a.path.includes('\0')&&Number.isSafeInteger(a.sizeBytes)&&a.sizeBytes>=0);
-      if(!valid)blockedReason='This draft’s attachments are in a format Grok Call can’t verify. Send or edit it in Grok Bot.';
+      if(!valid)blockedReason='This draft’s attachments are in a format Alotbot can’t verify. Send or edit it in Grok Bot.';
       else for(const a of raw)attachments.push({filename:text(a.filename,500)||a.path.split('/').pop()||'Attachment',path:a.path,sizeBytes:a.sizeBytes});
       if(attachments.some(a=>a.sizeBytes>DRAFT_ATTACHMENT_MAX))blockedReason='An attachment is larger than 10 MB, so this draft can’t be sent.';
     }

@@ -205,7 +205,7 @@ test('parseSaved keeps every good piece of a damaged file and drops the rest', (
   assert.deepEqual(s.schedules.map((x) => x.id), ['s1']);
   assert.deepEqual(s.callbacks.map((c) => [c.id, c.botName, c.waitsFor, c.at]), [['c1', 'Bot A', [], WED_1300 + MIN], ['c2', 'A bot', ['x'], null]]);
   assert.deepEqual(s.rings.map((r) => [r.id, r.state, r.note, r.agenda, r.scheduleId]), [
-    ['r1', 'missed', 'Grok Call was closed while this rang.', 'A', null],
+    ['r1', 'missed', 'Alotbot was closed while this rang.', 'A', null],
     ['r2', 'answered', 'kept', '', 's1'],
     ['r6', 'declined', '', '', null],
   ]);
@@ -348,7 +348,7 @@ test('a standing call due while the app was closed rings if recent, else is list
   const late = harness(dir2, Date.parse('2026-11-18T13:10:00Z') + LATE_GRACE_MS + 1);
   late.inc.start();
   assert.equal(late.inc.state().ringing, null);
-  assert.match(late.inc.state().missed[0].note, /due while Grok Call was closed or the Mac was asleep/);
+  assert.match(late.inc.state().missed[0].note, /due while Alotbot was closed or the Mac was asleep/);
   // A stopped manager does nothing on tick.
   late.inc.stop();
   late.jump(7 * 86_400_000);
@@ -647,7 +647,7 @@ test('Later rings the same call again: same bots, agenda and title, through quie
   const h3 = harness(h.dir, h2.now + 5 * MIN + HELD_MAX_MS + 1);
   h3.inc.start();
   assert.equal(h3.inc.state().ringing, null);
-  assert.equal(h3.inc.state().missed[0].note, 'It was due while Grok Call was closed or the Mac was asleep.');
+  assert.equal(h3.inc.state().missed[0].note, 'It was due while Alotbot was closed or the Mac was asleep.');
 });
 
 test('only the newest finished rings are kept', () => {
@@ -679,7 +679,7 @@ test('a bot\'s callback rings at its time; overdue ones while the app was closed
   const later = harness(dir, h.now + MIN + HELD_MAX_MS + 1);
   later.inc.start();
   assert.equal(later.inc.state().ringing, null);
-  assert.match(later.inc.state().missed[0].note, /due while Grok Call was closed/);
+  assert.match(later.inc.state().missed[0].note, /due while Alotbot was closed/);
 });
 
 test('callbacks refuse what they cannot do, and can be cancelled', () => {

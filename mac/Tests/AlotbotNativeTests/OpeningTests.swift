@@ -119,7 +119,7 @@ import AlotbotCore
     }
 
     @Test func environmentOverridesWin() throws {
-        let p = try resolve(env: ["GROK_CALL_REPO": "/dev", "GROK_CALL_NODE": "/n"], info: ["GCRepoPath": "/repo"], files: ["/dev/src/overlay/main.ts"], exe: ["/n", "/opt/homebrew/bin/node"])
+        let p = try resolve(env: ["ALOTBOT_REPO": "/dev", "ALOTBOT_NODE": "/n"], info: ["GCRepoPath": "/repo"], files: ["/dev/src/overlay/main.ts"], exe: ["/n", "/opt/homebrew/bin/node"])
         #expect(p.repo.path == "/dev" && p.node.path == "/n")
     }
 

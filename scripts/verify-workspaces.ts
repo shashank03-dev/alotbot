@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {AuthStore} from '../src/auth.ts';
 import {GrokBotClient} from '../src/grokbot.ts';
-const client=new GrokBotClient({store:new AuthStore(path.join(os.homedir(),'Library/Application Support/GrokCall'))});
+const client=new GrokBotClient({store:new AuthStore(path.join(os.homedir(),'Library/Application Support/Alotbot'))});
 const runtime=client.createRuntime();
 try {
  const bots=await client.listBots();

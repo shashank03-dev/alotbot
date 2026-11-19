@@ -8,7 +8,7 @@ import {spawn} from 'node:child_process';
 import {AuthStore} from '../src/auth.ts';
 import {GrokBotClient} from '../src/grokbot.ts';
 import {ComputerViewer} from '../src/computer-viewer.ts';
-const client=new GrokBotClient({store:new AuthStore(path.join(os.homedir(),'Library/Application Support/GrokCall'))});
+const client=new GrokBotClient({store:new AuthStore(path.join(os.homedir(),'Library/Application Support/Alotbot'))});
 const runtime=client.createRuntime();
 let origin='';
 const manager=new ComputerViewer(runtime,{origin:()=>origin});

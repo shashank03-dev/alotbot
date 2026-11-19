@@ -8,14 +8,14 @@ import { AuthStore } from '../src/auth.ts';
 import { GrokBotClient } from '../src/grokbot.ts';
 import { ActionStore } from '../src/actions.ts';
 import { CallActions, connectorFailed } from '../src/dispatch.ts';
-const grok = new GrokBotClient({ store: new AuthStore(process.env.GROK_CALL_DATA_DIR ?? path.join(os.homedir(), 'Library/Application Support/GrokCall')) });
+const grok = new GrokBotClient({ store: new AuthStore(process.env.ALOTBOT_DATA_DIR ?? path.join(os.homedir(), 'Library/Application Support/Alotbot')) });
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'grok-write-verification-'));
 const store = new ActionStore(dir);
 const line = { theyJustTalked: true, newsOwed: false, receiptOwed: false, alreadySpokeThisTurn: false };
 const report: any = { at: new Date().toISOString(), status: 'running', writesDispatched: 0, cleanup: false };
 let draftId = '';
 let bot: any;
-const subject = `Grok Call verification ${crypto.randomUUID()}`;
+const subject = `Alotbot verification ${crypto.randomUUID()}`;
 function unpack(out: any): any {
   assert.equal(connectorFailed(out), null);
   const text = out?.success?.content?.map((c: any) => typeof c.text === 'string' ? c.text : c.text?.text ?? '').join('\n');
@@ -26,7 +26,7 @@ try {
   bot = (await grok.listBots())[0]; await grok.voiceSession(bot.id);
   await grok.harnessTool(bot.id, { callId: 'verify-draft-catalog', name: 'find_app_tools', input: { app: 'Gmail', query: 'draft' }, line });
   const actions = new CallActions({ harnessTool: (id, call) => { report.writesDispatched++; return grok.harnessTool(id, call); } }, store, {} as any);
-  const call = { callId: `verify-draft-${crypto.randomUUID()}`, name: 'use_app_tool', input: { app: 'Gmail', tool: 'user-Gmail-create_draft', arguments: { to: 'verification@example.invalid', subject, body: 'Unsent Grok Call deduplication test. No message is sent. This draft will be removed by the test.' } }, line };
+  const call = { callId: `verify-draft-${crypto.randomUUID()}`, name: 'use_app_tool', input: { app: 'Gmail', tool: 'user-Gmail-create_draft', arguments: { to: 'verification@example.invalid', subject, body: 'Unsent Alotbot deduplication test. No message is sent. This draft will be removed by the test.' } }, line };
   const started = performance.now();
   const [first, second] = await Promise.all([actions.tool(bot.id, bot.name, call), actions.tool(bot.id, bot.name, call)]);
   assert.deepEqual(first, second); assert.equal(report.writesDispatched, 1);

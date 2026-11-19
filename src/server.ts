@@ -216,7 +216,7 @@ export function createApp(opts: AppOptions) {
         return void res.end(files[path]);
       }
       // Another program or user on this Mac can reach the port, but not without the key in the link.
-      if (path.startsWith('/api/') && !hasToken(req, token)) throw new HttpError(403, 'Open Grok Call with the link printed in the terminal: it carries this run’s key.');
+      if (path.startsWith('/api/') && !hasToken(req, token)) throw new HttpError(403, 'Open Alotbot with the link printed in the terminal: it carries this run’s key.');
       const matches = routes
         .map((r) => ({ r, m: r.pattern.exec(path) }))
         .filter((x): x is { r: (typeof routes)[number]; m: RegExpExecArray } => x.m !== null);

@@ -19,7 +19,7 @@ esac
 # Node bundled into a release: the version the tests run on, checked against nodejs.org's published checksums.
 NODE_VERSION="26.11.1"
 
-node_bin="${GROK_CALL_NODE:-$(command -v node || true)}"
+node_bin="${ALOTBOT_NODE:-$(command -v node || true)}"
 if [[ -z "$node_bin" ]]; then echo "Node.js not found. Install Node 22.18 or newer." >&2; exit 1; fi
 node_major="$("$node_bin" -p 'process.versions.node.split(".").map(Number).reduce((a,v,i)=>i<2?a*1000+v:a,0)')"
 if (( node_major < 22018 )); then echo "Node $("$node_bin" -v) is too old: Alotbot needs 22.18 or newer." >&2; exit 1; fi
@@ -103,7 +103,7 @@ fi
 # Signed with one local certificate so macOS keeps Microphone, Screen Recording and Accessibility
 # access across rebuilds and updates (an ad hoc signature changes every build, and macOS then asks again).
 # It is not an Apple Developer ID, so a downloaded copy still needs one "Open Anyway" (see the README).
-sign_name="Grok Call Local Signing"
+sign_name="Alotbot Local Signing"
 if ! security find-certificate -c "$sign_name" >/dev/null 2>&1; then
   echo "Creating the local signing certificate \"$sign_name\" in your login keychain (once)."
   /usr/bin/openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -subj "/CN=$sign_name" \

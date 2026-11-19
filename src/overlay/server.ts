@@ -154,7 +154,8 @@ export function logArgs(op: string, msg: Record<string, unknown>, args: Record<s
 }
 
 /** A screenshot the app saved of the shared screen: only its own artifacts folder's screen-*.png files. */
-export const SCREENSHOT_PATH = /^\/(?:[^/\0]+\/)*GrokCall\/artifacts\/screen-[A-Za-z0-9-]{1,64}\.png$/;
+// The app's data folder is Alotbot, or GrokCall when a move from the old name failed (mac/Sources/Alotbot/Migration.swift).
+export const SCREENSHOT_PATH = /^\/(?:[^/\0]+\/)*(?:Alotbot|GrokCall)\/artifacts\/screen-[A-Za-z0-9-]{1,64}\.png$/;
 /** The shared screen is read at most this often; faster updates are ignored. */
 export const SCREEN_MIN_MS = 900;
 
@@ -442,7 +443,7 @@ export function createOverlayServer(opts: OverlayOptions) {
           if (!call.screen) throw new ClientError('not sharing a screen');
           if (typeof m.text !== 'string') throw new ClientError('text must be text');
           const shot = m.screenshot ?? null;
-          if (shot !== null && (typeof shot !== 'string' || !SCREENSHOT_PATH.test(shot) || shot.includes('/../'))) throw new ClientError('screenshot must be one of Grok Call\'s own screen captures');
+          if (shot !== null && (typeof shot !== 'string' || !SCREENSHOT_PATH.test(shot) || shot.includes('/../'))) throw new ClientError('screenshot must be one of Alotbot\'s own screen captures');
           if (m.title !== undefined && m.title !== null && typeof m.title !== 'string') throw new ClientError('title must be text');
           const now = Date.now();
           if (now - this.screenAt < SCREEN_MIN_MS) return { changed: false, ignored: true };
@@ -718,9 +719,9 @@ export function createOverlayServer(opts: OverlayOptions) {
             ? actionStore.list({ callId: `${call.callId}-${botId}` }).filter((a) => a.target === 'agent' && (a.status === 'running' || a.status === 'waiting_approval')).sort((x, y) => x.createdAt - y.createdAt).map((a) => a.id)
             : [];
           const c = incoming.addCallback(botId, botName, typeof args.reason === 'string' ? args.reason : '', { at: when.at, waitsFor });
-          if (c.at === null) return `Call back set: Grok Call rings ${USER} once your ${c.waitsFor.length === 1 ? 'job finishes' : `${c.waitsFor.length} jobs finish`}, and you open that call with the result.`;
+          if (c.at === null) return `Call back set: Alotbot rings ${USER} once your ${c.waitsFor.length === 1 ? 'job finishes' : `${c.waitsFor.length} jobs finish`}, and you open that call with the result.`;
           const at = new Date(c.at).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit', timeZone: zone() });
-          return `Call back set: Grok Call rings ${USER} at ${at}, and you open that call. Tell him in a few words.`;
+          return `Call back set: Alotbot rings ${USER} at ${at}, and you open that call. Tell him in a few words.`;
         },
       };
       this.log = log;

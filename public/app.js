@@ -42,7 +42,7 @@ async function api(path, method = 'GET', payload = undefined, timeoutMs = 0) {
     res = await fetch(path, opts);
   } catch (err) {
     if (err?.name === 'TimeoutError') throw new Error(`No answer within ${timeoutMs / 1000} s.`);
-    throw new Error('Grok Call server is not reachable. Is it still running?');
+    throw new Error('Alotbot server is not reachable. Is it still running?');
   }
   const body = await res.json().catch(() => ({}));
   if (res.status === 401) throw new SignedOut(body.error || 'Signed out.');
@@ -456,7 +456,7 @@ async function saveCall(data) {
   const download = $('#saved-download');
   URL.revokeObjectURL(download.href);
   download.href = URL.createObjectURL(new Blob([markdown], { type: 'text/markdown' }));
-  download.download = `grok-call-${new Date(data.endedAt).toISOString().slice(0, 16).replace(/:/g, '-')}.md`;
+  download.download = `alotbot-${new Date(data.endedAt).toISOString().slice(0, 16).replace(/:/g, '-')}.md`;
   const where = $('#saved-where');
   where.className = 'muted';
   where.textContent = 'Saving…';

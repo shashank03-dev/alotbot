@@ -4,7 +4,7 @@ import AlotbotCore
 
 /// Where the backend lives and how to run it. A downloaded app carries its own backend and Node inside
 /// (Contents/Resources/backend, Contents/MacOS/node). A developer build points at this repo through Info.plist.
-/// GROK_CALL_REPO and GROK_CALL_NODE override both (for `swift run`).
+/// ALOTBOT_REPO and ALOTBOT_NODE override both (for `swift run`).
 struct BackendPaths {
     let repo: URL
     let node: URL
@@ -22,14 +22,14 @@ struct BackendPaths {
                         exists: (String) -> Bool, executable: (String) -> Bool) throws -> BackendPaths {
         let bundled = bundle.appendingPathComponent("Contents/Resources/backend").path
         let entry = "src/overlay/main.ts"
-        let repo = env["GROK_CALL_REPO"] ?? (exists("\(bundled)/\(entry)") ? bundled : info["GCRepoPath"] as? String)
+        let repo = env["ALOTBOT_REPO"] ?? (exists("\(bundled)/\(entry)") ? bundled : info["GCRepoPath"] as? String)
         guard let repo else {
             throw BackendError.setup("This copy of Alotbot is incomplete. Download it again from github.com/shashank03-dev/grok-call.")
         }
         guard exists(URL(fileURLWithPath: repo).appendingPathComponent(entry).path) else {
             throw BackendError.setup("The Alotbot folder moved: \(repo) has no \(entry). Rebuild the app from its new place.")
         }
-        let candidates = [env["GROK_CALL_NODE"], bundle.appendingPathComponent("Contents/MacOS/node").path, info["GCNodePath"] as? String, "/opt/homebrew/bin/node", "/usr/local/bin/node"].compactMap { $0 }
+        let candidates = [env["ALOTBOT_NODE"], bundle.appendingPathComponent("Contents/MacOS/node").path, info["GCNodePath"] as? String, "/opt/homebrew/bin/node", "/usr/local/bin/node"].compactMap { $0 }
         guard let node = candidates.first(where: executable) else {
             throw BackendError.setup("Node.js was not found. Install Node 22.18 or newer, then reopen Alotbot.")
         }
@@ -119,7 +119,7 @@ final class Backend: NSObject, URLSessionWebSocketDelegate {
         env["OVERLAY_TOKEN"] = token
         env["OVERLAY_PORT"] = "0"
         env["OVERLAY_DATA_DIR"] = p.dataDir.path
-        if env["GROK_CALL_USER"]?.isEmpty ?? true { env["GROK_CALL_USER"] = HostName.current }
+        if env["ALOTBOT_USER"]?.isEmpty ?? true { env["ALOTBOT_USER"] = HostName.current }
         proc.environment = env
         let input = Pipe(), output = Pipe(), errors = Pipe()
         proc.standardInput = input // closing it (or this app dying) stops the backend

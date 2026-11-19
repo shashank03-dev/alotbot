@@ -120,20 +120,20 @@ export class ConnectionAuth {
       });
       if (this.current !== flow) return reply(400, 'This sign-in was closed.');
       flow.state = '';
-      if (error) { this.finish('cancelled', 'The provider declined sign-in. Existing connections were kept.'); return reply(200, 'Sign-in was cancelled. Return to Grok Call.'); }
+      if (error) { this.finish('cancelled', 'The provider declined sign-in. Existing connections were kept.'); return reply(200, 'Sign-in was cancelled. Return to Alotbot.'); }
       if (result.continueAuthorizationUrl) {
         this.authorize(result.continueAuthorizationUrl);
-        return reply(200, 'Another sign-in step is needed. Return to Grok Call to continue.');
+        return reply(200, 'Another sign-in step is needed. Return to Alotbot to continue.');
       }
       const checked = await this.rpc(DASHBOARD, 'CheckHttpMcpStatus', { serverIdentifiers: [flow.server], accountKey: result.accountKey || flow.account, oauthRedirectUri: this.callback, statusOnly: true, userInitiated: false });
       if (this.current !== flow) return reply(400, 'This sign-in was closed.');
       const status = checked.statuses?.find((s: any) => s.serverIdentifier === flow.server);
       if (!status || status.requiresAuth || !(status.isAvailable || status.hasValidToken || status.signedIn)) throw new Error('Sign-in returned, but Grok has not verified this connection. Refresh its status or reconnect.');
       this.finish('connected', 'Connected. Your bots can discover the app now.');
-      reply(200, 'Connected. Return to Grok Call.');
+      reply(200, 'Connected. Return to Alotbot.');
     } catch (err) {
       if (this.current === flow) this.finish('failed', connectionProblem(err).message);
-      reply(400, 'Sign-in could not be completed. Return to Grok Call for its status.');
+      reply(400, 'Sign-in could not be completed. Return to Alotbot for its status.');
     }
   }
 

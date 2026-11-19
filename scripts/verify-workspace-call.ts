@@ -9,7 +9,7 @@ import {spawn} from 'node:child_process';
 import WebSocket from 'ws';
 import {AuthStore} from '../src/auth.ts';
 import {createOverlayServer} from '../src/overlay/server.ts';
-const realStore=new AuthStore(path.join(os.homedir(),'Library/Application Support/GrokCall'));
+const realStore=new AuthStore(path.join(os.homedir(),'Library/Application Support/Alotbot'));
 const initial=realStore.read();assert.ok(initial);
 const temporary=fs.mkdtempSync(path.join(os.tmpdir(),'grok-workspace-call-'));fs.chmodSync(temporary,0o700);
 const store=new AuthStore(temporary);store.write(initial);

@@ -132,7 +132,7 @@ export class ComputerViewer {
   private release(v:Viewer){for(const c of v.clients)for(const packet of c.gate.release())if(c.upstream.readyState===WebSocket.OPEN)c.upstream.send(packet);v.controlled=false;}
   async handle(req:http.IncomingMessage,res:http.ServerResponse):Promise<boolean>{
     const raw=req.url??'/',local=new URL(raw,this.o.origin()),parts=local.pathname.split('/');if(parts[1]!=='computer')return false;
-    const fail=(code:number)=>{res.writeHead(code,{'content-type':'text/plain','cache-control':'no-store'});res.end('This computer viewer is unavailable. Reconnect from Grok Call.');};
+    const fail=(code:number)=>{res.writeHead(code,{'content-type':'text/plain','cache-control':'no-store'});res.end('This computer viewer is unavailable. Reconnect from Alotbot.');};
     try{
       if (/%2e|%2f|%5c/i.test(raw.split('?')[0])) {fail(403);return true;}
       const v=this.get(parts[2]);

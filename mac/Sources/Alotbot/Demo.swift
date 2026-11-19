@@ -1,13 +1,13 @@
 import Foundation
 import AlotbotCore
 
-/// GROK_CALL_DEMO=1 plays a scripted call with no backend, for checking the overlay's look and motion.
-/// GROK_CALL_DEMO_TRAY (add, chat, newBot, card) opens a tray; GROK_CALL_DEMO_BOTS sets how many bots join;
-/// GROK_CALL_DEMO_STAGE=1 opens the full view. GROK_CALL_DEMO_SCRIPT=motion loops through every transition
+/// ALOTBOT_DEMO=1 plays a scripted call with no backend, for checking the overlay's look and motion.
+/// ALOTBOT_DEMO_TRAY (add, chat, newBot, card) opens a tray; ALOTBOT_DEMO_BOTS sets how many bots join;
+/// ALOTBOT_DEMO_STAGE=1 opens the full view. ALOTBOT_DEMO_SCRIPT=motion loops through every transition
 /// (fold, open, trays, card, full view, a bot joining and leaving, a toast, the call ending and starting again).
 @MainActor
 extension AppModel {
-    static var demo: Bool { ProcessInfo.processInfo.environment["GROK_CALL_DEMO"] == "1" }
+    static var demo: Bool { ProcessInfo.processInfo.environment["ALOTBOT_DEMO"] == "1" }
 
     func startDemo() {
         let env = ProcessInfo.processInfo.environment
@@ -25,7 +25,7 @@ extension AppModel {
             Bot(id: "f", name: "Planner", color: "orange", shape: "house"),
             Bot(id: "g", name: "Critic", color: "cyan", shape: "sparkle"),
         ]
-        let n = Int(env["GROK_CALL_DEMO_BOTS"] ?? "") ?? 3
+        let n = Int(env["ALOTBOT_DEMO_BOTS"] ?? "") ?? 3
         var inCall = Array(bots.prefix(max(1, min(n, bots.count))))
         tasks = [
             TaskItem(id: 1, title: "Launch plan", owner: hostName, status: "doing", parent: nil, waitsOn: [], by: hostName, doneBy: nil, blockedBy: []),
@@ -53,8 +53,8 @@ extension AppModel {
         }
         view = frame()
         overlayShown = true
-        mode = env["GROK_CALL_DEMO_STAGE"] == "1" ? .full : env["GROK_CALL_DEMO_EXPANDED"] == "0" ? .circle : .pill
-        switch env["GROK_CALL_DEMO_TRAY"] {
+        mode = env["ALOTBOT_DEMO_STAGE"] == "1" ? .full : env["ALOTBOT_DEMO_EXPANDED"] == "0" ? .circle : .pill
+        switch env["ALOTBOT_DEMO_TRAY"] {
         case "add": tray = .add
         case "newBot": tray = .newBot
         case "chat": tray = .chat
@@ -62,7 +62,7 @@ extension AppModel {
         default: break
         }
         audio.fakeLevel = { 0.35 + 0.35 * sin(Date().timeIntervalSinceReferenceDate * 11) }
-        if env["GROK_CALL_DEMO_SCRIPT"] == "motion" {
+        if env["ALOTBOT_DEMO_SCRIPT"] == "motion" {
             let base = inCall
             let steps: [(Double, String, () -> Void)] = [
                 (1.5, "fold", { self.setMode(.circle) }),
@@ -91,7 +91,7 @@ extension AppModel {
         }
         Timer.scheduledTimer(withTimeInterval: 1.4, repeats: true) { _ in
             MainActor.assumeIsolated {
-                guard env["GROK_CALL_DEMO_FREEZE"] != "1", self.view != nil else { return }
+                guard env["ALOTBOT_DEMO_FREEZE"] != "1", self.view != nil else { return }
                 tick += 1
                 self.view = frame()
             }

@@ -8,7 +8,7 @@ import { GrokBotClient } from '../src/grokbot.ts';
 import { LOCAL_TOOLS } from '../src/local-tools.ts';
 import { OverlayCall } from '../src/overlay/call.ts';
 
-const dataDir = path.join(process.env.HOME!, 'Library/Application Support/GrokCall');
+const dataDir = path.join(process.env.HOME!, 'Library/Application Support/Alotbot');
 const client = new GrokBotClient({ store: new AuthStore(dataDir), setupTimeoutMs: 30000 });
 const bots = await client.listBots();
 const bot = bots.find((b) => b.name === "Shashank's Bot") ?? bots[0];

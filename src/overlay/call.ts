@@ -100,7 +100,7 @@ export interface CallBacks {
 
 export const CALLBACK_TOOL = fn(
   'call_back_later',
-  `Promise ${USER} a call back: Grok Call rings him then, and you open that call by saying why you called. Use it when he asks ` +
+  `Promise ${USER} a call back: Alotbot rings him then, and you open that call by saying why you called. Use it when he asks ` +
     'you to call him back or to remind him by a call, or when you offer to call back with a result and he agrees. Give exactly one ' +
     'of in_minutes, at or when_job_done. Never use it without his agreement.',
   {
@@ -410,7 +410,7 @@ export class OverlayCall extends CallBase {
   look(me: string): string {
     const sc = this.screen;
     this.event('tool', `${me} looked at your screen`);
-    if (!sc) return `${USER} is not sharing his screen. Ask him to share it in Grok Call if he wants you to see it.`;
+    if (!sc) return `${USER} is not sharing his screen. Ask him to share it in Alotbot if he wants you to see it.`;
     if (!sc.text) return `${USER} is sharing ${screenName(sc)}, but no text has been read from it yet (it may be an image, or still loading). Say so.`;
     const age = Math.max(0, Math.round((this.d.now() - sc.at) / 1000));
     return (
@@ -800,7 +800,7 @@ const nums = (v: unknown): number[] => (Array.isArray(v) ? v.map((x) => Number(S
 /** The call as Markdown: summary, tasks, action items and the transcript. */
 export function overlayMarkdown(d: ReturnType<OverlayCall['overlayExport']>, formatTime = (ms: number) => new Date(ms).toISOString()): string {
   const mins = Math.max(0, Math.round((d.endedAt - d.startedAt) / 60000));
-  const out = [`# Grok ${d.kind === 'meeting' ? 'Meeting' : 'Call'}, ${formatTime(d.startedAt)}`, '', `Bots: ${d.bots.join(', ') || 'none'}  `];
+  const out = [`# ${d.kind === 'meeting' ? 'Grok Meeting' : 'Alotbot'}, ${formatTime(d.startedAt)}`, '', `Bots: ${d.bots.join(', ') || 'none'}  `];
   if (d.kind === 'meeting') out.push('Kind: meeting  ');
   out.push(`Length: ${mins} min`, '', '## Summary', '', d.summary || '_No summary was saved._', '');
   if (d.decisions.length) out.push('## Decisions', '', ...d.decisions.map((x) => `- ${x}`), '');

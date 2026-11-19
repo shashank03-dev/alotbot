@@ -143,17 +143,17 @@ export const LANDED_TEXT_MAX = 1500;
 export function landedText(message: any): string | null {
   const type = str(message?.type);
   if (type === 'text') return str(message.content).trim() || null;
-  if (type === 'auto-review-approval') return `It is waiting for approval in Grok Call’s Activity: ${str(message.approval?.summary).trim() || 'an action it wants to take'}.`;
+  if (type === 'auto-review-approval') return `It is waiting for approval in Alotbot’s Activity: ${str(message.approval?.summary).trim() || 'an action it wants to take'}.`;
   if (type === 'connector') {
     const app = str(message.connector).trim() || 'an app';
-    return `It needs ${app} ${message.variant === 'connect' ? 'connected' : 'signed in again'} in Grok Call’s Connections first.`;
+    return `It needs ${app} ${message.variant === 'connect' ? 'connected' : 'signed in again'} in Alotbot’s Connections first.`;
   }
   if (type === 'widget') {
     const options = Array.isArray(message.widget?.options) ? message.widget.options.map((o: any) => str(o?.label).trim()).filter(Boolean) : [];
     const prompt = str(message.widget?.prompt).trim() || 'It asks a question';
     return options.length ? `${prompt} Options: ${options.join(', ')}.` : prompt;
   }
-  if (['user-form', 'secret-request', 'email-draft', 'slack-draft', 'imessage-draft', 'meeting-chat-draft'].includes(type)) return `It sent a ${type} request. Review it in this bot’s Activity in Grok Call; do not read or speak secret values.`;
+  if (['user-form', 'secret-request', 'email-draft', 'slack-draft', 'imessage-draft', 'meeting-chat-draft'].includes(type)) return `It sent a ${type} request. Review it in this bot’s Activity in Alotbot; do not read or speak secret values.`;
   return type ? `It sent a ${type} card, which only shows in the Grok Bot app chat.` : null;
 }
 

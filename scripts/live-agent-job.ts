@@ -15,11 +15,11 @@ const dir = fs.mkdtempSync(path.join(base, 'grok-agent-verification-'));
 const nonce = crypto.randomBytes(12).toString('hex');
 const file = path.join(dir, 'proof.txt');
 fs.writeFileSync(file, nonce, { mode: 0o600 });
-const grok = new GrokBotClient({ store: new AuthStore(process.env.GROK_CALL_DATA_DIR ?? path.join(os.homedir(), 'Library/Application Support/GrokCall')) });
+const grok = new GrokBotClient({ store: new AuthStore(process.env.ALOTBOT_DATA_DIR ?? path.join(os.homedir(), 'Library/Application Support/Alotbot')) });
 const store = new ActionStore(dir);
 const watcher = new JobWatcher({ grok, store, setTimer: () => 0, clearTimer: () => {}, now: Date.now });
 const actions = new CallActions(grok, store, watcher);
-const terminal = process.env.GROK_CALL_REQUIRE_TERMINAL === '1';
+const terminal = process.env.ALOTBOT_REQUIRE_TERMINAL === '1';
 const report: any = { at: new Date().toISOString(), approvalsResolved: 0, status: 'running', executor: terminal ? 'agent-local-terminal' : 'agent-local-file' };
 try {
   const bot = (await grok.listBots())[0]; await grok.voiceSession(bot.id);

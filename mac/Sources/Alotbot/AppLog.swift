@@ -11,9 +11,9 @@ enum AppLog {
         return f
     }()
 
-    /// GROK_CALL_APP_LOG moves it (the tests use this so they never write into your real log).
+    /// ALOTBOT_APP_LOG moves it (the tests use this so they never write into your real log).
     static var url: URL {
-        if let path = ProcessInfo.processInfo.environment["GROK_CALL_APP_LOG"], !path.isEmpty { return URL(fileURLWithPath: path) }
+        if let path = ProcessInfo.processInfo.environment["ALOTBOT_APP_LOG"], !path.isEmpty { return URL(fileURLWithPath: path) }
         return DataFolder.location.appendingPathComponent("logs/app.log")
     }
 

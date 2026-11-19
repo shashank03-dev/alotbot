@@ -1683,7 +1683,7 @@ test('exportMarkdown: summary, items, done tasks, notes, direction and transcrip
   assert.equal(
     exportMarkdown(data, (ms) => `T${ms}`),
     [
-      '# Grok Call, T0', '', 'Bots: Bot A, Bot B  ', 'Length: 2 min', '',
+      '# Alotbot, T0', '', 'Bots: Bot A, Bot B  ', 'Length: 2 min', '',
       '## Summary', '', 'Talked.', '',
       '## Action items', '', '- [ ] Call Sam', '',
       '## Done during the call', '', '- [x] Ship (Bot B)', '',
@@ -1693,7 +1693,7 @@ test('exportMarkdown: summary, items, done tasks, notes, direction and transcrip
     ].join('\n'),
   );
   const empty = exportMarkdown({ ...data, endedAt: -5, bots: [], lines: [], summary: '', notes: [], tasks: [], direction: [], memory: { summary: '', actionItems: [], notes: [] } });
-  assert.match(empty, /^# Grok Call, 1970-01-01T00:00:00\.000Z\n\nBots: none  \nLength: 0 min/);
+  assert.match(empty, /^# Alotbot, 1970-01-01T00:00:00\.000Z\n\nBots: none  \nLength: 0 min/);
   for (const t of ['_No summary was saved._', '## Action items\n\n_None._', '_Nothing was said._']) assert.ok(empty.includes(t), t);
   assert.ok(!empty.includes('## Notes') && !empty.includes('## Done during') && !empty.includes('## Current direction'));
   assert.ok(!empty.includes('## Decisions'), 'old exports without decisions');
@@ -4166,13 +4166,13 @@ test('hostName keeps a name safe for prompts and name matching', () => {
   for (const empty of [undefined, null, '', '   ', '***']) assert.equal(hostName(empty), 'Host');
 });
 
-test('USER comes from GROK_CALL_USER, and falls back to Host', async () => {
+test('USER comes from ALOTBOT_USER, and falls back to Host', async () => {
   assert.equal(USER, 'Shashank'); // npm test sets it
   const { execFileSync } = await import('node:child_process');
   const read = (env: Record<string, string>) =>
     execFileSync(process.execPath, ['--input-type=module', '-e', "console.log((await import('./public/core.js')).USER)"], { env: { PATH: process.env.PATH!, ...env } }).toString().trim();
   assert.equal(read({}), 'Host');
-  assert.equal(read({ GROK_CALL_USER: 'Priya' }), 'Priya');
+  assert.equal(read({ ALOTBOT_USER: 'Priya' }), 'Priya');
 });
 
 test('text-only calls: replies are asked for as text, any audio is dropped, and the words still count', async () => {

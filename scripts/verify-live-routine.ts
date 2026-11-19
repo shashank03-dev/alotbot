@@ -1,7 +1,7 @@
 // Explicitly authorized disposable acceptance: no external apps, messages, browsing or purchases.
 import fs from 'node:fs';import os from 'node:os';import path from 'node:path';import crypto from 'node:crypto';
 import {AuthStore} from '../src/auth.ts';import {GrokBotClient} from '../src/grokbot.ts';
-const client=new GrokBotClient({store:new AuthStore(path.join(os.homedir(),'Library/Application Support/GrokCall'))}),runtime=client.createRuntime();
+const client=new GrokBotClient({store:new AuthStore(path.join(os.homedir(),'Library/Application Support/Alotbot'))}),runtime=client.createRuntime();
 const proposal=JSON.parse(fs.readFileSync(new URL('../docs/verification/bot-workspaces/live-routine-proposal.json',import.meta.url),'utf8'));
 const marker='/tmp/grok-call-verification-'+crypto.randomUUID()+'.txt';proposal.prompt+=` Use this exact temporary file path: ${marker}.`;
 let botId='',createdId:string|null=null;
@@ -10,7 +10,7 @@ try {
  const bot=(await client.listBots())[0];if(!bot)throw new Error('No bot is available.');botId=bot.id;
  await runtime.computerConnection(botId,true);
  const before=(await runtime.command(botId,'resources')).routines;
- const existing=before.find((r:any)=>r.name===proposal.name&&r.source==='computer'&&r.spec.prompt?.includes('GROK_CALL_ROUTINE_VERIFIED')&&r.enabled===false);
+ const existing=before.find((r:any)=>r.name===proposal.name&&r.source==='computer'&&r.spec.prompt?.includes('ALOTBOT_ROUTINE_VERIFIED')&&r.enabled===false);
  if(before.some((r:any)=>r.name===proposal.name)&&!existing)throw new Error('A routine with the verification name already exists. It was not changed.');
  if(existing)createdId=existing.id;else await runtime.command(botId,'routineCreate',{spec:proposal});
  for(let i=0;i<90;i++){const found=(await runtime.command(botId,'resources')).routines.find((r:any)=>r.name===proposal.name&&!before.some((b:any)=>b.id===r.id));if(existing||found){const owned=existing??found;createdId=owned.id;if(owned.enabled)throw new Error('The provider enabled the test unexpectedly.');break;}await new Promise(r=>setTimeout(r,1000));}
@@ -24,7 +24,7 @@ try {
  let verified=false;
  for(let i=0;i<45;i++){
   await new Promise(r=>setTimeout(r,1000));
-  try {const identity=await runtime.identity(botId);const reply=await runtime.gateway(identity,'readAttachmentChunk',{agentId:identity.agentId,path:marker,offset:0,length:128},false);if(Buffer.from(reply.bytesBase64??'','base64').toString('utf8').trim()==='GROK_CALL_ROUTINE_VERIFIED'){verified=true;break;}}catch{}
+  try {const identity=await runtime.identity(botId);const reply=await runtime.gateway(identity,'readAttachmentChunk',{agentId:identity.agentId,path:marker,offset:0,length:128},false);if(Buffer.from(reply.bytesBase64??'','base64').toString('utf8').trim()==='ALOTBOT_ROUTINE_VERIFIED'){verified=true;break;}}catch{}
  }
  report('fileVerification',{markerMatches:verified});if(!verified)throw new Error('The test file was not verified within the acceptance window.');
  const current=(await runtime.command(botId,'resources')).routines.find((r:any)=>r.id===createdId);report('history',{runRecords:Array.isArray(current?.spec.runs)?current.spec.runs.length:0});

@@ -95,7 +95,7 @@ test('parseCallMarkdown reads back what overlayMarkdown writes, and tolerates ol
       { who: 'Meeting', text: 'Can you hear me?', cut: false },
     ],
   });
-  const bare = parseCallMarkdown(F2, '# Grok Call, T\n\nBots: none  \n\n## Summary\n\n_No summary was saved._\n\n## Action items\n\n- [ ] Old style item\n- [x] Done item\n');
+  const bare = parseCallMarkdown(F2, '# Alotbot, T\n\nBots: none  \n\n## Summary\n\n_No summary was saved._\n\n## Action items\n\n- [ ] Old style item\n- [x] Done item\n');
   assert.equal(bare.kind, 'call');
   assert.deepEqual(bare.bots, []);
   assert.equal(bare.summary, '');
@@ -282,7 +282,7 @@ test('remove, and backfill from the calls folder: adds new files, drops gone one
   const lib = new CallLibrary(d);
   assert.deepEqual(lib.backfill(callsDir), { added: 0, removed: 0, failed: [] }, 'no calls folder yet');
   fs.mkdirSync(callsDir);
-  fs.writeFileSync(path.join(callsDir, F1), '# Grok Call, T\n\nBots: Bot A  \nLength: 3 min\n\n## Summary\n\nPricing talk.\n\n## Transcript\n\n**Bot A:** ten dollars  \n');
+  fs.writeFileSync(path.join(callsDir, F1), '# Alotbot, T\n\nBots: Bot A  \nLength: 3 min\n\n## Summary\n\nPricing talk.\n\n## Transcript\n\n**Bot A:** ten dollars  \n');
   fs.writeFileSync(path.join(callsDir, 'notes.txt'), 'not a call');
   fs.mkdirSync(path.join(callsDir, F3)); // a folder with a call's name can't be read
   lib.index(rec(F2, { summary: 'Indexed, file gone.' }));

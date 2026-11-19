@@ -61,9 +61,9 @@ export function approvalOf(entry: TranscriptEntry): Approval | null {
 
 /** What the bot is told about an approval. */
 export function approvalText(a: Approval): string {
-  if (a.kind === 'local_tool') return `It is waiting for ${USER}'s OK to run this on their Mac: ${a.summary}. They can allow it in Grok Call or the Grok Bot app.`;
-  if (a.kind === 'auto_review') return `It is waiting for ${USER}'s approval: ${a.summary}. They can approve it in Grok Call or the Grok Bot app.`;
-  return `It needs ${a.summary} in Grok Call’s Connections first.`;
+  if (a.kind === 'local_tool') return `It is waiting for ${USER}'s OK to run this on their Mac: ${a.summary}. They can allow it in Alotbot or the Grok Bot app.`;
+  if (a.kind === 'auto_review') return `It is waiting for ${USER}'s approval: ${a.summary}. They can approve it in Alotbot or the Grok Bot app.`;
+  return `It needs ${a.summary} in Alotbot’s Connections first.`;
 }
 
 interface Live {

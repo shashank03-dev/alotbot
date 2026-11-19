@@ -5,7 +5,7 @@ type Launch = (dir: string, options: { headless: boolean; acceptDownloads: false
 
 /**
  * Browsers tried in order: Playwright's own Chromium (only if it was downloaded), then Google Chrome, then
- * Microsoft Edge. Each still runs on Grok Call's own profile, never your everyday one.
+ * Microsoft Edge. Each still runs on Alotbot's own profile, never your everyday one.
  */
 const CHANNELS: (string | undefined)[] = [undefined, 'chrome', 'msedge'];
 
@@ -24,7 +24,7 @@ export class LocalBrowser {
     return run;
   }
   private async execute(input: Record<string, unknown>) {
-    if (!this.enabled) throw new Error('Enable the dedicated browser in Grok Call settings first.');
+    if (!this.enabled) throw new Error('Enable the dedicated browser in Alotbot settings first.');
     const op = input.operation;
     if (!['navigate', 'inspect', 'click', 'fill'].includes(String(op))) throw new Error('Unknown browser operation.');
     if (op === 'navigate') {

@@ -41,7 +41,7 @@ test('email projection uses the verified sending route and exposes only display-
   assert.equal(project(email({draftRoute:'x',draftRouteVerified:7})).actions.length,2);
 });
 
-test('drafts Grok Call cannot send faithfully stay discard-only with an honest reason',()=>{
+test('drafts Alotbot cannot send faithfully stay discard-only with an honest reason',()=>{
   const bad=[[{path:'',sizeBytes:1}],[{path:'/a\0b',sizeBytes:1}],[{path:'/a',sizeBytes:-1}],[{path:'/a',sizeBytes:1.5}],[null],{},Array.from({length:26},(_,i)=>({path:'/f'+i,sizeBytes:1})),[{path:'x'.repeat(4097),sizeBytes:1}],[{path:7,sizeBytes:1}]];
   for(const attachments of bad){const card=project(email({draftRoute:{platform:'email',attachments}}));assert.deepEqual(card.actions,['discardDraft']);assert.match((card.draft as any).blockedReason,/can’t verify/);}
   const big=project(email({draftRoute:{platform:'email',attachments:[{path:'/big',sizeBytes:DRAFT_ATTACHMENT_MAX+1}]}}));assert.match((big.draft as any).blockedReason,/larger than 10 MB/);

@@ -40,7 +40,7 @@ export function forVoice(output: unknown, actionId: string): unknown {
   if (text.length <= VOICE_RESULT_MAX) return output;
   return {
     cut: true,
-    note: `The result was ${text.length} characters; this is the first ${VOICE_RESULT_MAX}. The full result is saved in Grok Call (action ${actionId}). Ask again with narrower arguments if you need more.`,
+    note: `The result was ${text.length} characters; this is the first ${VOICE_RESULT_MAX}. The full result is saved in Alotbot (action ${actionId}). Ask again with narrower arguments if you need more.`,
     start: text.slice(0, VOICE_RESULT_MAX),
   };
 }

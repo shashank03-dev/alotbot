@@ -82,7 +82,7 @@ test('serves the call page and its scripts with a strict CSP', async () => {
   assert.equal(page.status, 200);
   assert.match(page.headers.get('content-type')!, /text\/html/);
   assert.match(page.headers.get('content-security-policy')!, /connect-src 'self' wss:/);
-  assert.match(await page.text(), /<title>Grok Call<\/title>/);
+  assert.match(await page.text(), /<title>Alotbot<\/title>/);
   for (const p of ['/app.js', '/core.js']) {
     const r = await fetch(base + p);
     assert.equal(r.status, 200);

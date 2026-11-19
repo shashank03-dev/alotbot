@@ -2,9 +2,9 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from './config.ts';
 
-// The bots call you by name: your login name unless GROK_CALL_USER is set. Set before the call engine loads.
+// The bots call you by name: your login name unless ALOTBOT_USER is set. Set before the call engine loads.
 const login = os.userInfo().username;
-process.env.GROK_CALL_USER ||= login.charAt(0).toUpperCase() + login.slice(1);
+process.env.ALOTBOT_USER ||= login.charAt(0).toUpperCase() + login.slice(1);
 const { createApp } = await import('./server.ts');
 
 let config;
@@ -22,5 +22,5 @@ server.on('error', (err) => {
 });
 server.listen(config.port, config.host, () => {
   const host = config.host.includes(':') ? `[${config.host}]` : config.host;
-  console.log(`Grok Call is running. Open: http://${host}:${config.port}/#t=${server.token}`);
+  console.log(`Alotbot is running. Open: http://${host}:${config.port}/#t=${server.token}`);
 });

@@ -929,7 +929,7 @@ test('leaving indexes the call: the library lists it, searches it, opens it and 
   assert.deepEqual((await c.ok('library', { query: 'zebra', before: Date.now() + 1000, kind: null, limit: null })).calls, []);
   const opened = await c.ok('libraryCall', { id: first.id });
   assert.deepEqual(opened.lines.map((l: any) => [l.who, l.text]), [[USER, 'Bot A, what should the price be?'], ['Bot A', 'Sounds good.']]);
-  assert.match(opened.markdown, /^# Grok Call/);
+  assert.match(opened.markdown, /^# Alotbot/);
   // The next call's bots are told about it, and recall_calls finds it.
   h.sockets.clear();
   await inCall(h, c, ['a']);
@@ -996,7 +996,7 @@ test('deleting a call removes its file and index entry, and the next call no lon
 });
 
 test('the library is rebuilt from the saved files at start; a file removed by hand still opens from the index', async () => {
-  const md = '# Grok Call, T\n\nBots: Bot A  \nLength: 1 min\n\n## Summary\n\nOld pricing call.\n\n## Transcript\n\n**Bot A:** ten dollars  \n';
+  const md = '# Alotbot, T\n\nBots: Bot A  \nLength: 1 min\n\n## Summary\n\nOld pricing call.\n\n## Transcript\n\n**Bot A:** ten dollars  \n';
   const h = await start(true, 5, [], {}, {
     prepare: (dir) => {
       fs.mkdirSync(path.join(dir, 'calls'), { recursive: true });
@@ -1178,7 +1178,7 @@ test('a bot promises a call back during a call: by minutes or a time, or when it
   const a = h.sockets.get('a')!;
   assert.ok(a.lastSession().tools.some((t: any) => t.name === 'call_back_later'));
   reply(a, 'I will call you back.', [['call_back_later', { reason: 'Check the numbers', in_minutes: 30 }]]);
-  assert.match(a.outputs().at(-1)!, /^Call back set: Grok Call rings Shashank at [A-Z][a-z]{2} \d{1,2}:\d{2}\s?[AP]M, and you open that call\./);
+  assert.match(a.outputs().at(-1)!, /^Call back set: Alotbot rings Shashank at [A-Z][a-z]{2} \d{1,2}:\d{2}\s?[AP]M, and you open that call\./);
   const st = await c.ok('incoming');
   assert.deepEqual(st.callbacks.map((x: any) => [x.botId, x.reason, x.waitsFor]), [['a', 'Check the numbers', []]]);
   await c.ok('callbackCancel', { id: st.callbacks[0].id });
@@ -1210,11 +1210,11 @@ test('a call back waiting on a job rings after the call once the job finishes, a
   reply(a, 'On it.', [['send_task', { request: 'relay the launch thread' }]]);
   for (let i = 0; i < 40 && a.outputs().length < 2; i++) await new Promise((r) => setTimeout(r, 5));
   reply(a, 'I will call you when it is up.', [['call_back_later', { reason: 'The thread is posted', when_job_done: true }]]);
-  assert.equal(a.outputs().at(-1), 'Call back set: Grok Call rings Shashank once your job finishes, and you open that call with the result.');
+  assert.equal(a.outputs().at(-1), 'Call back set: Alotbot rings Shashank once your job finishes, and you open that call with the result.');
   reply(a, 'And the images.', [['send_task', { request: 'relay the images' }]]);
   for (let i = 0; i < 40 && a.outputs().length < 4; i++) await new Promise((r) => setTimeout(r, 5));
   reply(a, '', [['call_back_later', { reason: 'Both are up', when_job_done: true }]]);
-  assert.equal(a.outputs().at(-1), 'Call back set: Grok Call rings Shashank once your 2 jobs finish, and you open that call with the result.');
+  assert.equal(a.outputs().at(-1), 'Call back set: Alotbot rings Shashank once your 2 jobs finish, and you open that call with the result.');
   hostSays(a, 'Bot A, thanks.');
   const leaving = c.op('leave');
   await askedForSummary(a);
@@ -1339,8 +1339,9 @@ test('parseScreenSource and screenshot paths: what may be shared, and never a pa
     [{ app: 'Keychain Access', kind: 'window' }, /never shared/],
     [{ app: 'Safari', title: 'Bitwarden vault', kind: 'window' }, /never shared/],
   ] as [Record<string, unknown>, RegExp][]) assert.throws(() => parseScreenSource(m), why);
-  assert.ok(SCREENSHOT_PATH.test('/Users/me/Library/Application Support/GrokCall/artifacts/screen-AB12-cd.png'));
-  for (const bad of ['relative/GrokCall/artifacts/screen-1.png', '/Users/me/GrokCall/artifacts/observation-1.png', '/Users/me/GrokCall/artifacts/screen-1.png.sh', '/etc/passwd']) assert.ok(!SCREENSHOT_PATH.test(bad), bad);
+  assert.ok(SCREENSHOT_PATH.test('/Users/me/Library/Application Support/Alotbot/artifacts/screen-AB12-cd.png'));
+  assert.ok(SCREENSHOT_PATH.test('/Users/me/Library/Application Support/GrokCall/artifacts/screen-AB12-cd.png'), 'the fallback folder when the move failed');
+  for (const bad of ['relative/Alotbot/artifacts/screen-1.png', '/Users/me/Alotbot/artifacts/observation-1.png', '/Users/me/Alotbot/artifacts/screen-1.png.sh', '/etc/passwd']) assert.ok(!SCREENSHOT_PATH.test(bad), bad);
 });
 
 test('logArgs keeps only the size of screen text and meeting lines', () => {
@@ -1363,10 +1364,10 @@ test('sharing a screen through the app: updates are checked, throttled, kept out
   await c.next((m) => m.t === 'view' && m.view.screen?.app === 'Safari', true);
   await c.fails('screenUpdate', { text: 5 }, /text must be text/);
   await c.fails('screenUpdate', { text: 'x', screenshot: '/etc/passwd' }, /own screen captures/);
-  await c.fails('screenUpdate', { text: 'x', screenshot: '/a/GrokCall/artifacts/../artifacts/screen-1.png' }, /own screen captures/);
+  await c.fails('screenUpdate', { text: 'x', screenshot: '/a/Alotbot/artifacts/../artifacts/screen-1.png' }, /own screen captures/);
   await c.fails('screenUpdate', { text: 'x', screenshot: 7 }, /own screen captures/);
   await c.fails('screenUpdate', { text: 'x', title: 7 }, /title must be text/);
-  const shot = '/Users/me/Library/Application Support/GrokCall/artifacts/screen-1.png';
+  const shot = '/Users/me/Library/Application Support/Alotbot/artifacts/screen-1.png';
   assert.deepEqual(await c.ok('screenUpdate', { text: 'TOTAL 4,200 secret', screenshot: shot, title: '  Pricing  ' }), { changed: true });
   assert.deepEqual(await c.ok('screenUpdate', { text: 'TOTAL 9', title: null }), { changed: false, ignored: true }, 'too soon after the last one');
   await new Promise((r) => setTimeout(r, SCREEN_MIN_MS + 50));

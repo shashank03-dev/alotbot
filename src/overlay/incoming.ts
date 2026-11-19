@@ -288,7 +288,7 @@ export function parseSaved(raw: unknown, zone: string, now: number): Saved {
       createdAt: g.createdAt as number,
       state,
       until: null,
-      note: state === g.state ? oneLine(g.note, 200) : 'Grok Call was closed while this rang.',
+      note: state === g.state ? oneLine(g.note, 200) : 'Alotbot was closed while this rang.',
       scheduleId: typeof g.scheduleId === 'string' ? g.scheduleId : null,
       at: snoozed ? (g.at as number) : null,
     });
@@ -419,7 +419,7 @@ export class IncomingCalls {
       if (this.s.rings.some((r) => r.scheduleId === s.id && (r.state === 'held' || r.state === 'ringing'))) continue;
       dirty = true;
       const ring = this.newRing('schedule', s.title, s.agenda ? `Standing call. Agenda: ${s.agenda}` : 'Standing call.', s.botIds, s.agenda, s.id);
-      if (now - due > LATE_GRACE_MS) this.miss(ring, 'It was due while Grok Call was closed or the Mac was asleep.');
+      if (now - due > LATE_GRACE_MS) this.miss(ring, 'It was due while Alotbot was closed or the Mac was asleep.');
       else if (this.dndActive(now)) this.miss(ring, 'Do not disturb was on.');
       else this.offer(ring);
     }
@@ -430,7 +430,7 @@ export class IncomingCalls {
       const late = now - r.at! > HELD_MAX_MS;
       r.createdAt = r.at!;
       r.at = null;
-      if (late) this.miss(r, 'It was due while Grok Call was closed or the Mac was asleep.');
+      if (late) this.miss(r, 'It was due while Alotbot was closed or the Mac was asleep.');
       else this.offer(r);
     }
     for (const c of [...this.s.callbacks]) {
@@ -438,7 +438,7 @@ export class IncomingCalls {
       dirty = true;
       this.s.callbacks.splice(this.s.callbacks.indexOf(c), 1);
       const ring = this.newRing('callback', `${c.botName} is calling back`, c.reason, [c.botId], '', null);
-      if (now - c.at > HELD_MAX_MS) this.miss(ring, 'It was due while Grok Call was closed or the Mac was asleep.');
+      if (now - c.at > HELD_MAX_MS) this.miss(ring, 'It was due while Alotbot was closed or the Mac was asleep.');
       else this.offer(ring);
     }
     dirty = this.release(now) || dirty;
@@ -723,7 +723,7 @@ export class IncomingCalls {
    * Returns what the bot is told. Throws IncomingError with the reason it can't.
    */
   addCallback(botId: string, botName: string, reason: string, when: { at: number | null; waitsFor: string[] }): Callback {
-    if (!this.s.settings.botCallbacks) throw new IncomingError('The host turned off bot callbacks in Grok Call settings. Tell him you can\'t call back.');
+    if (!this.s.settings.botCallbacks) throw new IncomingError('The host turned off bot callbacks in Alotbot settings. Tell him you can\'t call back.');
     const r = oneLine(reason, REASON_MAX);
     if (!r) throw new IncomingError('Give reason: what you will call about.');
     const now = this.d.now();

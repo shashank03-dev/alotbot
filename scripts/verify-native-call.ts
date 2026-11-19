@@ -12,10 +12,10 @@ import { AuthStore } from '../src/auth.ts';
 import { createOverlayServer } from '../src/overlay/server.ts';
 const exec = promisify(execFile);
 const fixture = (await exec('python3', ['scripts/build-verification-app.py'], { cwd: process.cwd() })).stdout.trim();
-assert.ok(fixture.startsWith(path.join(os.homedir(), 'Library/Application Support/GrokCall/live-tests/')));
-const fixtureApp = path.join(fixture, 'Grok Call Verification.app');
+assert.ok(fixture.startsWith(path.join(os.homedir(), 'Library/Application Support/Alotbot/live-tests/')));
+const fixtureApp = path.join(fixture, 'Alotbot Verification.app');
 const expected = fs.readFileSync(path.join(fixture, 'phrase.txt'), 'utf8').trim();
-const realStore = new AuthStore(path.join(os.homedir(), 'Library/Application Support/GrokCall'));
+const realStore = new AuthStore(path.join(os.homedir(), 'Library/Application Support/Alotbot'));
 const auth = realStore.read(); assert.ok(auth);
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'grok-native-call-'));
 const tempStore = new AuthStore(dir); tempStore.write(auth);
@@ -57,14 +57,14 @@ ws.on('message', (data, binary) => {
   if (m.t === 'lines') for (const l of m.lines) { lines.push(l.text); log.push({ line: l.text }); }
   if (m.t === 'localTool') void (async () => {
     assert.equal(m.tool, 'mac_observe', 'This check must not operate any real app or browser through native tools');
-    assert.ok(['Grok Call Verification', 'me.shashankdev.grokcall.verification'].includes(m.input.app));
+    assert.ok(['Alotbot Verification', 'me.shashankdev.alotbot.verification'].includes(m.input.app));
     const input = path.join(dir, `${m.id}.json`), result = path.join(dir, `${m.id}-result.json`);
     fs.writeFileSync(input, JSON.stringify(m), { mode: 0o600 });
     await exec('/bin/bash', ['mac/test.sh', '--skip-build', '--filter', 'VoiceCaptureBridgeTests'], { cwd: process.cwd(), env: { ...process.env, GROK_CAPTURE_COMMAND: input, GROK_CAPTURE_RESULT: result }, timeout: 45000, maxBuffer: 1024 * 1024 });
     const text = fs.readFileSync(result, 'utf8');
     const context = JSON.parse(fs.readFileSync(result + '.context', 'utf8'));
     assert.equal(context.foregroundBefore, context.foregroundAfter, 'Capture must preserve focus');
-    assert.notEqual(context.foregroundBefore, 'me.shashankdev.grokcall.verification', 'This acceptance read must exercise a background app');
+    assert.notEqual(context.foregroundBefore, 'me.shashankdev.alotbot.verification', 'This acceptance read must exercise a background app');
     native.push({ input: m.input, result: JSON.parse(text), context });
     await op('localResult', { id: m.id, text });
   })().catch(async (e) => { log.push({ nativeError: e.message }); await op('localResult', { id: m.id, error: e.message }).catch(() => {}); });
@@ -83,7 +83,7 @@ try {
   await until(() => fs.existsSync(path.join(fixture, 'navigation-proof.txt')));
   assert.equal(fs.readFileSync(path.join(fixture, 'navigation-proof.txt'), 'utf8'), expected, 'A real navigation must produce the fixture proof');
   const before = lines.length;
-  await op('say', { text: 'Can you read all windows of Grok Call Verification now, including their background, navigation and reference proof phrases? It is already open. Do not activate it or launch anything. Use actual window reading rather than window titles.' });
+  await op('say', { text: 'Can you read all windows of Alotbot Verification now, including their background, navigation and reference proof phrases? It is already open. Do not activate it or launch anything. Use actual window reading rather than window titles.' });
   await until(() => native.length > 0 && lines.slice(before).some((l) => l.toLowerCase().includes(expected.toLowerCase())));
   assert.ok(native.some((n) => n.input.operation === 'read_all' && n.result.capturedCount === 2), 'Both real app windows must be captured, not merely listed');
   const referencePhrase = expected.split(' ').reverse().join(' ');
