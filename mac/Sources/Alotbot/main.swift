@@ -12,8 +12,9 @@ if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--contact-shee
     }
 }
 
-// Moves the data folder and settings from the old GrokCall name before anything else reads them.
-LaunchMigration.run()
+// Moves the data folder and settings from the old GrokCall name before anything else reads them. While Grok Call still
+// runs (you chose not to quit it), Alotbot does not open beside it.
+guard LaunchMigration.run() else { exit(0) }
 
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory) // menu bar only, no Dock icon

@@ -51,6 +51,39 @@ import Testing
         #expect(!asked, "nothing to move: no need to ask")
     }
 
+    /// While Grok Call ran, Alotbot opened on the GrokCall folder too: two backends on one folder ring every standing
+    /// call twice and refresh one sign-in from two places. Now it asks to quit Grok Call, moves once it has, and does not
+    /// open at all while Grok Call keeps running.
+    @Test func grokCallIsQuitBeforeTheMoveAndAlotbotDoesNotOpenBesideIt() throws {
+        let (root, old, new) = try sandbox()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try makeFolder(old, file: "auth.json")
+
+        // You quit it: the folder moves.
+        var running = true
+        var asked = 0
+        let quit = FolderMigration.decide(old: old, new: new, fileManager: .default, oldAppRunning: { running }, quitOldApp: { asked += 1; running = false; return true })
+        #expect(quit == FolderMigration.Decision(folder: new, outcome: .moved))
+        #expect(asked == 1)
+        #expect(LaunchMigration.mayLaunch(quit.outcome))
+
+        // You said not now, or it did not quit: nothing moves, and Alotbot does not open beside it.
+        try FileManager.default.moveItem(at: new, to: old)
+        let declined = FolderMigration.decide(old: old, new: new, fileManager: .default, oldAppRunning: { true }, quitOldApp: { false })
+        #expect(declined == FolderMigration.Decision(folder: old, outcome: .oldAppRunning))
+        let stuck = FolderMigration.decide(old: old, new: new, fileManager: .default, oldAppRunning: { true }, quitOldApp: { true })
+        #expect(stuck == FolderMigration.Decision(folder: old, outcome: .oldAppRunning))
+        #expect(!FileManager.default.fileExists(atPath: new.path))
+        #expect(!LaunchMigration.mayLaunch(.oldAppRunning))
+
+        // Not running, or nothing to move: never asked.
+        var bothered = false
+        #expect(FolderMigration.decide(old: old, new: new, fileManager: .default, oldAppRunning: { false }, quitOldApp: { bothered = true; return true }).outcome == .moved)
+        #expect(FolderMigration.decide(old: old, new: new, fileManager: .default, oldAppRunning: { true }, quitOldApp: { bothered = true; return true }).outcome == .inPlace)
+        #expect(!bothered)
+        for outcome in [FolderMigration.Outcome.moved, .movedAfterSettingAside("x"), .inPlace, .failed("x")] { #expect(LaunchMigration.mayLaunch(outcome)) }
+    }
+
     @Test func onlyTheNewFolderIsUsedAsItIs() throws {
         let (root, old, new) = try sandbox()
         defer { try? FileManager.default.removeItem(at: root) }

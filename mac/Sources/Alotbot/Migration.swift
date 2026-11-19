@@ -20,7 +20,8 @@ enum DataFolder {
         return FolderMigration.decide(old: support.appendingPathComponent(legacyName, isDirectory: true),
                                       new: support.appendingPathComponent(name, isDirectory: true),
                                       fileManager: .default,
-                                      oldAppRunning: { !NSRunningApplication.runningApplications(withBundleIdentifier: FolderMigration.grokCallBundleId).isEmpty })
+                                      oldAppRunning: { !NSRunningApplication.runningApplications(withBundleIdentifier: FolderMigration.grokCallBundleId).isEmpty },
+                                      quitOldApp: { MainActor.assumeIsolated { LaunchMigration.askToQuitGrokCall() } })
     }()
 }
 
@@ -39,7 +40,8 @@ enum FolderMigration {
         case inPlace
         /// The move failed, so GrokCall is kept and used. The reason is for the log.
         case failed(String)
-        /// Grok Call is still running, so GrokCall is kept and used; the move happens on a later launch.
+        /// Grok Call is still running (you chose not to quit it, or it did not quit): nothing is moved, and Alotbot does
+        /// not open beside it, because two apps on one folder would ring every call twice.
         case oldAppRunning
     }
 
@@ -54,7 +56,9 @@ enum FolderMigration {
     }
 
     /// `oldAppRunning` says whether Grok Call is running (checked only when there is a GrokCall folder to move).
-    static func decide(old: URL, new: URL, fileManager: FileManager, now: Date = Date(), oldAppRunning: () -> Bool = { false }) -> Decision {
+    /// `quitOldApp` asks you to quit it and says whether it was asked to quit; the move goes ahead once it has.
+    static func decide(old: URL, new: URL, fileManager: FileManager, now: Date = Date(), oldAppRunning: () -> Bool = { false },
+                       quitOldApp: () -> Bool = { false }) -> Decision {
         guard fileManager.fileExists(atPath: old.path) else { return Decision(folder: new, outcome: .inPlace) }
         let both = fileManager.fileExists(atPath: new.path)
         // Both present. Something made an Alotbot folder before the first launch (local test runs did, on
@@ -63,7 +67,7 @@ enum FolderMigration {
             return Decision(folder: new, outcome: .inPlace)
         }
         // A move is due, but not under a running Grok Call: it would go on writing to GrokCall.
-        if oldAppRunning() { return Decision(folder: old, outcome: .oldAppRunning) }
+        if oldAppRunning(), !quitOldApp() || oldAppRunning() { return Decision(folder: old, outcome: .oldAppRunning) }
         var aside: URL?
         if both {
             let spare = new.deletingLastPathComponent().appendingPathComponent("\(new.lastPathComponent).unused-\(Int(now.timeIntervalSince1970))", isDirectory: true)
@@ -103,7 +107,32 @@ enum SettingsMigration {
 
 /// Both moves, run first thing at launch, before anything else touches the data folder or the settings.
 enum LaunchMigration {
-    static func run() {
+    /// False while Grok Call still runs on the folder that has to move: Alotbot must not open beside it.
+    static func mayLaunch(_ outcome: FolderMigration.Outcome) -> Bool { outcome != .oldAppRunning }
+
+    /// Asks you to quit Grok Call, then waits up to 20 s for it. True once it has quit.
+    @MainActor static func askToQuitGrokCall() -> Bool {
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        let ask = NSAlert()
+        ask.messageText = "Quit Grok Call to open Alotbot"
+        ask.informativeText = "Alotbot replaces Grok Call and moves its calls, standing calls and sign-in. The two can't run at once: every call would ring twice."
+        ask.addButton(withTitle: "Quit Grok Call")
+        ask.addButton(withTitle: "Not Now")
+        guard ask.runModal() == .alertFirstButtonReturn else { return false }
+        let apps = NSRunningApplication.runningApplications(withBundleIdentifier: FolderMigration.grokCallBundleId)
+        apps.forEach { $0.terminate() }
+        let deadline = Date().addingTimeInterval(20)
+        while Date() < deadline, apps.contains(where: { !$0.isTerminated }) { RunLoop.current.run(until: Date().addingTimeInterval(0.25)) }
+        if apps.allSatisfy(\.isTerminated) { return true }
+        let still = NSAlert()
+        still.messageText = "Grok Call is still running"
+        still.informativeText = "Quit it, then open Alotbot again."
+        still.runModal()
+        return false
+    }
+
+    /// Returns false when Alotbot must not open (Grok Call is still running).
+    static func run() -> Bool {
         let folder = DataFolder.migration
         switch folder.outcome {
         case .moved:
@@ -113,7 +142,7 @@ enum LaunchMigration {
         case .failed(let why):
             AppLog.write("Could not move the data folder from GrokCall to Alotbot (\(why)). Using GrokCall, so no data is lost.")
         case .oldAppRunning:
-            AppLog.write("Grok Call is still running, so the data folder stays in GrokCall for now. It moves to Alotbot on a later launch, once Grok Call has quit.")
+            AppLog.write("Grok Call is still running, so Alotbot did not open and the data folder stays in GrokCall. It moves once Grok Call has quit.")
         case .inPlace:
             break
         }
@@ -121,5 +150,6 @@ enum LaunchMigration {
             let copied = SettingsMigration.run(from: old, domain: SettingsMigration.legacySuite, to: .standard)
             if copied > 0 { AppLog.write("Copied \(copied) settings from GrokCall.") }
         }
+        return mayLaunch(folder.outcome)
     }
 }
