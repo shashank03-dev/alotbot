@@ -6,6 +6,7 @@ import { after, test } from 'node:test';
 import {
   type ActionView,
   CALLBACK_MAX_MS,
+  CALLBACK_QUIET_MS,
   CALLBACKS_PER_BOT,
   callbackWhen,
   CHECK_MS,
@@ -886,13 +887,14 @@ test('a callback waiting on jobs rings once all of them finished, with their res
   assert.equal(h.inc.state().ringing!.reason, 'Again Result: done');
 });
 
-test('a callback whose jobs finish while their call is still on is dropped: the bot tells the result on the call', () => {
+test('a callback whose jobs answer while their call is still on does not ring then: the bot tells it on the call', () => {
   const h = harness();
   h.inc.start();
   h.inc.seed([view({ id: 'j1', callId: 'call-9-a' })]);
   h.inc.addCallback('a', 'Bot A', 'Results', { at: null, waitsFor: ['j1'] });
   h.inc.observe([view({ id: 'j1', callId: 'call-9-a', status: 'completed' })], 'call-9');
-  assert.deepEqual(h.inc.state().callbacks, []);
+  // Kept a while (that answer may have been progress), not rung.
+  assert.deepEqual(h.inc.state().callbacks.map((c) => c.expiresAt), [h.now + CALLBACK_QUIET_MS]);
   assert.equal(h.inc.state().ringing, null);
   assert.deepEqual(h.inc.state().held, []);
   // Live call, but a job from another call: it rings (held while the call is on).
@@ -919,4 +921,65 @@ test('an unreadable saved file starts fresh', () => {
   const h = harness(dir);
   assert.deepEqual(h.inc.state().schedules, []);
   assert.equal(h.inc.settings.botCallbacks, true);
+});
+
+// Live, 2026-11-19: the agent said "Checking Hacker News now." during the call, which already marked the job completed;
+// its results came after the call (completed → completed), and no ring followed. An agent's reply carries no "final"
+// mark, so any new output after its call ended is news.
+test('a job that sent a progress reply during its call rings with the result that comes after the call', () => {
+  const h = harness();
+  h.inc.start();
+  h.inc.seed([view({ id: 'hn', callId: 'call-9-a' })]);
+  h.inc.observe([view({ id: 'hn', callId: 'call-9-a', status: 'completed', summary: 'Checking Hacker News now.' })], 'call-9');
+  // The call ends: the server looks once more with that call's id.
+  h.inc.observe([view({ id: 'hn', callId: 'call-9-a', status: 'completed', summary: 'Checking Hacker News now.' })], 'call-9');
+  assert.equal(h.inc.state().ringing, null, 'the progress reply reached the call');
+  h.inc.observe([view({ id: 'hn', callId: 'call-9-a', status: 'completed', summary: 'The top story is X.' })], null);
+  const r = h.inc.state().ringing!;
+  assert.deepEqual([r.source, r.reason], ['job', 'The top story is X.']);
+  // A second message right after joins that ring; the same output seen again adds nothing.
+  h.inc.observe([view({ id: 'hn', callId: 'call-9-a', status: 'completed', summary: 'The top story is X, with 150 points.' })], null);
+  h.inc.observe([view({ id: 'hn', callId: 'call-9-a', status: 'completed', summary: 'The top story is X, with 150 points.' })], null);
+  assert.deepEqual([h.inc.state().ringing!.id, h.inc.state().ringing!.reason], [r.id, 'The top story is X. Also: The top story is X, with 150 points.']);
+  // A failure after a progress reply rings too, with why.
+  h.inc.decline(r.id);
+  h.inc.setSettings({});
+  h.inc.seed([view({ id: 'b1', botId: 'b', botName: 'Bot B', status: 'completed', summary: 'Working on it.' })]);
+  h.inc.observe([view({ id: 'b1', botId: 'b', botName: 'Bot B', status: 'unknown', summary: 'Working on it.', error: 'Grok repeated its transcript cursor' })], null);
+  assert.equal(h.inc.state().ringing!.reason, 'The job did not finish: Grok repeated its transcript cursor.');
+});
+
+test('a call back waiting on a job is not used up by a progress reply during the call; it rings with the result after', () => {
+  const h = harness();
+  h.inc.start();
+  h.inc.seed([view({ id: 'hn', callId: 'call-9-a' })]);
+  h.inc.addCallback('a', 'Bot A', 'The top story', { at: null, waitsFor: ['hn'] });
+  h.inc.observe([view({ id: 'hn', callId: 'call-9-a', status: 'completed', summary: 'Checking Hacker News now.' })], 'call-9');
+  assert.equal(h.inc.state().callbacks.length, 1, 'still waiting: that was progress, not the result');
+  h.inc.observe([view({ id: 'hn', callId: 'call-9-a', status: 'completed', summary: 'Checking Hacker News now.' })], 'call-9');
+  h.inc.observe([view({ id: 'hn', callId: 'call-9-a', status: 'completed', summary: 'The top story is X.' })], null);
+  const r = h.inc.state().ringing!;
+  assert.deepEqual([r.source, r.reason], ['callback', 'The top story Result: The top story is X.']);
+  assert.deepEqual(h.inc.state().callbacks, []);
+  // Its whole answer came during the call: it waits a while for more, then goes (the bot told it on the call).
+  h.inc.decline(r.id);
+  h.inc.seed([view({ id: 'j2', callId: 'call-10-a' })]);
+  h.inc.addCallback('a', 'Bot A', 'Results', { at: null, waitsFor: ['j2'] });
+  h.inc.observe([view({ id: 'j2', callId: 'call-10-a', status: 'completed', summary: 'All done.' })], 'call-10');
+  // After the call, a look with nothing new for it (another job's update) does not ring it.
+  h.inc.observe([view({ id: 'j2', callId: 'call-10-a', status: 'completed', summary: 'All done.' }), view({ id: 'other', callId: 'call-10-a' })], null);
+  assert.equal(h.inc.state().ringing, null);
+  h.advance(CALLBACK_QUIET_MS - 1000);
+  assert.equal(h.inc.state().callbacks.length, 1);
+  h.advance(CHECK_MS + 1000);
+  assert.deepEqual(h.inc.state().callbacks, []);
+  assert.equal(h.inc.state().ringing, null);
+  // Kept across a restart.
+  h.inc.seed([view({ id: 'j3', callId: 'call-11-a' })]);
+  h.inc.addCallback('a', 'Bot A', 'Later', { at: null, waitsFor: ['j3'] });
+  h.inc.observe([view({ id: 'j3', callId: 'call-11-a', status: 'completed', summary: 'Started.' })], 'call-11');
+  const saved = JSON.parse(fs.readFileSync(path.join(h.dir, INCOMING_FILE), 'utf8')).callbacks[0];
+  assert.equal(saved.expiresAt, h.now + CALLBACK_QUIET_MS);
+  assert.equal(h.make().state().callbacks[0].expiresAt, h.now + CALLBACK_QUIET_MS);
+  assert.equal(parseSaved({ callbacks: [{ ...saved, expiresAt: 'soon' }] }, 'UTC', h.now).callbacks[0].expiresAt, null);
 });

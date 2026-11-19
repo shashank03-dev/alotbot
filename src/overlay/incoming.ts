@@ -30,6 +30,12 @@ export const MISSED_KEPT = 30;
 export const DECLINE_COOLDOWN_MS = 30 * 60_000;
 /** A clock that moved back more than this was wrong before, not just synced. */
 export const CLOCK_FIX_MS = 86_400_000;
+/**
+ * A call back on jobs whose every job already answered during its call waits this long for more after the call (as
+ * long as the job watcher keeps listening to a finished job, JOB_QUIET_MS in src/jobs.ts), then goes: the bot told
+ * the answer on the call.
+ */
+export const CALLBACK_QUIET_MS = 30 * 60_000;
 /** Longest wait between checks, so a sleeping Mac or a changed clock is noticed. */
 export const CHECK_MS = 30_000;
 export const RING_SECONDS = { min: 15, max: 120, default: 45 } as const;
@@ -60,9 +66,11 @@ export interface Callback {
   reason: string;
   /** When it rings, or null when it waits for jobs. */
   at: number | null;
-  /** The jobs it waits for (action ids); it rings once every one has finished. */
+  /** The jobs it waits for (action ids); it rings once every one has finished and one has news after its call. */
   waitsFor: string[];
   createdAt: number;
+  /** A job wait whose jobs all answered during the call: it goes at this time unless more comes (ms), else null. */
+  expiresAt: number | null;
 }
 
 export interface Ring {
@@ -269,7 +277,8 @@ export function parseSaved(raw: unknown, zone: string, now: number): Saved {
     const at = Number.isSafeInteger(c.at) ? (c.at as number) : null;
     const waitsFor = Array.isArray(c.waitsFor) ? c.waitsFor.filter((x): x is string => typeof x === 'string') : [];
     if (at === null && !waitsFor.length) continue;
-    callbacks.push({ id: c.id, botId: c.botId, botName: oneLine(c.botName, 100) || 'A bot', reason: oneLine(c.reason, REASON_MAX), at, waitsFor, createdAt: c.createdAt as number });
+    const expiresAt = Number.isSafeInteger(c.expiresAt) ? (c.expiresAt as number) : null;
+    callbacks.push({ id: c.id, botId: c.botId, botName: oneLine(c.botName, 100) || 'A bot', reason: oneLine(c.reason, REASON_MAX), at, waitsFor, createdAt: c.createdAt as number, expiresAt });
   }
   const rings: Ring[] = [];
   for (const g of Array.isArray(r.rings) ? r.rings : []) {
@@ -333,8 +342,11 @@ export class IncomingCalls {
   private s: Saved;
   private timer: unknown = null;
   private ringTimer: unknown = null;
-  /** Last status seen for each action, so a change rings once. */
-  private seen = new Map<string, string>();
+  /**
+   * What was last seen of each action: its status, and its output (latest reply or error). An agent's reply carries no
+   * "final" mark, so a job is "completed" from its first reply on ("Checking now."): new output is what counts.
+   */
+  private seen = new Map<string, { status: string; output: string }>();
   private stopped = false;
 
   constructor(d: IncomingDeps) {
@@ -436,6 +448,12 @@ export class IncomingCalls {
       else this.offer(r);
     }
     for (const c of [...this.s.callbacks]) {
+      // A job wait whose jobs all answered during the call, and nothing more came: the bot told it on the call.
+      if (c.expiresAt !== null && c.expiresAt <= now) {
+        dirty = true;
+        this.s.callbacks.splice(this.s.callbacks.indexOf(c), 1);
+        continue;
+      }
       if (c.at === null || c.at > now) continue;
       dirty = true;
       this.s.callbacks.splice(this.s.callbacks.indexOf(c), 1);
@@ -739,7 +757,7 @@ export class IncomingCalls {
     if (this.s.callbacks.filter((c) => c.botId === botId).length >= CALLBACKS_PER_BOT) {
       throw new IncomingError(`You already have ${CALLBACKS_PER_BOT} callbacks waiting. One of them has to happen first.`);
     }
-    const c: Callback = { id: crypto.randomUUID(), botId, botName: oneLine(botName, 100), reason: r, at: when.at, waitsFor: [...new Set(when.waitsFor)], createdAt: now };
+    const c: Callback = { id: crypto.randomUUID(), botId, botName: oneLine(botName, 100), reason: r, at: when.at, waitsFor: [...new Set(when.waitsFor)], createdAt: now, expiresAt: null };
     this.s.callbacks.push(c);
     this.commit();
     this.tick();
@@ -761,8 +779,12 @@ export class IncomingCalls {
    * been seen in the app's history.
    */
   seed(actions: ActionView[]) {
-    for (const a of actions) this.seen.set(a.id, a.status);
+    for (const a of actions) this.seen.set(a.id, IncomingCalls.look(a));
     this.trimSeen();
+  }
+
+  private static look(a: ActionView) {
+    return { status: a.status, output: `${a.summary ?? ''}\u0000${a.error ?? ''}` };
   }
 
   private trimSeen() {
@@ -770,13 +792,21 @@ export class IncomingCalls {
   }
 
   /**
-   * Looks at a bot's actions after its agent sent something. A job from an ended call that finished, or work now
-   * waiting for approval, may ring; callbacks waiting on jobs ring once all of theirs have finished.
-   * `liveCall` is the current call's id (or null): its own news reaches the call, not a ring.
+   * Looks at a bot's actions after its agent sent something. A job from an ended call with new output (its result, or
+   * why it failed), or work now waiting for approval, may ring; callbacks waiting on jobs ring once all of theirs have
+   * finished and new output came after their call. `liveCall` is the current call's id (or null): its own news reaches
+   * the call, not a ring.
    */
   observe(actions: ActionView[], liveCall: string | null) {
     const now = this.d.now();
     const finished = (s: string) => s === 'completed' || s === 'failed' || s === 'unknown';
+    const isLive = (a: ActionView) => liveCall !== null && a.callId === `${liveCall}-${a.botId}`;
+    // New since last seen: it finished, or it sent new output (an action seen for the first time has no news: it may
+    // predate this app's watch).
+    const news = (a: ActionView) => {
+      const before = this.seen.get(a.id);
+      return before !== undefined && (before.output !== IncomingCalls.look(a).output || (finished(a.status) && !finished(before.status)));
+    };
     let dirty = false;
     // Callbacks waiting on jobs.
     const status = new Map(actions.map((a) => [a.id, a]));
@@ -784,28 +814,35 @@ export class IncomingCalls {
     for (const c of [...this.s.callbacks]) {
       if (c.at !== null) continue; // a timed callback (a job wait always has jobs: addCallback and parseSaved see to it)
       for (const id of c.waitsFor) claimed.add(id);
-      const jobs = c.waitsFor.map((id) => status.get(id));
+      const jobs = c.waitsFor.map((id) => status.get(id)!);
       if (jobs.some((j) => !j)) continue; // not this bot's update
-      if (!jobs.every((j) => finished(j!.status))) continue;
+      if (!jobs.every((j) => finished(j.status))) continue;
+      // Answered during its call ("Checking now." or the result): the bot told it there. It waits a while in case that
+      // was progress, and rings with what comes after the call.
+      if (jobs.some(isLive)) {
+        if (c.expiresAt === null) {
+          c.expiresAt = now + CALLBACK_QUIET_MS;
+          dirty = true;
+        }
+        continue;
+      }
+      if (!jobs.some(news)) continue;
       this.s.callbacks.splice(this.s.callbacks.indexOf(c), 1);
       dirty = true;
-      // Finished while their call is still on: the bot tells the result there, so no call back is needed.
-      if (liveCall !== null && jobs.every((j) => j!.callId === `${liveCall}-${j!.botId}`)) continue;
-      const results = jobs.map((j) => (j!.status === 'completed' ? j!.summary ?? 'done' : `did not finish (${j!.error ?? j!.status})`)).join('; ');
+      const results = jobs.map((j) => (j.status === 'completed' ? j.summary ?? 'done' : `did not finish (${j.error ?? j.status})`)).join('; ');
       this.offer(this.newRing('callback', `${c.botName} is calling back`, `${c.reason} Result: ${results}`, [c.botId], '', null));
     }
     for (const a of actions) {
       const before = this.seen.get(a.id);
+      const fresh = news(a);
       this.seen.delete(a.id);
-      this.seen.set(a.id, a.status);
-      if (before === a.status || claimed.has(a.id)) continue;
-      const live = liveCall !== null && a.callId === `${liveCall}-${a.botId}`;
-      if (live || a.callId === 'workspace' || a.target !== 'agent') continue;
+      this.seen.set(a.id, IncomingCalls.look(a));
+      if (claimed.has(a.id) || isLive(a) || a.callId === 'workspace' || a.target !== 'agent') continue;
       const cooling = (this.s.cooldowns[a.botId] ?? 0) > now;
-      if (a.status === 'waiting_approval' && this.s.settings.approvals) {
+      if (a.status === 'waiting_approval' && before?.status !== a.status && this.s.settings.approvals) {
         dirty = true;
         this.botRing(a, 'approval', `${a.botName} needs your OK`, a.approvalSummary ?? 'Work is waiting for your approval.', cooling);
-      } else if (before !== undefined && finished(a.status) && !finished(before) && this.s.settings.jobResults) {
+      } else if (fresh && finished(a.status) && this.s.settings.jobResults) {
         dirty = true;
         const result = a.status === 'completed' ? (a.summary ?? 'The job finished.') : `The job did not finish: ${a.error ?? a.status}.`;
         this.botRing(a, 'job', `${a.botName} has results`, result, cooling);

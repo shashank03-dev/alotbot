@@ -90,6 +90,8 @@ async function start(signedIn = true, viewMs: number | null = 5, workspaceEntrie
   const jobs: { agentId: string; callId: string; request: string; at: number }[] = [];
   /** While true, agents have not answered their jobs yet. */
   let holdJobs = false;
+  /** Jobs whose agent first says this (a progress reply), by request. */
+  const progress = new Map<string, string>();
   let minted = 0;
   const up = await mock((r, res) => {
     const method = r.url.split('/').pop()!;
@@ -109,10 +111,16 @@ async function start(signedIn = true, viewMs: number | null = 5, workspaceEntrie
     if (method === 'ListGrokBotTranscriptEntries') {
       // The agent answers each job on the call's channel, as Grok Bot does.
       const b64 = (o: object) => Buffer.from(JSON.stringify(o)).toString('base64');
-      const entries = jobs.filter((j) => j.agentId === r.body.agentId && !holdJobs).flatMap((j, i) => [
+      // A job with a progress reply ("on it"): the agent sends it at once, and its result only once jobs are not held.
+      const progressed = jobs.filter((j) => j.agentId === r.body.agentId && progress.has(j.request)).flatMap((j, i) => [
+        { seq: String(1000 + 3 * i + 1), body: b64({ kind: 'message', role: 'user', content: j.request, channel: `voice:${j.callId}`, channelSender: 'the call', requestId: `preq-${i}`, timestampMs: j.at }) },
+        { seq: String(1000 + 3 * i + 2), body: b64({ kind: 'send-message', requestId: `preq-${i}`, message: { type: 'text', content: progress.get(j.request), channel: `voice:${j.callId}` }, timestampMs: j.at }) },
+        ...(holdJobs ? [] : [{ seq: String(1000 + 3 * i + 3), body: b64({ kind: 'send-message', requestId: `preq-${i}`, message: { type: 'text', content: `Result: ${j.request}`, channel: `voice:${j.callId}` }, timestampMs: j.at }) }]),
+      ]);
+      const entries = [...progressed, ...jobs.filter((j) => j.agentId === r.body.agentId && !holdJobs && !progress.has(j.request)).flatMap((j, i) => [
         { seq: String(2 * i + 2), body: b64({ kind: 'send-message', requestId: `req-${i}`, message: { type: 'text', content: `Done: ${j.request}`, channel: `voice:${j.callId}` }, timestampMs: j.at }) },
         { seq: String(2 * i + 1), body: b64({ kind: 'message', role: 'user', content: j.request, channel: `voice:${j.callId}`, channelSender: 'the call', requestId: `req-${i}`, timestampMs: j.at }) },
-      ]);
+      ])];
       return sendJson(res, 200, { entries: [...entries, ...workspaceEntries.filter(e=>e.agentId===r.body.agentId).map((e,i)=>({seq:String(1000+i),body:b64(e.body)}))] });
     }
     // Like Grok Bot: one URL for every session, a new secret each time.
@@ -158,6 +166,7 @@ async function start(signedIn = true, viewMs: number | null = 5, workspaceEntrie
   const h: Harness = { url: `ws://127.0.0.1:${port}/ws`, up, dir, sockets, app, agents, clockAt: (s) => (now = s) };
   (h as any).expect = (ids: string[]) => (mintFor = [...ids]);
   (h as any).holdJobs = (v: boolean) => (holdJobs = v);
+  (h as any).progress = progress;
   open.push(h);
   return h;
 }
@@ -1420,4 +1429,27 @@ test('sharing a screen through the app: updates are checked, throttled, kept out
   const appLines = logs.flatMap((f) => fs.readFileSync(path.join(h.dir, 'logs', f), 'utf8').trim().split('\n')).map((l) => JSON.parse(l)).filter((e) => e.kind === 'app' && e.op === 'screenUpdate');
   assert.ok(appLines.length >= 3);
   assert.ok(appLines.every((e) => !JSON.stringify(e).includes('secret')));
+});
+
+// Live, 2026-11-19: "Checking Hacker News now." during the call marked the job completed, and the result after the call
+// never rang.
+test('a job whose agent sent a progress reply during the call rings with the result that comes after the call', async () => {
+  const h = await start(true, 5, [], {}, { zone: () => 'UTC' });
+  const c = await connect(h);
+  (h as any).holdJobs(true);
+  (h as any).progress.set('relay the top story', 'Checking Hacker News now.');
+  await inCall(h, c, ['a']);
+  const a = h.sockets.get('a')!;
+  reply(a, 'Looking.', [['send_task', { request: 'relay the top story' }]]);
+  for (let i = 0; i < 40 && !a.outputs().length; i++) await new Promise((r) => setTimeout(r, 5));
+  for (let i = 0; i < 100 && !a.sent.some((m: any) => JSON.stringify(m).includes('Checking Hacker News now.')); i++) await new Promise((r) => setTimeout(r, 50));
+  assert.ok(a.sent.some((m: any) => JSON.stringify(m).includes('Checking Hacker News now.')), 'the progress reply reached the call');
+  const leaving = c.op('leave');
+  await askedForSummary(a);
+  reply(a, '', [['save_summary', { summary: 'Top story.', action_items: [] }]]);
+  await leaving;
+  const rang = incomingWhere(c, (s) => s.ringing?.source === 'job');
+  (h as any).holdJobs(false);
+  const ring = (await rang).ringing;
+  assert.deepEqual([ring.title, ring.reason], ['Bot A has results', 'Result: relay the top story']);
 });
