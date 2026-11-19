@@ -1473,3 +1473,25 @@ test('a call back on a job asked in the same reply that starts the job waits for
   reply(a, '', [['save_summary', { summary: 'Top story.', action_items: [] }]]);
   await leaving;
 });
+
+// Both together, as in the live call of 2026-11-19: the call back asked in the job's own reply, a progress reply during
+// the call, and the result after it.
+test('the live case: a call back set with its job, "on it" during the call, the result after: the bot calls back with it', async () => {
+  const h = await start(true, 5, [], {}, { zone: () => 'UTC' });
+  const c = await connect(h);
+  (h as any).holdJobs(true);
+  (h as any).progress.set('relay the top story', 'Checking Hacker News now.');
+  await inCall(h, c, ['a']);
+  const a = h.sockets.get('a')!;
+  reply(a, 'I will call you with it.', [['call_back_later', { reason: 'The top story', when_job_done: true }], ['send_task', { request: 'relay the top story' }]]);
+  for (let i = 0; i < 100 && !a.sent.some((m: any) => JSON.stringify(m).includes('Checking Hacker News now.')); i++) await new Promise((r) => setTimeout(r, 50));
+  const leaving = c.op('leave');
+  await askedForSummary(a);
+  reply(a, '', [['save_summary', { summary: 'Top story.', action_items: [] }]]);
+  await leaving;
+  assert.equal((await c.ok('incoming')).callbacks.length, 1, 'still waiting after "on it"');
+  const rang = incomingWhere(c, (s) => s.ringing !== null);
+  (h as any).holdJobs(false);
+  const ring = (await rang).ringing;
+  assert.deepEqual([ring.source, ring.reason], ['callback', 'The top story Result: Result: relay the top story']);
+});
