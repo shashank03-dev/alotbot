@@ -239,12 +239,14 @@ import SwiftUI
         }
         // Wait until the fixture has entered its event loop before measuring capture.
         try await Task.sleep(nanoseconds: 500_000_000)
-        let foreground = NSWorkspace.shared.frontmostApplication?.processIdentifier
         let response = try await AppObservation.run(command("read").input, enabled: true)
         let result = try #require(JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any])
         #expect(result["status"] as? String == "captured")
         #expect((result["text"] as? String)?.contains("Press verification button") == true)
-        #expect(NSWorkspace.shared.frontmostApplication?.processIdentifier == foreground)
+        // Capturing must not bring the captured app to the front. (Comparing with whatever was in front before failed
+        // now and then: other suites running at the same time open windows of their own.)
+        #expect(NSWorkspace.shared.frontmostApplication?.processIdentifier != process.processIdentifier)
+        #expect(NSRunningApplication(processIdentifier: process.processIdentifier)?.isActive != true)
         let path = try #require(result["screenshot"] as? String)
         defer { try? FileManager.default.removeItem(atPath: path) }
         #expect((try FileManager.default.attributesOfItem(atPath: path)[.posixPermissions] as? NSNumber)?.intValue == 0o600)
