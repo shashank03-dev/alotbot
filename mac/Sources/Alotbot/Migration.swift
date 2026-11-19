@@ -120,10 +120,15 @@ enum LaunchMigration {
         ask.addButton(withTitle: "Not Now")
         guard ask.runModal() == .alertFirstButtonReturn else { return false }
         let apps = NSRunningApplication.runningApplications(withBundleIdentifier: FolderMigration.grokCallBundleId)
+        // Its backend (a Node process it started) writes into the folder too, and can outlive the app by a moment.
+        // Note its ids now: once the app exits they are no longer its children.
+        let backends = apps.flatMap { ProcessTree.children(of: $0.processIdentifier) }
         apps.forEach { $0.terminate() }
         let deadline = Date().addingTimeInterval(20)
-        while Date() < deadline, apps.contains(where: { !$0.isTerminated }) { RunLoop.current.run(until: Date().addingTimeInterval(0.25)) }
-        if apps.allSatisfy(\.isTerminated) { return true }
+        while Date() < deadline, apps.contains(where: { !$0.isTerminated }) || backends.contains(where: ProcessTree.isRunning) {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        }
+        if apps.allSatisfy(\.isTerminated), !backends.contains(where: ProcessTree.isRunning) { return true }
         let still = NSAlert()
         still.messageText = "Grok Call is still running"
         still.informativeText = "Quit it, then open Alotbot again."
@@ -152,4 +157,18 @@ enum LaunchMigration {
         }
         return mayLaunch(folder.outcome)
     }
+}
+
+/// Child processes, read from the kernel, so a backend can be waited for after the app that started it has exited.
+enum ProcessTree {
+    static func children(of pid: pid_t) -> [pid_t] {
+        let count = proc_listchildpids(pid, nil, 0)
+        guard count > 0 else { return [] }
+        var ids = [pid_t](repeating: 0, count: Int(count) * 2)
+        let found = proc_listchildpids(pid, &ids, Int32(ids.count * MemoryLayout<pid_t>.size))
+        return Array(ids.prefix(max(0, Int(found)))).filter { $0 > 0 }
+    }
+
+    /// True while the process exists (a zombie the kernel has not reaped yet still counts, which errs on waiting).
+    static func isRunning(_ pid: pid_t) -> Bool { kill(pid, 0) == 0 || errno == EPERM }
 }

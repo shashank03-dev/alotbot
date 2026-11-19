@@ -165,6 +165,22 @@ import Testing
         #expect(!DataFolder.location.path.contains("/Library/Application Support/"))
     }
 
+    /// Grok Call's backend can outlive the app by a moment; its id is noted while it is still a child, then waited for.
+    @Test func aChildProcessIsFoundAndItsExitIsSeen() throws {
+        let child = Process()
+        child.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        child.arguments = ["30"]
+        try child.run()
+        defer { if child.isRunning { child.terminate() } }
+        let pid = child.processIdentifier
+        #expect(ProcessTree.children(of: getpid()).contains(pid))
+        #expect(ProcessTree.isRunning(pid))
+        child.terminate()
+        child.waitUntilExit()
+        #expect(!ProcessTree.isRunning(pid))
+        #expect(ProcessTree.children(of: -1).isEmpty)
+    }
+
     @Test func whenNeitherExistsNothingIsCreatedHere() throws {
         let (root, old, new) = try sandbox()
         defer { try? FileManager.default.removeItem(at: root) }
