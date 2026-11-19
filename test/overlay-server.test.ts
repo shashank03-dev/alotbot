@@ -1453,3 +1453,23 @@ test('a job whose agent sent a progress reply during the call rings with the res
   const ring = (await rang).ringing;
   assert.deepEqual([ring.title, ring.reason], ['Bot A has results', 'Result: relay the top story']);
 });
+
+// Live, 2026-11-19: one reply held call_back_later (when_job_done) and then send_task. The call back ran first and was
+// refused ("You have no job under way to wait for"), and the job was recorded a millisecond later.
+test('a call back on a job asked in the same reply that starts the job waits for that job', async () => {
+  const h = await start(true, 5, [], {}, { zone: () => 'UTC' });
+  const c = await connect(h);
+  (h as any).holdJobs(true);
+  await inCall(h, c, ['a']);
+  const a = h.sockets.get('a')!;
+  reply(a, 'Checking, and I will call you with it.', [['call_back_later', { reason: 'The top story', when_job_done: true }], ['send_task', { request: 'relay the top story' }]]);
+  for (let i = 0; i < 40 && a.outputs().length < 2; i++) await new Promise((r) => setTimeout(r, 5));
+  assert.ok(a.outputs().includes('Call back set: Alotbot rings Shashank once your job finishes, and you open that call with the result.'), JSON.stringify(a.outputs()));
+  const st = await c.ok('incoming');
+  const jobs = (await c.ok('actions')).actions.filter((x: any) => x.tool === 'send_task');
+  assert.deepEqual(st.callbacks.map((x: any) => [x.reason, x.waitsFor]), [['The top story', [jobs[0].id]]]);
+  const leaving = c.op('leave');
+  await askedForSummary(a);
+  reply(a, '', [['save_summary', { summary: 'Top story.', action_items: [] }]]);
+  await leaving;
+});

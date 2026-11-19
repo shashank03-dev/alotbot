@@ -72,6 +72,8 @@ export const MAX_TOOL_ROUNDS = 3;
  */
 export const MAX_APP_TOOL_ROUNDS = 8;
 const APP_TOOLS = new Set(['list_connected_apps', 'find_app_tools', 'use_app_tool']);
+/** Call tools that look at the jobs a bot has under way (the Mac app's call_back_later with when_job_done). */
+const JOB_WAITING_TOOLS = new Set(['call_back_later']);
 /** In a one-on-one, this much quiet from Shashank after the bot's reply means the conversation is over. */
 export const FOCUS_IDLE_MS = 20000;
 /** A host line this long or shorter can be a "we're done" line ("thanks", "got it"). */
@@ -1255,12 +1257,12 @@ export class BotLink {
           this.newsOwed = false;
         }
         let followUp = false;
-        const remote = [];
+        const remote = ran ? calls.filter((c) => this.isHarnessTool(c.name)) : [];
+        // A tool that waits for this reply's jobs runs after they are started (and so recorded), whatever their order:
+        // call_back_later listed before send_task found no job (call of 2026-11-19 18:20).
+        const early = remote.length && calls.some((c) => JOB_WAITING_TOOLS.has(c.name)) ? this.startRemote(remote, text, true) : null;
         for (const c of calls) {
-          if (ran && this.isHarnessTool(c.name)) {
-            remote.push(c);
-            continue;
-          }
+          if (remote.includes(c)) continue;
           let output = 'Not done: this reply was cut off before anyone heard it.';
           if (ran) {
             const r = this.call.onToolCall(this, c);
@@ -1270,7 +1272,7 @@ export class BotLink {
           }
           this.sendToolOutput(c.callId, output);
         }
-        if (remote.length) void this.runRemote(remote, text, followUp);
+        if (remote.length) void this.runRemote(early ?? this.startRemote(remote, text, false), text, followUp);
         else {
           this.call.onBotDone(this, text, status, followUp);
           this.flushQueued();
@@ -1479,12 +1481,10 @@ export class BotLink {
   }
 
   /**
-   * The reply used the bot's own Grok Bot tools: its words count now, but its turn waits until Grok Bot answers,
-   * so the bot never speaks again before it has the result.
+   * Starts the reply's jobs (`allCalls` are its own Grok Bot tools), and its other Grok Bot tools too when `now`.
+   * Returns what runRemote finishes.
    */
-  async runRemote(allCalls, text, followUp) {
-    const gen = this.sessionGen;
-    const callGen = this.call.gen;
+  startRemote(allCalls, text, now) {
     const theyJustTalked = this.call.lines.at(-1)?.who === USER;
     const line = { theyJustTalked, newsOwed: this.newsOwed, receiptOwed: this.receiptOwed, alreadySpokeThisTurn: text !== '' };
     // As in the Grok Bot app, a job gets Grok's receipt at once and the bot keeps talking; the relay runs meanwhile,
@@ -1495,6 +1495,16 @@ export class BotLink {
       this.sendToolOutput(c.callId, JSON.stringify(this.receipt.output ?? {}));
       void this.call.runJob(this, c, line);
     }
+    return { jobs, calls, line, results: now && calls.length ? Promise.all(calls.map((c) => this.call.runHarnessTool(this, c, line))) : null };
+  }
+
+  /**
+   * The reply used the bot's own Grok Bot tools: its words count now, but its turn waits until Grok Bot answers,
+   * so the bot never speaks again before it has the result.
+   */
+  async runRemote({ jobs, calls, line, results: pending }, text, followUp) {
+    const gen = this.sessionGen;
+    const callGen = this.call.gen;
     if (jobs.length && !text) {
       this.receiptOwed = true;
       this.nextInstructions = this.receipt.instructions;
@@ -1508,7 +1518,7 @@ export class BotLink {
     }
     this.toolsBusy = true;
     const said = this.call.onBotSaid(this, text, 'completed');
-    const results = await Promise.all(calls.map((c) => this.call.runHarnessTool(this, c, line)));
+    const results = await (pending ?? Promise.all(calls.map((c) => this.call.runHarnessTool(this, c, line))));
     if (gen !== this.sessionGen) return; // the connection dropped or closed meanwhile; that session is gone
     this.toolsBusy = false;
     calls.forEach((c, i) => {
