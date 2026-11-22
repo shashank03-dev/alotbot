@@ -198,6 +198,8 @@ export function createOverlayServer(opts: OverlayOptions) {
   });
   const zone = opts.zone ?? (() => Intl.DateTimeFormat().resolvedOptions().timeZone);
   const iclock = opts.incomingClock ?? { now: Date.now, setTimer: (fn: () => void, ms: number) => setTimeout(fn, ms).unref(), clearTimer: (t: unknown) => clearTimeout(t as NodeJS.Timeout) };
+  // Declared before the incoming calls start: a call due at launch checks it straight away.
+  let client: Session | null = null;
   // Standing calls, bot call backs and rings when bot work finishes after its call.
   const incoming = new IncomingCalls({
     dir: opts.dataDir,
@@ -228,7 +230,6 @@ export function createOverlayServer(opts: OverlayOptions) {
     })().catch(() => { res.destroy(); });
   });
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE });
-  let client: Session | null = null;
 
   http_.on('upgrade', (req, socket, head) => {
     if (client?.viewers.upgrade(req, socket, head)) return;

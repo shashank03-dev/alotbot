@@ -1004,6 +1004,25 @@ test('deleting a call removes its file and index entry, and the next call no lon
   assert.deepEqual((await c.ok('calls')).calls, []);
 });
 
+// Local run of 2026-11-20: a standing call due while the app was closed crashed the backend at launch
+// ("Cannot access 'client' before initialization"): start() rang it before the session existed.
+test('a standing call that came due while the app was closed rings at launch, without crashing the backend', async () => {
+  const due = Math.floor(Date.now() / 60_000) * 60_000 - 60_000;
+  const at = new Date(due);
+  const time = `${String(at.getUTCHours()).padStart(2, '0')}:${String(at.getUTCMinutes()).padStart(2, '0')}`;
+  const h = await start(true, 5, [], {}, {
+    zone: () => 'UTC',
+    prepare: (dir) => {
+      const schedule = { id: 'recent', title: 'Recent', botIds: ['a'], agenda: '', days: [at.getUTCDay()], time, timezone: 'UTC', enabled: true, createdAt: due - 3_600_000 };
+      fs.writeFileSync(path.join(dir, 'incoming.json'), JSON.stringify({ version: 1, schedules: [schedule], checkedAt: due - 300_000 }));
+    },
+  });
+  const c = await connect(h);
+  const state = await c.ok('incoming');
+  assert.equal(state.ringing?.title, 'Recent');
+  assert.equal(state.ringing?.source, 'schedule');
+});
+
 test('the library is rebuilt from the saved files at start; a file removed by hand still opens from the index', async () => {
   const md = '# Alotbot, T\n\nBots: Bot A  \nLength: 1 min\n\n## Summary\n\nOld pricing call.\n\n## Transcript\n\n**Bot A:** ten dollars  \n';
   const h = await start(true, 5, [], {}, {
@@ -1217,6 +1236,7 @@ test('a bot promises a call back during a call: by minutes or a time, or when it
 test('a call back waiting on a job rings after the call once the job finishes, and the bot opens with the result', async () => {
   const h = await start(true, 5, [], {}, { zone: () => 'UTC' });
   const c = await connect(h);
+  await c.ok('incomingSettings', { settings: { quietHours: { enabled: false } } }); // rings now, at any hour the suite runs
   (h as any).holdJobs(true);
   await inCall(h, c, ['a']);
   const a = h.sockets.get('a')!;
@@ -1255,6 +1275,7 @@ test('a call back waiting on a job rings after the call once the job finishes, a
 test('a job from an ended call that finishes later rings its bot', async () => {
   const h = await start(true, 5, [], {}, { zone: () => 'UTC' });
   const c = await connect(h);
+  await c.ok('incomingSettings', { settings: { quietHours: { enabled: false } } }); // rings now, at any hour the suite runs
   (h as any).holdJobs(true);
   await inCall(h, c, ['a']);
   const a = h.sockets.get('a')!;
@@ -1436,6 +1457,7 @@ test('sharing a screen through the app: updates are checked, throttled, kept out
 test('a job whose agent sent a progress reply during the call rings with the result that comes after the call', async () => {
   const h = await start(true, 5, [], {}, { zone: () => 'UTC' });
   const c = await connect(h);
+  await c.ok('incomingSettings', { settings: { quietHours: { enabled: false } } }); // rings now, at any hour the suite runs
   (h as any).holdJobs(true);
   (h as any).progress.set('relay the top story', 'Checking Hacker News now.');
   await inCall(h, c, ['a']);
@@ -1479,6 +1501,7 @@ test('a call back on a job asked in the same reply that starts the job waits for
 test('the live case: a call back set with its job, "on it" during the call, the result after: the bot calls back with it', async () => {
   const h = await start(true, 5, [], {}, { zone: () => 'UTC' });
   const c = await connect(h);
+  await c.ok('incomingSettings', { settings: { quietHours: { enabled: false } } }); // rings now, at any hour the suite runs
   (h as any).holdJobs(true);
   (h as any).progress.set('relay the top story', 'Checking Hacker News now.');
   await inCall(h, c, ['a']);
