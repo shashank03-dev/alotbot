@@ -45,6 +45,15 @@ cp "$bin/Alotbot" "$app/Contents/MacOS/Alotbot"
 cp -R "$bin/Alotbot_AlotbotCore.bundle" "$app/Contents/Resources/"
 cp "$here/Resources/AppIcon.icns" "$app/Contents/Resources/AppIcon.icns"
 
+# Alotbot Mic, the meeting microphone (an Audio Server plug-in). It ships inside the app and is installed into
+# /Library/Audio/Plug-Ins/HAL from Settings, with your admin password.
+driver="$app/Contents/Resources/AlotbotMic.driver"
+mkdir -p "$driver/Contents/MacOS"
+cp "$here/Driver/Info.plist" "$driver/Contents/Info.plist"
+clang -Wall -Wextra -Werror -O2 -bundle -arch arm64 -arch x86_64 -mmacosx-version-min=14.0 \
+  -I "$here/Sources/AlotbotMicLoop/include" "$here/Driver/AlotbotMic.c" "$here/Sources/AlotbotMicLoop/AlotbotMicLoop.c" \
+  -framework CoreAudio -framework CoreFoundation -o "$driver/Contents/MacOS/AlotbotMic"
+
 # A developer build finds the repo and Node through these keys. A release carries both inside instead.
 dev_keys=""
 if ! $release; then
@@ -113,6 +122,7 @@ if ! security find-certificate -c "$sign_name" >/dev/null 2>&1; then
   security import "$tmp/id.p12" -k "$HOME/Library/Keychains/login.keychain-db" -P alotbot -T /usr/bin/codesign >/dev/null
 fi
 if $release; then codesign --force --sign "$sign_name" "$app/Contents/MacOS/node"; fi
+codesign --force --sign "$sign_name" "$driver"
 codesign --force --sign "$sign_name" "$app"
 codesign --verify --strict "$app"
 echo "Built: $app"

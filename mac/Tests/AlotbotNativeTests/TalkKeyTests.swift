@@ -70,10 +70,12 @@ import AlotbotCore
         model.view?.meeting = MeetingState(app: "Zoom", whisper: "text")
         model.setTalk(true)
         #expect(sent.isEmpty, "pressing sends nothing by itself")
+        #expect(model.meetingMic.silenced, "a meeting listening to Alotbot Mic hears silence while you talk to the bots")
         model.setTalk(false)
         let samples = sent.reduce(0) { $0 + ($1.count - 5) / 2 }
         #expect(samples == Int(AudioFrames.sampleRate), "one second of audio")
         #expect(sent.allSatisfy { $0.first == AudioFrames.mic && $0.dropFirst(5).allSatisfy { $0 == 0 } }, "mic frames of silence")
+        #expect(!model.meetingMic.silenced, "and hears you again once you let go")
         model.setTalk(false)
         #expect(samples == sent.reduce(0) { $0 + ($1.count - 5) / 2 }, "letting go twice sends it once")
     }

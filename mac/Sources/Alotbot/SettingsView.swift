@@ -31,7 +31,7 @@ struct SettingsView: View {
                 switch tab {
                 case .connections:
                     if model.login.state == "signed-in" { ConnectionsView(backend: model.backend, embedded: true) } else { signInFirst }
-                case .general: page { account; look; callWindow; yourBots }
+                case .general: page { account; look; callWindow; MeetingMicSettings(model: model); yourBots }
                 case .incoming:
                     if model.login.state == "signed-in" { page { IncomingSettingsView(model: model) } } else { signInFirst }
                 case .mac: page { LocalToolsSettings(model: model, tools: model.macTools) }
@@ -142,6 +142,33 @@ struct SettingsView: View {
         p.allowsMultipleSelection = false
         guard p.runModal() == .OK, let url = p.url else { return }
         do { try prefs.setPhoto(from: url) } catch { model.show("Couldn't use that photo: \(error.localizedDescription)") }
+    }
+}
+
+/// Alotbot Mic: installed or not, and how a meeting uses it.
+struct MeetingMicSettings: View {
+    @ObservedObject var model: AppModel
+    var body: some View {
+        let installed = model.meetingMicInstalled
+        SettingsGroup("Meetings") {
+            if !MeetingMic.supported {
+                Text("Alotbot Mic needs macOS 14.2 or later. Until then, mute yourself in the meeting before you talk to your bots.")
+                    .foregroundStyle(Theme.secondary)
+            } else if installed {
+                Text("Alotbot Mic is installed. Choose it as the microphone in your meeting app: the meeting hears you, and not what you say to your bots while you hold ⌥ Space.")
+                    .foregroundStyle(Theme.text)
+            } else {
+                Text("So a meeting doesn't hear what you say to your bots, install Alotbot Mic, then choose it as the microphone in your meeting app.")
+                    .foregroundStyle(Theme.text)
+                Button("Install Alotbot Mic…") { model.installMeetingMic() }
+                .buttonStyle(FilledButton())
+                .disabled(model.inCall)
+                Text(model.inCall ? "Available after this call: installing restarts your Mac's sound for a moment." : "Needs your admin password, and restarts your Mac's sound for a moment.")
+                    .font(.system(size: 12)).foregroundStyle(Theme.secondary)
+            }
+            if let error = model.meetingMicError { Text(error).font(.system(size: 12.5)).foregroundStyle(Theme.danger) }
+        }
+        .onAppear { model.meetingMicInstalled = MeetingMic.device() != nil }
     }
 }
 

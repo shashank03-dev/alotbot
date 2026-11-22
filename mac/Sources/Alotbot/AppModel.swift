@@ -103,6 +103,18 @@ final class AppModel: ObservableObject {
     // Meetings and screen sharing.
     @Published var meetingApps: [MeetingApp] = []
     @Published var talkHeld = false
+    /// Alotbot Mic: your mic for meetings, silent while you hold the talk key.
+    let meetingMic = MeetingMic()
+    @Published var meetingMicInstalled = MeetingMic.device() != nil
+    @Published var meetingMicError: String?
+
+    /// Installs Alotbot Mic (macOS asks for your admin password). Not during a call: it restarts the Mac's sound.
+    func installMeetingMic() {
+        guard !inCall else { return }
+        meetingMicError = MeetingMic.install()
+        meetingMicInstalled = MeetingMic.device() != nil
+        AppLog.write("meeting mic: install \(meetingMicError == nil ? "done" : "failed")")
+    }
     /// ⌥Space could be registered at the last meeting (another app may own it); the on-screen talk button always works.
     @Published var talkKeyAvailable = true
     /// Mic frames to the backend (from the audio thread, or the main thread at the end of a turn).
@@ -159,7 +171,7 @@ final class AppModel: ObservableObject {
             }
         }
         audio.onFailure = { [weak self] why in self?.show(why) }
-        if demo ?? Self.demo { startDemo() } else { backend.start() }
+        if demo ?? Self.demo { startDemo() } else { backend.start(); meetingMic.start() }
     }
 
     // MARK: backend lifecycle
@@ -438,6 +450,8 @@ final class AppModel: ObservableObject {
         guard view?.meeting != nil, talkHeld != held else { return }
         talkHeld = held
         micRouter.set(route: MicRoute.of(inMeeting: true, talkHeld: held), meeting: meeting)
+        // While you talk to the bots, a meeting listening to Alotbot Mic hears silence.
+        meetingMic.silenced = held
         // Letting go ends your turn: the bot's voice service hears the end of speech only as silence, and after the
         // switch it gets no more of your mic.
         if !held { for frame in AudioFrames.silence(seconds: 1) { sendMic(frame) } }
@@ -512,6 +526,7 @@ final class AppModel: ObservableObject {
         screenShare = nil
         micRouter.set(route: .bots, meeting: nil)
         talkHeld = false
+        meetingMic.silenced = false
         audio.stop()
         view = nil
         tray = nil

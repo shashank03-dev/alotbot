@@ -148,3 +148,34 @@ public struct ScreenShareReply: Decodable, Equatable, Sendable {
     /// The update was taken in; when not, its text must be sent again.
     public var taken: Bool { ignored != true }
 }
+
+/// Alotbot Mic, the meeting microphone: when to pass your mic through, and which mic that is.
+public enum MeetingMicLogic {
+    /// The device's UID, as its driver publishes it.
+    public static let deviceUID = "AlotbotMic_UID"
+
+    /// One process's audio input, as Core Audio reports it.
+    public struct Process: Equatable, Sendable {
+        public var pid: Int32
+        public var bundleID: String
+        public var runningInput: Bool
+        public var inputDevices: [UInt32]
+        public init(pid: Int32, bundleID: String = "", runningInput: Bool, inputDevices: [UInt32]) {
+            self.pid = pid; self.bundleID = bundleID; self.runningInput = runningInput; self.inputDevices = inputDevices
+        }
+    }
+
+    /// Another app (a meeting) is listening to Alotbot Mic right now: your mic should be passed through. Alotbot itself
+    /// never counts, nor does another copy of it: Core Audio lists the device it plays into among its inputs too, and
+    /// two copies would each start for the other.
+    public static func othersListening(_ processes: [Process], device: UInt32, ownPid: Int32, ownBundle: String) -> Bool {
+        processes.contains { $0.pid != ownPid && $0.bundleID != ownBundle && $0.runningInput && $0.inputDevices.contains(device) }
+    }
+
+    /// The real mic to pass through: the default input, unless that is Alotbot Mic itself (it would hear only itself),
+    /// then the first other input. Nil when there is none.
+    public static func source(defaultInput: UInt32?, inputs: [UInt32], device: UInt32) -> UInt32? {
+        if let d = defaultInput, d != device, inputs.contains(d) { return d }
+        return inputs.first { $0 != device }
+    }
+}

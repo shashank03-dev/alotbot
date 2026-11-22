@@ -9,7 +9,9 @@ let package = Package(
         .target(name: "AlotbotCore", resources: [.copy("Resources/morph-data.json")]),
         // The app: menu bar, overlay, audio, backend process.
         .executableTarget(name: "Alotbot", dependencies: ["AlotbotCore"]),
-        .testTarget(name: "AlotbotCoreTests", dependencies: ["AlotbotCore"]),
+        // The loopback inside the Alotbot Mic audio driver (mac/Driver), plain C so the driver and the tests share it.
+        .target(name: "AlotbotMicLoop"),
+        .testTarget(name: "AlotbotCoreTests", dependencies: ["AlotbotCore", "AlotbotMicLoop"]),
         .testTarget(name: "AlotbotNativeTests", dependencies: ["Alotbot", "AlotbotCore"]),
     ],
     swiftLanguageModes: [.v5]
