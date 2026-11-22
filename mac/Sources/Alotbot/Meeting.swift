@@ -46,8 +46,10 @@ final class LiveTranscriber: @unchecked Sendable {
     private var quickFailures = 0
     private let onLine: (String) -> Void
     private let onProblem: (String) -> Void
+    /// Which side this is ("meeting" or "host"), for the app log.
+    private let label: String
 
-    init(locale: Locale = .current, onLine: @escaping (String) -> Void, onProblem: @escaping (String) -> Void) throws {
+    init(label: String = "", locale: Locale = .current, onLine: @escaping (String) -> Void, onProblem: @escaping (String) -> Void) throws {
         guard let r = SFSpeechRecognizer(locale: locale) ?? SFSpeechRecognizer(locale: Locale(identifier: "en-US")) else {
             throw Problem.unavailable("Speech recognition isn't available on this Mac.")
         }
@@ -55,6 +57,7 @@ final class LiveTranscriber: @unchecked Sendable {
             throw Problem.unavailable("On-device speech recognition isn't installed for \(r.locale.identifier). Turn on Dictation in System Settings › Keyboard, let it finish downloading, then try again.")
         }
         recognizer = r
+        self.label = label
         self.onLine = onLine
         self.onProblem = onProblem
     }
@@ -96,7 +99,9 @@ final class LiveTranscriber: @unchecked Sendable {
             let text = result?.bestTranscription.formattedString
             let final = result?.isFinal ?? false
             let failed = error != nil
-            DispatchQueue.main.async { MainActor.assumeIsolated { self?.handle(gen, text: text, final: final, failed: failed) } }
+            // The domain and code only: never words from the meeting.
+            let why = (error as NSError?).map { "\($0.domain) \($0.code)" }
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.handle(gen, text: text, final: final, failed: failed, why: why) } }
         }
         lock.lock()
         request = req
@@ -113,7 +118,7 @@ final class LiveTranscriber: @unchecked Sendable {
         lock.unlock()
     }
 
-    @MainActor private func handle(_ gen: Int, text: String?, final: Bool, failed: Bool) {
+    @MainActor private func handle(_ gen: Int, text: String?, final: Bool, failed: Bool, why: String? = nil) {
         guard gen == generation, running else { return }
         if let text, !final { quickFailures = 0; emit(segmenter.partial(text, at: Date().timeIntervalSinceReferenceDate)) }
         guard final || failed else { return }
@@ -122,6 +127,7 @@ final class LiveTranscriber: @unchecked Sendable {
         // again and again means recognition is broken here: stop instead of spinning.
         if failed && Date().timeIntervalSince(startedAt) < 1 {
             quickFailures += 1
+            AppLog.write("speech \(label): recognition failed at once (\(why ?? "no error")), \(quickFailures) in a row")
             if quickFailures >= 5 {
                 stop()
                 onProblem(Problem.failing.localizedDescription)
@@ -150,6 +156,8 @@ final class LiveTranscriber: @unchecked Sendable {
 final class MeetingAudioCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     private var stream: SCStream?
     private let queue = DispatchQueue(label: "alotbot.meeting-audio")
+    /// The first buffer's format goes in the app log once (used on `queue` only).
+    private var loggedFormat = false
     private let onAudio: (AVAudioPCMBuffer) -> Void
     /// The capture ended on its own (the app quit, or access was taken away).
     var onStopped: ((String) -> Void)?
@@ -192,6 +200,7 @@ final class MeetingAudioCapture: NSObject, SCStreamOutput, SCStreamDelegate {
         guard type == .audio, sb.isValid, let desc = sb.formatDescription else { return }
         let frames = AVAudioFrameCount(sb.numSamples)
         let format = AVAudioFormat(cmAudioFormatDescription: desc)
+        if !loggedFormat { loggedFormat = true; AppLog.write("meeting audio: \(format)") }
         guard frames > 0, let copy = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames) else { return }
         copy.frameLength = frames
         guard CMSampleBufferCopyPCMDataIntoAudioBufferList(sb, at: 0, frameCount: Int32(frames), into: copy.mutableAudioBufferList) == noErr else { return }
@@ -247,8 +256,8 @@ final class MeetingSession {
     /// Starts hearing the meeting. Throws with what to fix (permissions, dictation not installed, the app gone).
     func start() async throws {
         guard await LiveTranscriber.authorize() else { throw LiveTranscriber.Problem.denied }
-        let m = try LiveTranscriber(onLine: { [weak self] in self?.send("meeting", $0) }, onProblem: { [weak self] in self?.problem($0) })
-        let h = try LiveTranscriber(onLine: { [weak self] in self?.send("host", $0) }, onProblem: { [weak self] in self?.problem($0) })
+        let m = try LiveTranscriber(label: "meeting", onLine: { [weak self] in self?.send("meeting", $0) }, onProblem: { [weak self] in self?.problem($0) })
+        let h = try LiveTranscriber(label: "host", onLine: { [weak self] in self?.send("host", $0) }, onProblem: { [weak self] in self?.problem($0) })
         meetingBox.value = m
         hostBox.value = h
         capture.onStopped = { [weak self] why in self?.problem("Stopped hearing the meeting: \(why)") }

@@ -487,6 +487,14 @@ export class OverlayCall extends CallBase {
    */
   onReady(link: any) {
     const o = this.context.opening;
+    if (this.kind === 'meeting' && !o) {
+      // In a meeting the bots stay silent until spoken to: nobody opens it, and no greeting waits to run.
+      const was = this.opened;
+      this.opened = true;
+      super.onReady(link);
+      this.opened = was;
+      return;
+    }
     if (!o || this.callerOpened) return super.onReady(link);
     const caller = o.botId ? this.links.get(o.botId) : link;
     if (caller && caller !== link && caller.status !== 'error') {

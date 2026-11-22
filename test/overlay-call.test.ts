@@ -670,6 +670,22 @@ test('a meeting call: bots are told they are private advisers, whisper in text, 
   assert.equal(plain.call.textOnly, false);
 });
 
+// Local run of 2026-11-22: in a meeting, Satya said "Hey, Satya here." unasked: the call's greeting ran as in a normal call.
+test('in a meeting no bot opens with a greeting: they join silently and wait to be spoken to', async () => {
+  const h = await meeting();
+  for (const id of ['a', 'b']) {
+    assert.equal(h.ws(id).sent.filter((m: any) => m.type === 'response.create').length, 0, `${id} was not asked to speak`);
+    assert.ok(!h.ws(id).said().some((t) => /just joined|Open the call/.test(t)));
+  }
+  assert.ok(!h.timers.some((t: any) => !t.done), 'no greeting waits to run');
+  assert.ok(h.call.ear, 'the mic still goes to a bot, for when you speak to them');
+  // A normal call still opens.
+  const plain = setup();
+  plain.call.joinWith([A], [A, B], null);
+  await plain.ready('a');
+  assert.match(plain.ws('a').said().at(-1)!, /just joined\. Open the call/);
+});
+
 test('meeting lines reach every bot as text, are in the transcript, and never start a reply', async () => {
   const h = await meeting();
   const asks = () => [h.ws('a'), h.ws('b')].flatMap((w) => w.sent.filter((m: any) => m.type === 'response.create')).length;
