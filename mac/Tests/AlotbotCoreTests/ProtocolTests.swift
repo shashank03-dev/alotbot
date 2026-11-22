@@ -100,6 +100,15 @@ import Testing
         #expect(Array(d[5...]) == [0x01, 0x00, 0xFF, 0xFF, 0x34, 0x12])
     }
 
+    @Test func silenceIsTenthSecondMicFramesOfZeros() {
+        let one = AudioFrames.silence(seconds: 1)
+        #expect(one.count == 10)
+        #expect(one.allSatisfy { $0.count == 5 + 2400 * 2 && $0.first == AudioFrames.mic && $0.dropFirst().allSatisfy { $0 == 0 } })
+        let odd = AudioFrames.silence(seconds: 0.25) // the last frame is shorter
+        #expect(odd.map { ($0.count - 5) / 2 } == [2400, 2400, 1200])
+        #expect(AudioFrames.silence(seconds: 0).isEmpty)
+    }
+
     func botFrame(id: UInt32, when: Double, samples: [Int16]) -> Data {
         var d = Data([AudioFrames.botAudio])
         withUnsafeBytes(of: id.littleEndian) { d.append(contentsOf: $0) }

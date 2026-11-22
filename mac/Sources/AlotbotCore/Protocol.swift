@@ -208,6 +208,12 @@ public enum AudioFrames {
         return d
     }
 
+    /// `seconds` of silent mic audio, in frames of 0.1 s.
+    public static func silence(seconds: Double) -> [Data] {
+        let total = Int(sampleRate * seconds), step = Int(sampleRate / 10)
+        return stride(from: 0, to: total, by: step).map { encodeMic(level: 0, samples: [Int16](repeating: 0, count: min(step, total - $0))) }
+    }
+
     public struct BotChunk: Equatable {
         public let id: UInt32
         /// When to start playing, in backend seconds.

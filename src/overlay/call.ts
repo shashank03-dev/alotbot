@@ -510,6 +510,11 @@ export class OverlayCall extends CallBase {
     this.openFor(link);
   }
 
+  /** In a meeting nobody asked anything: after the wait, no bot is prompted to speak. */
+  afterStuck() {
+    if (this.kind !== 'meeting') super.afterStuck();
+  }
+
   /** The bot opens the answered call. */
   private openFor(link: any) {
     const o = this.context.opening!;

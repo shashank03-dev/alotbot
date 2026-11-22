@@ -2142,6 +2142,11 @@ export class Call {
     this.echoRisk = false;
     this.event('stuck', 'Your mic went quiet with no words heard: stopped waiting for you');
     this.ear?.clearInput();
+    this.afterStuck();
+  }
+
+  /** After a wait for Shashank that heard no words: the bot he was talking to may go on. */
+  afterStuck() {
     this.ear?.expectReply();
   }
 

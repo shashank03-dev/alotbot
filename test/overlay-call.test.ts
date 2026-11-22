@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { BotLink, USER } from '../public/core.js';
+import { BotLink, STUCK_SPEAKING_MS, USER } from '../public/core.js';
 import { gaze, overlayMarkdown, TASK_TOOLS, tasksText } from '../src/overlay/call.ts';
 import { TaskBoard } from '../src/overlay/tasks.ts';
 import { bot, hostSays, reply, setup } from './overlay-fakes.ts';
@@ -684,6 +684,31 @@ test('in a meeting no bot opens with a greeting: they join silently and wait to 
   plain.call.joinWith([A], [A, B], null);
   await plain.ready('a');
   assert.match(plain.ws('a').said().at(-1)!, /just joined\. Open the call/);
+});
+
+// Local run of 2026-11-22: in a meeting, "speech" with no words timed out and the call prompted Satya, who repeated his
+// last answer unasked. In a meeting the call stops waiting and prompts nobody.
+test('in a meeting, speech that never became words stops the wait and prompts no bot', async () => {
+  const h = await meeting();
+  h.setClock(1000);
+  h.call.micAudio(new Int16Array(10), 0.2);
+  h.ws('a').emit('input_audio_buffer.speech_started');
+  assert.equal(h.call.view().userSpeaking, true);
+  h.setClock(1000 + STUCK_SPEAKING_MS);
+  h.call.checkStuck();
+  assert.equal(h.call.view().userSpeaking, false);
+  assert.equal(h.ws('a').sent.at(-1).type, 'input_audio_buffer.clear', 'the half-heard audio is dropped');
+  for (const t of h.timers.filter((x: any) => !x.done)) t.fn();
+  assert.equal(h.ws('a').sent.filter((m: any) => m.type === 'response.create').length, 0, 'nobody was asked to answer');
+  // In a normal call the bot you were talking to still goes on after the wait.
+  const plain = await twoBots();
+  const ear = plain.call.ear;
+  plain.setClock(1000);
+  plain.call.micAudio(new Int16Array(10), 0.2);
+  plain.ws(ear.bot.id).emit('input_audio_buffer.speech_started');
+  plain.setClock(1000 + STUCK_SPEAKING_MS);
+  plain.call.checkStuck();
+  assert.ok(ear.replyTimer !== null, 'the bot is cued to go on');
 });
 
 test('meeting lines reach every bot as text, are in the transcript, and never start a reply', async () => {

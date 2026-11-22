@@ -105,6 +105,8 @@ final class AppModel: ObservableObject {
     @Published var talkHeld = false
     /// ⌥Space could be registered at the last meeting (another app may own it); the on-screen talk button always works.
     @Published var talkKeyAvailable = true
+    /// Mic frames to the backend (from the audio thread, or the main thread at the end of a turn).
+    var sendMic: (Data) -> Void = { _ in }
     /// True while a meeting is on: only then is ⌥Space registered.
     var talkKeyWanted: AnyPublisher<Bool, Never> { $view.map { $0?.meeting != nil }.removeDuplicates().eraseToAnyPublisher() }
     @Published var shareTargets: [ShareTarget] = []
@@ -147,11 +149,12 @@ final class AppModel: ObservableObject {
         }
         backend.onMessage = { [weak self] msg in self?.handle(msg) }
         backend.onAudio = { [weak self] chunk in self?.audio.play(chunk) }
+        sendMic = { [backend] in backend.sendMic($0) }
         let router = micRouter
         audio.onMic = { [weak self] level, pcm in
             // In a meeting your mic is part of the meeting (your own lines) unless you hold the talk key.
             switch router.route {
-            case .bots: self?.backend.sendMic(AudioFrames.encodeMic(level: level, samples: pcm))
+            case .bots: self?.sendMic(AudioFrames.encodeMic(level: level, samples: pcm))
             case .meeting: router.meeting?.hostAudio(pcm)
             }
         }
@@ -435,6 +438,9 @@ final class AppModel: ObservableObject {
         guard view?.meeting != nil, talkHeld != held else { return }
         talkHeld = held
         micRouter.set(route: MicRoute.of(inMeeting: true, talkHeld: held), meeting: meeting)
+        // Letting go ends your turn: the bot's voice service hears the end of speech only as silence, and after the
+        // switch it gets no more of your mic.
+        if !held { for frame in AudioFrames.silence(seconds: 1) { sendMic(frame) } }
     }
 
     func setWhisperAloud(_ aloud: Bool) async {

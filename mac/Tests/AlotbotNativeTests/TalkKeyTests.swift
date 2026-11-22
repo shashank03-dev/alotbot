@@ -58,4 +58,23 @@ import AlotbotCore
         model.toggleTalk()
         #expect(!model.talkHeld)
     }
+
+    // Local run of 2026-11-22: you let go of the talk key while the bot's voice service still heard you speaking; with no
+    // more audio it never heard the silence that ends a turn, so 8 s later the call gave up and prompted the bot, which
+    // said its last answer again. Letting go now ends your turn with a second of silence.
+    @Test @MainActor func lettingGoOfTheTalkKeyEndsYourTurnWithSilence() {
+        let model = AppModel()
+        var sent: [Data] = []
+        model.sendMic = { sent.append($0) }
+        model.view = CallView(phase: "in-call", muted: false, userSpeaking: false, waitingForHost: false, focus: nil, bots: [], live: nil, linesSeq: 0, tasksVersion: 0)
+        model.view?.meeting = MeetingState(app: "Zoom", whisper: "text")
+        model.setTalk(true)
+        #expect(sent.isEmpty, "pressing sends nothing by itself")
+        model.setTalk(false)
+        let samples = sent.reduce(0) { $0 + ($1.count - 5) / 2 }
+        #expect(samples == Int(AudioFrames.sampleRate), "one second of audio")
+        #expect(sent.allSatisfy { $0.first == AudioFrames.mic && $0.dropFirst(5).allSatisfy { $0 == 0 } }, "mic frames of silence")
+        model.setTalk(false)
+        #expect(samples == sent.reduce(0) { $0 + ($1.count - 5) / 2 }, "letting go twice sends it once")
+    }
 }
