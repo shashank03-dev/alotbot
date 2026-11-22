@@ -791,7 +791,8 @@ test('the enabled desktop browser executes through the call and records its veri
   await c.ok('localConfig', { browser: true });
   const a = h.sockets.get('a')!;
   reply(a, '', [['mac_browser', { operation: 'inspect' }]]);
-  for (let i = 0; i < 200 && !a.outputs().some((o) => o.includes('about:blank')); i++) await new Promise((r) => setTimeout(r, 25));
+  // A real browser starts here: up to 15 s, since the full suite starts others at the same time (it once took over 5 s).
+  for (let i = 0; i < 600 && !a.outputs().some((o) => o.includes('about:blank')); i++) await new Promise((r) => setTimeout(r, 25));
   assert.ok(a.outputs().some((o) => o.includes('about:blank')));
   assert.equal((await c.ok('actions')).actions.find((a: any) => a.tool === 'mac_browser').status, 'completed');
   await c.ok('localConfig', { browser: false });

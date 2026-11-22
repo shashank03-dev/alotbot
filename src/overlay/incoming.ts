@@ -90,6 +90,8 @@ export interface Ring {
   scheduleId: string | null;
   /** When a snoozed ring rings again (while snoozed). */
   at: number | null;
+  /** A call back on jobs: its reason before the results, and the jobs. Newer output from them updates it while it is open. */
+  jobs: { lead: string; ids: string[] } | null;
 }
 
 export interface QuietHours {
@@ -300,6 +302,8 @@ export function parseSaved(raw: unknown, zone: string, now: number): Saved {
       note: state === g.state ? oneLine(g.note, 200) : 'Alotbot was closed while this rang.',
       scheduleId: typeof g.scheduleId === 'string' ? g.scheduleId : null,
       at: snoozed ? (g.at as number) : null,
+      jobs: isRecord(g.jobs) && typeof g.jobs.lead === 'string' && Array.isArray(g.jobs.ids) && g.jobs.ids.every((i) => typeof i === 'string')
+        ? { lead: g.jobs.lead, ids: g.jobs.ids as string[] } : null,
     });
   }
   const cooldowns: Record<string, number> = {};
@@ -517,6 +521,7 @@ export class IncomingCalls {
       note: '',
       scheduleId,
       at: null,
+      jobs: null,
     };
     this.s.rings.push(ring);
     return ring;
@@ -648,6 +653,7 @@ export class IncomingCalls {
     const r = this.sounding(id);
     this.end(r, 'declined', `Snoozed for ${minutes} min.`);
     const again = this.newRing(r.source, r.title, r.reason, r.botIds, r.agenda, r.scheduleId);
+    again.jobs = r.jobs;
     again.state = 'snoozed';
     again.at = this.d.now() + (minutes as number) * 60_000;
     again.note = `Snoozed for ${minutes} min.`;
@@ -807,6 +813,7 @@ export class IncomingCalls {
       const before = this.seen.get(a.id);
       return before !== undefined && (before.output !== IncomingCalls.look(a).output || (finished(a.status) && !finished(before.status)));
     };
+    const results = (jobs: ActionView[]) => jobs.map((j) => (j.status === 'completed' ? j.summary ?? 'done' : `did not finish (${j.error ?? j.status})`)).join('; ');
     let dirty = false;
     // Callbacks waiting on jobs.
     const status = new Map(actions.map((a) => [a.id, a]));
@@ -829,8 +836,9 @@ export class IncomingCalls {
       if (!jobs.some(news)) continue;
       this.s.callbacks.splice(this.s.callbacks.indexOf(c), 1);
       dirty = true;
-      const results = jobs.map((j) => (j.status === 'completed' ? j.summary ?? 'done' : `did not finish (${j.error ?? j.status})`)).join('; ');
-      this.offer(this.newRing('callback', `${c.botName} is calling back`, `${c.reason} Result: ${results}`, [c.botId], '', null));
+      const ring = this.newRing('callback', `${c.botName} is calling back`, `${c.reason} Result: ${results(jobs)}`, [c.botId], '', null);
+      ring.jobs = { lead: c.reason, ids: [...c.waitsFor] };
+      this.offer(ring);
     }
     for (const a of actions) {
       const before = this.seen.get(a.id);
@@ -838,6 +846,14 @@ export class IncomingCalls {
       this.seen.delete(a.id);
       this.seen.set(a.id, IncomingCalls.look(a));
       if (claimed.has(a.id) || isLive(a) || a.callId === 'workspace' || a.target !== 'agent') continue;
+      // A call back that rang with what its job said first ("Checking now.") takes what it says next while it is open.
+      const carrier = fresh ? this.s.rings.find((r) => (r.state === 'ringing' || r.state === 'held' || r.state === 'snoozed') && r.jobs?.ids.includes(a.id)) : undefined;
+      if (carrier) {
+        const jobs = carrier.jobs!.ids.map((id) => status.get(id)).filter((j) => j !== undefined);
+        carrier.reason = oneLine(`${carrier.jobs!.lead} Result: ${results(jobs)}`, REASON_MAX * 4);
+        dirty = true;
+        continue;
+      }
       const cooling = (this.s.cooldowns[a.botId] ?? 0) > now;
       if (a.status === 'waiting_approval' && before?.status !== a.status && this.s.settings.approvals) {
         dirty = true;

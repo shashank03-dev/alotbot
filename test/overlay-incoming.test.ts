@@ -983,3 +983,37 @@ test('a call back waiting on a job is not used up by a progress reply during the
   assert.equal(h.make().state().callbacks[0].expiresAt, h.now + CALLBACK_QUIET_MS);
   assert.equal(parseSaved({ callbacks: [{ ...saved, expiresAt: 'soon' }] }, 'UTC', h.now).callbacks[0].expiresAt, null);
 });
+
+// Local run of 2026-11-22: "Call me back when it's done" rang 7 s after the call with the job's progress note
+// ("Result: Checking Hacker News now."), and the result 15 s later rang again as a second call.
+test('a call back that rings with progress takes the result that comes while it is still open, not a second ring', () => {
+  const h = harness();
+  h.inc.start();
+  h.inc.seed([view({ id: 'hn', callId: 'call-9-a' })]);
+  h.inc.addCallback('a', 'Bot A', 'The top story', { at: null, waitsFor: ['hn'] });
+  h.inc.observe([view({ id: 'hn', callId: 'call-9-a', status: 'completed', summary: 'Checking Hacker News now.' })], null);
+  const r = h.inc.state().ringing!;
+  assert.equal(r.reason, 'The top story Result: Checking Hacker News now.');
+  h.inc.observe([view({ id: 'hn', callId: 'call-9-a', status: 'completed', summary: 'The top story is X.' })], null);
+  assert.equal(h.inc.state().ringing!.id, r.id, 'the same ring');
+  assert.equal(h.inc.state().ringing!.reason, 'The top story Result: The top story is X.');
+  assert.deepEqual([h.inc.state().held, h.inc.state().missed], [[], []], 'no second ring');
+  // Snoozed, it keeps following its job, and across a restart.
+  h.inc.snooze(r.id, 5);
+  h.inc.observe([view({ id: 'hn', callId: 'call-9-a', status: 'failed', summary: 'The top story is X.', error: 'timed out' })], null);
+  assert.equal(h.inc.state().snoozed[0].reason, 'The top story Result: did not finish (timed out)');
+  const again = h.make();
+  again.seed([view({ id: 'hn', callId: 'call-9-a', status: 'failed', error: 'timed out' })]);
+  again.observe([view({ id: 'hn', callId: 'call-9-a', status: 'completed', summary: 'Retried: X.' })], null);
+  assert.equal(again.state().snoozed[0].reason, 'The top story Result: Retried: X.');
+  assert.deepEqual(again.state().held, []);
+  // Once it was answered or declined, news from the job rings as the job's own result, as before.
+  const g = harness();
+  g.inc.start();
+  g.inc.seed([view({ id: 'j', callId: 'call-9-a' })]);
+  g.inc.addCallback('a', 'Bot A', 'The top story', { at: null, waitsFor: ['j'] });
+  g.inc.observe([view({ id: 'j', callId: 'call-9-a', status: 'completed', summary: 'Checking now.' })], null);
+  g.inc.decline(g.inc.state().ringing!.id);
+  g.inc.observe([view({ id: 'j', callId: 'call-9-a', status: 'completed', summary: 'The top story is X.' })], null);
+  assert.deepEqual([g.inc.state().ringing?.source, g.inc.state().ringing?.reason], ['job', 'The top story is X.']);
+});
