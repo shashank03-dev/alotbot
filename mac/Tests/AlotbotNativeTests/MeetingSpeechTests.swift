@@ -1,0 +1,90 @@
+import AVFoundation
+import Foundation
+import Speech
+import Testing
+@testable import Alotbot
+
+/// Speech made with `say`, read back as float32 mono at `rate`.
+private func spoken(_ text: String, rate: Double, in dir: URL) throws -> AVAudioPCMBuffer {
+    let aiff = dir.appendingPathComponent("\(UUID()).aiff"), wav = dir.appendingPathComponent("\(UUID()).wav")
+    for (tool, args) in [("/usr/bin/say", ["-o", aiff.path, text]), ("/usr/bin/afconvert", ["-f", "WAVE", "-d", "LEF32@\(Int(rate))", "-c", "1", aiff.path, wav.path])] {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: tool)
+        p.arguments = args
+        try p.run()
+        p.waitUntilExit()
+        #expect(p.terminationStatus == 0)
+    }
+    let file = try AVAudioFile(forReading: wav)
+    let buf = try #require(AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(file.length)))
+    try file.read(into: buf)
+    return buf
+}
+
+/// `buf` in pieces of `frames`, then 2 s of silence, as a live stream sends it.
+private func pieces(_ buf: AVAudioPCMBuffer, frames: AVAudioFrameCount) -> [AVAudioPCMBuffer] {
+    var out: [AVAudioPCMBuffer] = []
+    let total = buf.frameLength + AVAudioFrameCount(buf.format.sampleRate * 2)
+    var at: AVAudioFrameCount = 0
+    while at < total {
+        let n = min(frames, total - at)
+        let p = AVAudioPCMBuffer(pcmFormat: buf.format, frameCapacity: n)!
+        p.frameLength = n
+        let src = buf.floatChannelData![0], dst = p.floatChannelData![0]
+        for i in 0..<Int(n) { dst[i] = at + AVAudioFrameCount(i) < buf.frameLength ? src[Int(at) + i] : 0 }
+        out.append(p)
+        at += n
+    }
+    return out
+}
+
+@Suite struct MeetingSpeechTests {
+    // Local run of 2026-11-22: a meeting's two SFSpeechRecognizer tasks ended each other at once ("no speech",
+    // kAFAssistantErrorDomain 1110) and the meeting was never transcribed. The analyzer must hear both at the same time.
+    @Test @MainActor func bothSidesOfAMeetingAreTranscribedAtTheSameTime() async throws {
+        guard #available(macOS 26, *), SpeechTranscriber.isAvailable else { return } // no speech analyzer on this Mac
+        let locale = try #require(await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: "en-US")))
+        // As the app does: reserve the language, or this process sees the installed model as only "supported".
+        try await AssetInventory.reserve(locale: locale)
+        #expect(await AssetInventory.status(forModules: [SpeechTranscriber(locale: locale, preset: .progressiveTranscription)]) == .installed) // no analyzer model on this Mac: nothing to prove
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("speech-\(UUID())")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // The meeting arrives at 48 kHz (its capture) and your mic at 24 kHz: both are converted.
+        let meetingAudio = try spoken("The quarterly revenue went up by twelve percent.", rate: 48_000, in: dir)
+        let hostAudio = try spoken("We should hire two more engineers before the launch.", rate: 24_000, in: dir)
+        var meeting: [String] = [], host: [String] = [], problems: [String] = []
+        let m = try await AnalyzerTranscriber(label: "meeting", locale: locale, onLine: { meeting.append($0) }, onProblem: { problems.append($0) })
+        let h = try await AnalyzerTranscriber(label: "host", locale: locale, onLine: { host.append($0) }, onProblem: { problems.append($0) })
+        m.start()
+        h.start()
+        m.start() // a second start changes nothing
+        let a = pieces(meetingAudio, frames: 4800), b = pieces(hostAudio, frames: 2400)
+        for i in 0..<max(a.count, b.count) {
+            if i < a.count { m.append(a[i]) }
+            if i < b.count { h.append(b[i]) }
+            try await Task.sleep(nanoseconds: 50_000_000) // 100 ms of audio every 50 ms: both streams at once
+        }
+        // Up to 10 s more for the last words to settle.
+        for _ in 0..<100 where !(meeting.joined().lowercased().contains("revenue") && host.joined().lowercased().contains("engineers")) {
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        m.stop()
+        h.stop()
+        m.stop() // stopping twice is fine
+        m.append(a[0]) // audio after the stop goes nowhere
+        let heardMeeting = meeting.joined(separator: " ").lowercased(), heardHost = host.joined(separator: " ").lowercased()
+        #expect(heardMeeting.contains("revenue"))
+        #expect(heardHost.contains("engineers"))
+        #expect(!heardMeeting.contains("engineers") && !heardHost.contains("revenue"), "each side hears only its own audio")
+        #expect(problems.isEmpty)
+    }
+
+    /// The meeting asks for both sides through `pair`; on a Mac with the analyzer and the model, it gets both.
+    @Test @MainActor func aMeetingGetsBothSidesWhereTheAnalyzerIsInstalled() async throws {
+        guard #available(macOS 26, *), SpeechTranscriber.isAvailable else { return } // no speech analyzer on this Mac
+        let both = try await AnalyzerTranscriber.pair(onMeeting: { _ in }, onHost: { _ in }, onProblem: { _ in })
+        let (m, h) = try #require(both)
+        #expect(m !== h)
+    }
+}

@@ -5,10 +5,19 @@ import AlotbotCore
 import ScreenCaptureKit
 import Speech
 
+/// One audio stream turned into lines on this Mac: the meeting, or your mic while you talk in the meeting.
+protocol SpeechStream: AnyObject, Sendable {
+    @MainActor func start()
+    @MainActor func stop()
+    /// Audio, from any thread (the mic tap or the meeting's capture queue).
+    func append(_ buffer: AVAudioPCMBuffer)
+}
+
 /// Live on-device speech-to-text for one audio stream: the meeting, or your mic while you talk in the meeting. The
 /// audio never leaves this Mac: if this Mac can't recognize speech on device, it says so and doesn't fall back to a
-/// server.
-final class LiveTranscriber: @unchecked Sendable {
+/// server. Two of these at once knock each other out (each ends the other with "no speech", kAFAssistantErrorDomain
+/// 1110: seen on macOS 27), so a meeting uses only one; `AnalyzerTranscriber` does both sides where it can.
+final class LiveTranscriber: SpeechStream, @unchecked Sendable {
     enum Problem: LocalizedError {
         case denied, unavailable(String), failing
         var errorDescription: String? {
@@ -224,8 +233,8 @@ enum MeetingError: LocalizedError {
 /// A transcriber the audio threads read while the main thread sets it.
 final class TranscriberBox: @unchecked Sendable {
     private let lock = NSLock()
-    private var t: LiveTranscriber?
-    var value: LiveTranscriber? {
+    private var t: SpeechStream?
+    var value: SpeechStream? {
         get { lock.lock(); defer { lock.unlock() }; return t }
         set { lock.lock(); t = newValue; lock.unlock() }
     }
@@ -256,13 +265,23 @@ final class MeetingSession {
     /// Starts hearing the meeting. Throws with what to fix (permissions, dictation not installed, the app gone).
     func start() async throws {
         guard await LiveTranscriber.authorize() else { throw LiveTranscriber.Problem.denied }
-        let m = try LiveTranscriber(label: "meeting", onLine: { [weak self] in self?.send("meeting", $0) }, onProblem: { [weak self] in self?.problem($0) })
-        let h = try LiveTranscriber(label: "host", onLine: { [weak self] in self?.send("host", $0) }, onProblem: { [weak self] in self?.problem($0) })
+        let line = { [weak self] (who: String) -> (String) -> Void in { (text: String) -> Void in self?.send(who, text) } }
+        let trouble: (String) -> Void = { [weak self] in self?.problem($0) }
+        let m: SpeechStream
+        var h: SpeechStream?
+        if #available(macOS 26, *), let both = try await AnalyzerTranscriber.pair(onMeeting: line("meeting"), onHost: line("host"), onProblem: trouble) {
+            (m, h) = both
+            AppLog.write("meeting speech: both sides, on-device speech analyzer")
+        } else {
+            // The older recognizer can run only one at a time: the meeting's side, the one the bots need.
+            m = try LiveTranscriber(label: "meeting", onLine: line("meeting"), onProblem: trouble)
+            AppLog.write("meeting speech: the meeting's side only (this Mac can't transcribe both at once)")
+        }
         meetingBox.value = m
         hostBox.value = h
         capture.onStopped = { [weak self] why in self?.problem("Stopped hearing the meeting: \(why)") }
         m.start()
-        h.start()
+        h?.start()
         do { try await capture.start(app: app) } catch {
             stop()
             throw error
