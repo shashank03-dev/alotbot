@@ -23,6 +23,6 @@ The first build was written in a Linux container without macOS or Xcode. Everyth
 Still not verified:
 
 - Zoom and Teams (not installed on the test Mac); only Google Meet in a browser was used.
-- Whispers aloud on real headphones (the live run used the speakers, which showed that the meeting hears a bot through Alotbot Mic: `LOCAL_E2E_RESULTS.md` row 45, open).
+- Whispers aloud on real headphones (the live run used the speakers; there, after the fix in `LOCAL_E2E_RESULTS.md` row 45, the meeting no longer hears the bot).
 - A shared window turning into a password manager: not possible with a window share (it follows one window); covered by tests only.
 - 1Password (not installed); Passwords.app was checked.

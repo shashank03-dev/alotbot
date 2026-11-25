@@ -7,6 +7,9 @@ import AlotbotCore
 final class AudioIO {
     /// 40 ms frames of 24 kHz PCM16, with their loudness.
     var onMic: ((Float, [Int16]) -> Void)?
+    /// The echo-cancelled mic at 48 kHz mono, as it comes (for Alotbot Mic: the bots' voices are taken out of it).
+    /// Called on the audio thread, muted or not.
+    var onCleanMic: ((UnsafeBufferPointer<Float>) -> Void)?
     /// Smoothed mic loudness (0...1), for the host's avatar.
     private(set) var micLevel: Float = 0
     var muted = false
@@ -19,6 +22,8 @@ final class AudioIO {
     private let player = AVAudioPlayerNode()
     private let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: AudioFrames.sampleRate, channels: 1, interleaved: false)!
     private var converter: AVAudioConverter?
+    private var cleanConverter: AVAudioConverter?
+    private let cleanFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: PassThrough.rate, channels: 1, interleaved: false)!
     private var micMono: AVAudioFormat?
     private var micBuffer: [Float] = []
     private let frameSize = 960
@@ -80,6 +85,7 @@ final class AudioIO {
         guard let mono = AVAudioFormat(standardFormatWithSampleRate: inFormat.sampleRate, channels: 1),
               let conv = AVAudioConverter(from: mono, to: format) else { throw AudioError.start("unsupported mic format \(inFormat)") }
         converter = conv
+        cleanConverter = AVAudioConverter(from: mono, to: cleanFormat)
         micMono = mono
         engine.attach(player)
         engine.connect(player, to: engine.mainMixerNode, format: format)
@@ -121,6 +127,7 @@ final class AudioIO {
         engine.stop()
         if player.engine != nil { engine.detach(player) }
         converter = nil
+        cleanConverter = nil
     }
 
     func stop() {
@@ -136,6 +143,9 @@ final class AudioIO {
               let one = AVAudioPCMBuffer(pcmFormat: mono, frameCapacity: buf.frameLength) else { return }
         one.frameLength = buf.frameLength
         one.floatChannelData![0].update(from: src[0], count: Int(buf.frameLength))
+        if let onCleanMic, let clean = Self.convert(one, with: cleanConverter, to: cleanFormat), let ch = clean.floatChannelData?[0] {
+            onCleanMic(UnsafeBufferPointer(start: ch, count: Int(clean.frameLength)))
+        }
         let ratio = format.sampleRate / mono.sampleRate
         let cap = AVAudioFrameCount(Double(one.frameLength) * ratio + 32)
         guard let out = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: cap) else { return }
@@ -162,6 +172,22 @@ final class AudioIO {
             micLevel = micLevel * 0.7 + level * 0.3
             if !muted { onMic?(level, AudioFrames.toPCM16(frame)) }
         }
+    }
+
+    /// `buffer` in `format`, through a converter that keeps its state from one call to the next; nil if it failed.
+    private static func convert(_ buffer: AVAudioPCMBuffer, with converter: AVAudioConverter?, to format: AVAudioFormat) -> AVAudioPCMBuffer? {
+        guard let converter else { return nil }
+        let cap = AVAudioFrameCount(Double(buffer.frameLength) * format.sampleRate / buffer.format.sampleRate + 32)
+        guard let out = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: cap) else { return nil }
+        var given = false
+        var err: NSError?
+        converter.convert(to: out, error: &err) { _, status in
+            if given { status.pointee = .noDataNow; return nil }
+            given = true
+            status.pointee = .haveData
+            return buffer
+        }
+        return err == nil && out.frameLength > 0 ? out : nil
     }
 
     /// Schedules a bot's voice at the time the backend chose (so voices never overlap).

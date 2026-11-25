@@ -18,7 +18,11 @@ final class MeetingMic {
         set { passThrough.silenced = newValue }
     }
     private(set) var passing = false
-    private let passThrough = PassThrough()
+    nonisolated private let passThrough = PassThrough()
+
+    /// The call's echo-cancelled mic (48 kHz mono), from the audio thread: while it comes in, it is what the meeting
+    /// hears instead of the raw mic, so a bot speaking aloud on the speakers doesn't reach the meeting.
+    nonisolated func feedClean(_ samples: UnsafeBufferPointer<Float>) { passThrough.pushClean(samples) }
     private var timer: Timer?
 
     /// The device, when its driver is installed and loaded.
@@ -104,12 +108,31 @@ final class PassThrough: @unchecked Sendable {
     // The queues' callbacks hold this object unretained: they are stopped and gone before it is.
     deinit { stop() }
 
-    /// Mic samples in (mono), or silence while silenced; the oldest go when more than 0.2 s waits.
-    func push(_ samples: UnsafeBufferPointer<Float>) {
+    /// Seconds after the call's echo-cancelled mic last came in during which the raw mic is not used.
+    static let cleanHold = 0.3
+    private var cleanAt = -Double.infinity
+
+    /// The raw mic (mono), used only while the call's echo-cancelled mic isn't coming in: then no call audio runs and
+    /// no bot can be playing. The raw mic also hears the speakers.
+    func push(_ samples: UnsafeBufferPointer<Float>, at now: Double = ProcessInfo.processInfo.systemUptime) {
         lock.withLock {
-            if _silenced { queued.append(contentsOf: repeatElement(0, count: samples.count)) } else { queued.append(contentsOf: samples) }
-            if queued.count > Self.maxQueued { queued.removeFirst(queued.count - Self.maxQueued) }
+            guard now - cleanAt > Self.cleanHold else { return }
+            append(samples)
         }
+    }
+
+    /// The call's mic with echo cancellation (48 kHz mono): bots' voices from the speakers are taken out of it.
+    func pushClean(_ samples: UnsafeBufferPointer<Float>, at now: Double = ProcessInfo.processInfo.systemUptime) {
+        lock.withLock {
+            cleanAt = now
+            append(samples)
+        }
+    }
+
+    /// Samples in, or silence while silenced; the oldest go when more than 0.2 s waits. Under `lock`.
+    private func append(_ samples: UnsafeBufferPointer<Float>) {
+        if _silenced { queued.append(contentsOf: repeatElement(0, count: samples.count)) } else { queued.append(contentsOf: samples) }
+        if queued.count > Self.maxQueued { queued.removeFirst(queued.count - Self.maxQueued) }
     }
 
     /// `frames` stereo frames out; silence where nothing waits.

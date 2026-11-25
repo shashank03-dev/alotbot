@@ -166,6 +166,8 @@ final class AppModel: ObservableObject {
         backend.onAudio = { [weak self] chunk in self?.audio.play(chunk) }
         sendMic = { [backend] in backend.sendMic($0) }
         let router = micRouter
+        // While a call's audio runs, a meeting gets the echo-cancelled mic, so a bot speaking aloud doesn't reach it.
+        audio.onCleanMic = { [meetingMic] in meetingMic.feedClean($0) }
         audio.onMic = { [weak self] level, pcm in
             // In a meeting your mic is part of the meeting (your own lines) unless you hold the talk key.
             switch router.route {

@@ -41,6 +41,27 @@ import AlotbotCore
         #expect(out[0] == 0.1 && out[2 * (max - 1)] == 0.9, "the oldest went, the newest is last")
         #expect(out[2 * max] == 0, "nothing more")
     }
+
+    /// Live, 25 Nov (row 45): with whisper aloud on the speakers, the meeting heard Satya. The raw mic hears the
+    /// speakers; the call's echo-cancelled mic has the bots' voices taken out. While it comes in, it is what the meeting
+    /// gets, and the raw mic is not used.
+    @Test func whileTheCallsCleanMicComesInTheRawMicIsNotUsed() {
+        let p = PassThrough()
+        func raw(_ s: [Float], at t: Double) { s.withUnsafeBufferPointer { p.push($0, at: t) } }
+        func clean(_ s: [Float], at t: Double) { s.withUnsafeBufferPointer { p.pushClean($0, at: t) } }
+        clean([0.1, 0.2], at: 10)
+        raw([0.8, 0.8], at: 10.01)
+        #expect(pulled(p, 3) == [0.1, 0.1, 0.2, 0.2, 0, 0], "the raw mic, with a bot's voice in it, is left out")
+        raw([0.8], at: 10 + PassThrough.cleanHold - 0.01)
+        #expect(pulled(p, 1) == [0, 0], "still within the hold")
+        // The call's audio stopped (no bot can play): the raw mic is used again.
+        raw([0.4], at: 10 + PassThrough.cleanHold + 0.01)
+        #expect(pulled(p, 1) == [0.4, 0.4])
+        // Holding the talk key silences the clean mic as well.
+        p.silenced = true
+        clean([0.5], at: 20)
+        #expect(pulled(p, 1) == [0, 0])
+    }
 }
 
 /// With the driver installed (it is on the Mac these tests ran on): the device works end to end.
