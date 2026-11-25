@@ -1,4 +1,5 @@
 import Foundation
+import ScreenCaptureKit
 import Testing
 @testable import Alotbot
 
@@ -94,6 +95,23 @@ import Testing
         for _ in 0..<200 where box.stops.isEmpty { try? await Task.sleep(for: .milliseconds(50)) }
         #expect(box.stops == ["Couldn't read the shared screen: it stopped responding (reading the screen)."])
         #expect(box.reads == 1, "a stuck read is not started again on top of itself")
+    }
+
+    /// Live, 25 Nov: turning off Screen Recording mid-share showed "Couldn't read the shared screen: The user declined
+    /// TCCs for application, window, display capture", after three failed reads. The running app still passes its own
+    /// check, so the capture's "declined" error is what says it.
+    @MainActor @Test func screenRecordingTurnedOffMidShareSaysSoAtOnce() async {
+        final class Box { var stops: [String] = []; var reads = 0 }
+        let box = Box()
+        let s = ScreenShareSession(target: ShareTarget(kind: .display, app: "Display", title: "", windowID: nil, displayID: 1),
+                                   send: { _ in true }, stopped: { box.stops.append($0) }, read: { _ in
+            box.reads += 1
+            throw NSError(domain: SCStreamErrorDomain, code: SCStreamError.Code.userDeclined.rawValue)
+        })
+        s.start()
+        for _ in 0..<100 where box.stops.isEmpty { try? await Task.sleep(for: .milliseconds(50)) }
+        #expect(box.stops == ["Screen Recording is off for Alotbot, so sharing stopped."])
+        #expect(box.reads == 1, "said at once, not after three tries")
     }
 
     @MainActor @Test func aSlowReadThatFinishesInTimeIsFine() async {

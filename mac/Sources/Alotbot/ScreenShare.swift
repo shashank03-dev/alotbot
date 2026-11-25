@@ -78,6 +78,7 @@ final class ScreenShareSession {
     static let every: Double = 2
     /// Screenshots kept in the artifacts folder.
     static let keepShots = 5
+    static let screenRecordingOff = "Screen Recording is off for Alotbot, so sharing stopped."
 
     let target: ShareTarget
     private var loop: Task<Void, Never>?
@@ -161,6 +162,12 @@ final class ScreenShareSession {
                     return
                 } catch {
                     if Task.isCancelled { return }
+                    // Turned off while sharing: this app still passes its own check, so the capture's refusal says it.
+                    let ns = error as NSError
+                    if ns.domain == SCStreamErrorDomain, ns.code == SCStreamError.Code.userDeclined.rawValue {
+                        self.end(Self.screenRecordingOff)
+                        return
+                    }
                     // The domain and code only: never what is on the screen.
                     if let slow = error as? ReadTooSlow {
                         AppLog.write("screen share: a read took over \(Int(self.readLimit)) s (\(slow.step))")
@@ -192,7 +199,7 @@ final class ScreenShareSession {
     struct ShareEnded: Error { let why: String }
 
     private func readOnce() async throws {
-        guard CGPreflightScreenCaptureAccess() else { throw ShareEnded(why: "Screen Recording is off for Alotbot, so sharing stopped.") }
+        guard CGPreflightScreenCaptureAccess() else { throw ShareEnded(why: Self.screenRecordingOff) }
         step = "listing windows"
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
         let config = SCStreamConfiguration()
