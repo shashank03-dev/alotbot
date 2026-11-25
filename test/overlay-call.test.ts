@@ -801,6 +801,37 @@ test('whispers: aloud for headphones, back to text; the timeline says which', as
   assert.deepEqual(h.call.timeline.filter((e: any) => e.kind === 'meeting').map((e: any) => e.text), ['Bots whisper aloud (headphones)', 'Bots whisper in text']);
 });
 
+// Local run of 2026-11-25: you quit Zen mid-meeting. The Mac said so in its own system voice; you wanted the bot to
+// say it. The meeting can't hear the bots any more, so the bot you were talking to says it aloud, in its own voice.
+test('when the meeting app quits, the bot you were talking to says so aloud, once, and bots speak from then on', async () => {
+  const h = await meeting();
+  const ear = h.call.ear;
+  const id = ear.bot.id;
+  const other = id === 'a' ? 'b' : 'a';
+  const before = h.ws(other).sent.filter((m: any) => m.type === 'response.create').length;
+  assert.equal(h.call.meetingEnded('Stopped hearing the meeting:   Zen quit.'), true);
+  assert.equal(h.call.textOnly, false, 'nobody is left to overhear: replies are spoken');
+  assert.match(h.ws(id).said().at(-1)!, /Stopped hearing the meeting: Zen quit\. .*aloud/);
+  const asked = h.ws(id).sent.filter((m: any) => m.type === 'response.create');
+  assert.equal(asked.length, 1);
+  assert.equal(asked[0].response?.modalities, undefined, 'a spoken reply, not text only');
+  assert.equal(h.ws(other).sent.filter((m: any) => m.type === 'response.create').length, before, 'only one bot says it');
+  assert.ok(h.call.timeline.some((e: any) => e.kind === 'meeting' && e.text === 'Stopped hearing the meeting: Zen quit.'));
+  assert.equal(h.call.meetingEnded('Stopped hearing the meeting: Zen quit.'), false, 'said once');
+  assert.equal(h.call.meetingEnded('   '), false);
+  // The bot you were talking to isn't in yet: another one says it. Nobody in yet: nothing is said.
+  const late = setup();
+  late.call.joinWith([A, B], [A, B, C], null, { meeting: { app: 'zoom.us' } });
+  assert.equal(late.call.meetingEnded('Stopped hearing the meeting: Zen quit.'), false, 'no bot is in yet');
+  await late.ready('b');
+  late.call.ear = late.call.links.get('a');
+  assert.equal(late.call.meetingEnded('Stopped hearing the meeting: Zen quit.'), true);
+  assert.match(late.ws('b').said().at(-1)!, /Zen quit\. .*aloud/);
+  // Not in a meeting: nothing to say.
+  const plain = await twoBots();
+  assert.equal(plain.call.meetingEnded('Stopped hearing the meeting: Zen quit.'), false);
+});
+
 // ---------- sharing your screen ----------
 
 const WIN = { app: 'Safari', title: 'Pricing', kind: 'window' as const };

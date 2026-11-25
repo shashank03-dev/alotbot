@@ -1,3 +1,4 @@
+import AVFoundation
 import AppKit
 import Combine
 import Foundation
@@ -129,6 +130,8 @@ final class AppModel: ObservableObject {
     @Published var joining = false
     @Published var leaving = false
     @Published var toast: String?
+    /// A message that stays until you close it (the meeting app quit).
+    @Published var notice: String?
 
     // Overlay
     @Published var overlayShown = false
@@ -244,6 +247,21 @@ final class AppModel: ObservableObject {
             break
         }
     }
+
+    /// Shows `message` until you close it.
+    func stick(_ message: String) {
+        AppLog.write("shown until closed: \(message)")
+        notice = message
+    }
+
+    /// The meeting app quit: shown until you close it, and the bot you were talking to says it aloud in its own voice
+    /// (the meeting can't hear it any more).
+    func meetingEnded(_ why: String) {
+        stick(why)
+        Task { try? await backend.send("meetingEnded", ["why": why]) }
+    }
+
+    func closeNotice() { notice = nil }
 
     func show(_ message: String) {
         AppLog.write("shown: \(message)")
@@ -419,7 +437,8 @@ final class AppModel: ObservableObject {
     func startMeeting(app: MeetingApp, botIds: [String], consent: Bool) async {
         guard consent else { show("Confirm that the people in the meeting know it is being transcribed."); return }
         guard !botIds.isEmpty else { show("Choose a bot to listen with."); return }
-        let session = MeetingSession(app: app, send: { [weak self] who, text in self?.meetingLine(who, text) }, problem: { [weak self] in self?.show($0) })
+        let session = MeetingSession(app: app, send: { [weak self] who, text in self?.meetingLine(who, text) }, problem: { [weak self] in self?.show($0) },
+                                     ended: { [weak self] in self?.meetingEnded($0) })
         // Your mic belongs to the meeting from the start; hold the talk key to speak to the bots.
         micRouter.set(route: .meeting, meeting: session)
         AppLog.write("meeting: \(app.name) with \(botIds.count) bot(s)")

@@ -476,6 +476,12 @@ export function createOverlayServer(opts: OverlayOptions) {
           call.setWhisper(m.mode);
           return { whisper: m.mode };
         }
+        case 'meetingEnded': {
+          const call = this.inCall();
+          if (call.kind !== 'meeting') throw new ClientError('this call is not listening to a meeting');
+          if (typeof m.why !== 'string') throw new ClientError('why must be text');
+          return { said: call.meetingEnded(m.why) };
+        }
         case 'leave':
           return this.leave();
         case 'addBot':

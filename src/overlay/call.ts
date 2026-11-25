@@ -288,6 +288,8 @@ export class OverlayCall extends CallBase {
   /** Meeting lines, newest last, with when they came: for the echo check and the rate limit. */
   private meetingHeard: { at: number; text: string }[] = [];
   private meetingDropped = 0;
+  /** The meeting app quit: said once. */
+  private meetingGone = false;
   context: CallContext = {};
   kind: CallKind = 'call';
   /** How times of earlier calls are written for the bots (the Mac's local time by default). */
@@ -311,6 +313,7 @@ export class OverlayCall extends CallBase {
     this.textOnly = !!context.meeting;
     this.meetingHeard = [];
     this.meetingDropped = 0;
+    this.meetingGone = false;
     this.screen = null;
     this.screenTold.clear();
   }
@@ -320,6 +323,23 @@ export class OverlayCall extends CallBase {
     if (this.kind !== 'meeting' || this.textOnly === (mode === 'text')) return;
     this.textOnly = mode === 'text';
     this.event('meeting', mode === 'text' ? 'Bots whisper in text' : 'Bots whisper aloud (headphones)');
+  }
+
+  /**
+   * In a meeting: its app quit, so the meeting can't be heard any more, nor hear the bots. The bot you were talking to
+   * says so aloud, in its own voice, and bots answer aloud from then on. Returns false if there was nothing to say.
+   */
+  meetingEnded(raw: string): boolean {
+    const why = raw.replace(/\s+/g, ' ').trim().slice(0, MEETING_LINE_MAX);
+    const ready = this.readyLinks();
+    const link = ready.includes(this.ear) ? this.ear : ready[0];
+    if (this.kind !== 'meeting' || this.phase !== 'in-call' || this.meetingGone || !why || !link) return false;
+    this.meetingGone = true;
+    this.textOnly = false;
+    this.event('meeting', why);
+    link.say(`[Alotbot]: ${why} Tell ${USER} this aloud in one short spoken line, then wait for him.`);
+    link.respondWhenFree();
+    return true;
   }
 
   /**

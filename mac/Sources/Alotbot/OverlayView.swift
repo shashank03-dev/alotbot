@@ -319,7 +319,27 @@ struct OverlayRoot: View {
     }
 
     private var toast: some View {
-        Group {
+        VStack(alignment: .leading, spacing: 6) {
+            if let n = model.notice {
+                HStack(alignment: .top, spacing: 8) {
+                    Text(n).font(.system(size: 12.5)).foregroundStyle(Theme.text).multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button { model.closeNotice() } label: {
+                        Image(systemName: "xmark").font(.system(size: 10, weight: .semibold)).foregroundStyle(Theme.text.opacity(0.7))
+                            .frame(width: 18, height: 18).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Close")
+                    .accessibilityLabel("Close message")
+                }
+                .padding(.leading, 14).padding(.trailing, 8).padding(.vertical, 9)
+                .elevated(Capsule(), fill: Theme.raised, high: false)
+                .frame(maxWidth: 420, alignment: .leading)
+                .hitArea()
+                .transition(Motion.surfaceTransition(anchor: .bottom, lift: 6))
+                .id("notice " + n)
+                .accessibilityElement(children: .combine)
+            }
             if let t = model.toast {
                 Text(t).font(.system(size: 12.5)).foregroundStyle(Theme.text).multilineTextAlignment(.leading)
                     .padding(.horizontal, 14).padding(.vertical, 9)
@@ -328,13 +348,16 @@ struct OverlayRoot: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .transition(Motion.surfaceTransition(anchor: .bottom, lift: 6))
                     .id(t) // a new message replaces the old one with a crossfade
-                    .modifier(model.mode == .full
-                        ? PlaceBelow(x: stageRect.midX - 210, y: stageRect.maxY - StageMetrics.controls - 8, above: true)
-                        : PlaceBelow(x: model.expanded ? pillX : center.x - 60, y: traysAbove ? (model.expanded ? pillY : center.y - 46) - 46 : (model.expanded ? pillY + PillLayoutCG.height : center.y + 46) + 8, above: false))
                     .allowsHitTesting(false)
                     .accessibilityAddTraits(.updatesFrequently)
             }
         }
+        .modifier(model.mode == .full
+            ? PlaceBelow(x: stageRect.midX - 210, y: stageRect.maxY - StageMetrics.controls - 8, above: true)
+            : PlaceBelow(x: model.expanded ? pillX : center.x - 60,
+                         // Above the pill the messages grow upward from it, below it downward.
+                         y: traysAbove ? (model.expanded ? pillY : center.y - 46) - 12 : (model.expanded ? pillY + PillLayoutCG.height : center.y + 46) + 8,
+                         above: traysAbove))
     }
 }
 

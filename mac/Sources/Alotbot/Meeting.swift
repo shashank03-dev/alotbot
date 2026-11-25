@@ -264,7 +264,7 @@ final class TranscriberBox: @unchecked Sendable {
 @MainActor
 final class MeetingSession {
     let app: MeetingApp
-    private let capture: MeetingAudioCapture
+    let capture: MeetingAudioCapture
     private let meetingBox = TranscriberBox()
     /// Your own words in the meeting (fed from the mic thread while you aren't holding the talk key).
     nonisolated let hostBox = TranscriberBox()
@@ -272,13 +272,14 @@ final class MeetingSession {
     private let problem: (String) -> Void
     nonisolated private static let micFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: AudioFrames.sampleRate, channels: 1, interleaved: false)!
 
-    /// `send(who, text)`: who is "meeting" or "host".
-    init(app: MeetingApp, send: @escaping (String, String) -> Void, problem: @escaping (String) -> Void) {
+    /// `send(who, text)`: who is "meeting" or "host". `ended`: the meeting can't be heard any more (its app quit).
+    init(app: MeetingApp, send: @escaping (String, String) -> Void, problem: @escaping (String) -> Void, ended: @escaping (String) -> Void) {
         self.app = app
         self.send = send
         self.problem = problem
         let box = meetingBox
         capture = MeetingAudioCapture { box.value?.append($0) }
+        capture.onStopped = { ended("Stopped hearing the meeting: \($0)") }
     }
 
     /// Starts hearing the meeting. Throws with what to fix (permissions, dictation not installed, the app gone).
@@ -298,7 +299,6 @@ final class MeetingSession {
         }
         meetingBox.value = m
         hostBox.value = h
-        capture.onStopped = { [weak self] why in self?.problem("Stopped hearing the meeting: \(why)") }
         m.start()
         h?.start()
         do { try await capture.start(app: app) } catch {

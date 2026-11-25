@@ -127,3 +127,31 @@ private func pieces(_ buf: AVAudioPCMBuffer, frames: AVAudioFrameCount) -> [AVAu
         #expect(stopped.isEmpty, "you ended the meeting: the app quitting later is not news")
     }
 }
+
+/// Live, 25 Nov retest: the quit was noticed, but the message was a 3.5 s toast you never saw.
+@Suite struct MeetingEndedNoticeTests {
+    @Test @MainActor func theMeetingAppQuittingReachesTheEndedNoticeNotAPassingProblem() {
+        let center = NotificationCenter()
+        var ended: [String] = [], problems: [String] = []
+        let me = NSRunningApplication.current
+        let session = MeetingSession(app: MeetingApp(name: "Zen", bundleId: "z", pid: me.processIdentifier), send: { _, _ in },
+                                     problem: { problems.append($0) }, ended: { ended.append($0) })
+        session.capture.watchQuit(of: session.app, center: center)
+        center.post(name: NSWorkspace.didTerminateApplicationNotification, object: nil, userInfo: [NSWorkspace.applicationUserInfoKey: me])
+        #expect(ended == ["Stopped hearing the meeting: Zen quit."])
+        #expect(problems.isEmpty)
+    }
+
+    @Test @MainActor func aNoticeStaysUntilYouCloseIt() async throws {
+        let model = AppModel(backend: Backend(), demo: false)
+        model.stick("Stopped hearing the meeting: Zen quit.")
+        model.show("Call saved.")
+        #expect(model.notice == "Stopped hearing the meeting: Zen quit.")
+        // The toast goes after 3.5 s (later when the machine is busy with other suites).
+        for _ in 0..<100 where model.toast != nil { try await Task.sleep(for: .milliseconds(100)) }
+        #expect(model.toast == nil, "a toast still goes")
+        #expect(model.notice == "Stopped hearing the meeting: Zen quit.", "the notice stays")
+        model.closeNotice()
+        #expect(model.notice == nil)
+    }
+}

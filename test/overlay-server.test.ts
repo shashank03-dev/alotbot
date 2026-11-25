@@ -1346,6 +1346,9 @@ test('a meeting call: lines from the Mac reach the bots, whispers switch, and it
   await c.fails('setWhisper', { mode: 'loud' }, /mode must be text or voice/);
   assert.deepEqual(await c.ok('setWhisper', { mode: 'voice' }), { whisper: 'voice' });
   await c.next((m) => m.t === 'view' && m.view.meeting?.whisper === 'voice', true);
+  await c.fails('meetingEnded', { why: 5 }, /why must be text/);
+  assert.deepEqual(await c.ok('meetingEnded', { why: 'Stopped hearing the meeting: zoom.us quit.' }), { said: true });
+  assert.deepEqual(await c.ok('meetingEnded', { why: 'Stopped hearing the meeting: zoom.us quit.' }), { said: false });
   const a = h.sockets.get('a')!;
   const leaving = c.op('leave');
   await askedForSummary(a);
@@ -1361,6 +1364,7 @@ test('a meeting call: lines from the Mac reach the bots, whispers switch, and it
   await inCall(h, c, ['a']);
   await c.fails('meetingLine', { who: 'meeting', text: 'x' }, /not listening to a meeting/);
   await c.fails('setWhisper', { mode: 'text' }, /not listening to a meeting/);
+  await c.fails('meetingEnded', { why: 'x' }, /not listening to a meeting/);
 });
 
 // ---------- sharing your screen ----------
