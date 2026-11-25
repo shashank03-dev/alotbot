@@ -53,6 +53,8 @@ final class MeetingMic {
     private func check() {
         guard #available(macOS 14.2, *), let device = Self.device() else { return set(passing: false, device: nil) }
         let listening = MeetingMicLogic.othersListening(AudioSystem.processes(), device: device, ownPid: getpid(), ownBundle: Bundle.main.bundleIdentifier ?? "")
+        // The call's mic is the default input: when that is Alotbot Mic, its clean feed would loop the meeting back.
+        passThrough.acceptsClean = AudioSystem.defaultInput() != device
         set(passing: listening, device: device)
     }
 
@@ -111,6 +113,14 @@ final class PassThrough: @unchecked Sendable {
     /// Seconds after the call's echo-cancelled mic last came in during which the raw mic is not used.
     static let cleanHold = 0.3
     private var cleanAt = -Double.infinity
+    private var _acceptsClean = true
+
+    /// False while Alotbot Mic is the Mac's default input: the call's mic is then Alotbot Mic itself, and its "clean"
+    /// feed would be the meeting's own loop.
+    var acceptsClean: Bool {
+        get { lock.withLock { _acceptsClean } }
+        set { lock.withLock { _acceptsClean = newValue } }
+    }
 
     /// The raw mic (mono), used only while the call's echo-cancelled mic isn't coming in: then no call audio runs and
     /// no bot can be playing. The raw mic also hears the speakers.
@@ -124,6 +134,7 @@ final class PassThrough: @unchecked Sendable {
     /// The call's mic with echo cancellation (48 kHz mono): bots' voices from the speakers are taken out of it.
     func pushClean(_ samples: UnsafeBufferPointer<Float>, at now: Double = ProcessInfo.processInfo.systemUptime) {
         lock.withLock {
+            guard _acceptsClean else { return }
             cleanAt = now
             append(samples)
         }

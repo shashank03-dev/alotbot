@@ -57,6 +57,13 @@ import AlotbotCore
         // The call's audio stopped (no bot can play): the raw mic is used again.
         raw([0.4], at: 10 + PassThrough.cleanHold + 0.01)
         #expect(pulled(p, 1) == [0.4, 0.4])
+        // Review of 25 Nov: with Alotbot Mic as the Mac's default input, the call's mic is Alotbot Mic itself, so its
+        // "clean" feed is the meeting's own loop. Then it is not used, and the raw real mic is.
+        p.acceptsClean = false
+        clean([0.6], at: 15)
+        raw([0.3], at: 15.01)
+        #expect(pulled(p, 2) == [0.3, 0.3, 0, 0], "the loop is left out, your real mic goes through")
+        p.acceptsClean = true
         // Holding the talk key silences the clean mic as well.
         p.silenced = true
         clean([0.5], at: 20)
