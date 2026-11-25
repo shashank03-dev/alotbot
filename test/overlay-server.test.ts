@@ -1445,6 +1445,10 @@ test('sharing a screen through the app: updates are checked, throttled, kept out
   const a = h.sockets.get('a')!;
   await c.ok('say', { text: 'What is the total?' });
   assert.ok(a.said().includes('[Screen]: Safari: "Pricing" shows:\nTOTAL 4,200 secret'));
+  // The bot reads the whole screen, and the voice server echoes each item back: none of it may reach the log either.
+  reply(a, '', [['look_at_screen', {}]]);
+  await new Promise((r) => setTimeout(r, 50));
+  for (const m of a.sent.filter((x: any) => x.type === 'conversation.item.create')) a.emit('conversation.item.added', { item: m.item });
   // The window turns into a password manager: sharing stops.
   await new Promise((r) => setTimeout(r, SCREEN_MIN_MS + 50));
   await c.fails('screenUpdate', { text: 'vault', title: '1Password — Personal' }, /Sharing stopped: the shared window now shows a password manager/);
@@ -1455,6 +1459,11 @@ test('sharing a screen through the app: updates are checked, throttled, kept out
   const appLines = logs.flatMap((f) => fs.readFileSync(path.join(h.dir, 'logs', f), 'utf8').trim().split('\n')).map((l) => JSON.parse(l)).filter((e) => e.kind === 'app' && e.op === 'screenUpdate');
   assert.ok(appLines.length >= 3);
   assert.ok(appLines.every((e) => !JSON.stringify(e).includes('secret')));
+  // Live, 2026-11-25: the text was in the messages to and from the bot's voice session. Only its size is kept.
+  const all = logs.flatMap((f) => fs.readFileSync(path.join(h.dir, 'logs', f), 'utf8').trim().split('\n'));
+  assert.ok(all.some((l) => l.includes('[Screen]:') && /\d+ characters, not logged/.test(l)), 'the note is there, by size');
+  assert.ok(all.some((l) => l.includes('function_call_output') && /Text on it \(OCR.*\d+ characters, not logged/.test(l)), 'look_at_screen, by size');
+  assert.deepEqual(all.filter((l) => l.includes('4,200')), [], 'no screen text anywhere in the call log');
 });
 
 // Live, 2026-11-19: "Checking Hacker News now." during the call marked the job completed, and the result after the call

@@ -103,17 +103,23 @@ final class ScreenShareSession {
         gate.reset()
         loop = Task { [weak self] in
             var failures = 0
+            var first = true
+            let began = Date()
             while !Task.isCancelled {
                 guard let self else { return }
                 do {
                     if let read = self.read { try await read(self) } else { try await self.readOnce() }
                     failures = 0
+                    if first { first = false; AppLog.write(String(format: "screen share: first read after %.1f s", Date().timeIntervalSince(began))) }
                 } catch let e as ShareEnded {
                     // Stopped (switched away from) while this read was on its way: the share it would end is gone.
                     if !Task.isCancelled { self.end(e.why) }
                     return
                 } catch {
                     if Task.isCancelled { return }
+                    // The domain and code only: never what is on the screen.
+                    let e = error as NSError
+                    AppLog.write("screen share: a read failed (\(e.domain) \(e.code))")
                     // A missed read now and then is fine; three in a row means it can't be read.
                     failures += 1
                     if failures >= 3 { self.end("Couldn't read the shared screen: \(error.localizedDescription)"); return }
