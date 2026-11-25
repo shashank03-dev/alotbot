@@ -15,8 +15,14 @@ Mac app logic without a screen (`mac/Tests/AlotbotCoreTests/FeatureCoreTests.swi
 
 ## Not verified here
 
-This work was done in a Linux container without macOS or Xcode:
+The first build was written in a Linux container without macOS or Xcode. Everything below was then built, tested and run live on a Mac (macOS 27, Apple Silicon) against a real Grok account, 18 to 25 Nov 2026; every check, fix and commit is in `LOCAL_E2E_RESULTS.md`:
 
-- The AppKit/SwiftUI views and the capture code (`Meeting.swift`, `ScreenShare.swift`, `IncomingCall.swift`, `CallsSettings.swift`, `LibraryView.swift`, `MeetingStartView.swift` and the `AppModel` changes) were syntax-checked but **not compiled or run**. Run `bash mac/test.sh` and `bash mac/build-app.sh` on a Mac before release.
-- Live checks still to do on a Mac: a real Zoom/Meet meeting heard and transcribed on device; ⌥Space hold-to-talk while another app has focus; a standing call ringing with the app in the background, and its notification actions; sharing a window while it changes, closes, and turns into a password manager; whispers aloud on headphones.
-- The two backend tests that need IPv6 loopback or desktop Chrome (`connection-auth`, the dedicated browser) fail in this container before and after these changes; they are unrelated.
+- `bash mac/test.sh`, `bash mac/build-app.sh`, `npm test` (100%) and `npm run typecheck` pass on a Mac.
+- Verified live: a Google Meet meeting heard and transcribed on device, both sides; ⌥Space and the Hold to talk button while the meeting app has focus, with Alotbot Mic silent to the meeting while held; ⌥Esc; the meeting app quitting; a standing call ringing with the app in the background, and its notification actions; sharing a window while it changes, is renamed and closes; a whole-display share leaving out Alotbot; Screen Recording turned off mid-share.
+
+Still not verified:
+
+- Zoom and Teams (not installed on the test Mac); only Google Meet in a browser was used.
+- Whispers aloud on real headphones (the live run used the speakers, which showed that the meeting hears a bot through Alotbot Mic: `LOCAL_E2E_RESULTS.md` row 45, open).
+- A shared window turning into a password manager: not possible with a window share (it follows one window); covered by tests only.
+- 1Password (not installed); Passwords.app was checked.
