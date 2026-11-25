@@ -16,6 +16,9 @@ public struct TranscriptSegmenter: Equatable, Sendable {
     private(set) var sent = 0
     private var words: [String] = []
     private var changedAt: Double = 0
+    /// Words already sent that the last final result left out. The speech analyzer can settle less than it showed,
+    /// and the rest starts its next result: those words are not sent again.
+    private var carried: [String] = []
 
     public init(pause: Double = 1.6, longRun: Int = 45, chunk: Int = 30) {
         self.pause = pause; self.longRun = longRun; self.chunk = chunk
@@ -31,6 +34,7 @@ public struct TranscriptSegmenter: Equatable, Sendable {
         words = next
         // The recognizer took back words already sent: carry on from what is left.
         sent = min(sent, words.count)
+        guard skipCarried() else { return [] }
         var out: [String] = []
         // A sentence with words after it will not change any more.
         while let end = words[sent...].indices.dropLast().first(where: { Self.endsSentence(words[$0]) }) {
@@ -42,17 +46,37 @@ public struct TranscriptSegmenter: Equatable, Sendable {
 
     /// Time passed with no new words: after a pause, the rest is a line.
     public mutating func tick(at now: Double) -> [String] {
-        guard sent < words.count, now - changedAt >= pause else { return [] }
+        guard sent < words.count, now - changedAt >= pause, carried.isEmpty else { return [] }
         return [take(upTo: words.count)]
     }
 
     /// The recognition ended (its last result, or it was stopped): the rest is a line, and the next one starts fresh.
     public mutating func finish(_ text: String?) -> [String] {
-        if let text { words = Self.split(text); sent = min(sent, words.count) }
+        // A final that is only the start of words carried from the last one is them, already sent.
+        let shown = words
+        if let text { words = Self.split(text) }
+        if !skipCarried() { sent = words.count; carried = [] }
+        if text != nil, sent > words.count { carried = Array(shown.prefix(sent).dropFirst(words.count)) }
+        sent = min(sent, words.count)
         let rest = sent < words.count ? [take(upTo: words.count)] : []
         words = []
         sent = 0
         return rest
+    }
+
+    static func same(_ w: String) -> String { w.lowercased().trimmingCharacters(in: .punctuationCharacters) }
+
+    /// With words carried from the last final: false while this result could still be them (it is only their start),
+    /// otherwise true, with the ones it starts with counted as sent and nothing carried any more.
+    private mutating func skipCarried() -> Bool {
+        guard !carried.isEmpty else { return true }
+        let matched = zip(words, carried).prefix { Self.same($0) == Self.same($1) }.count
+        if matched == words.count, words.count < carried.count { return false }
+        // The last word may still be growing into the carried one ("W", then "Wondering").
+        if matched == words.count - 1, words.count <= carried.count, Self.same(carried[matched]).hasPrefix(Self.same(words[matched])) { return false }
+        sent = max(sent, matched)
+        carried = []
+        return true
     }
 
     private mutating func take(upTo end: Int) -> String {

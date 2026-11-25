@@ -50,6 +50,43 @@ import Testing
         #expect(s.tick(at: 10) == ["a b"])
         #expect(s.finish("a") == [], "already sent, and taken back")
     }
+
+    /// Live, 22 Nov: "wondering" was sent after a pause, the analyzer's final result settled less than that, and the
+    /// rest came back as the start of its next result, so "wondering." was sent again.
+    @Test func wordsAFinalLeftOutAreNotSentAgainWhenTheNextResultStartsWithThem() {
+        var s = TranscriptSegmenter(pause: 1)
+        _ = s.partial("wondering", at: 0)
+        #expect(s.tick(at: 1) == ["wondering"])
+        #expect(s.finish("") == [])
+        #expect(s.partial("W", at: 2) == [])
+        #expect(s.tick(at: 3.5) == [], "still could be the word already sent")
+        #expect(s.partial("Wondering.", at: 4) == [])
+        #expect(s.finish("Wondering.") == [])
+        // Part of a line: the final settles the start, the next result starts with the rest.
+        _ = s.partial("so I was wondering", at: 10)
+        #expect(s.tick(at: 11) == ["so I was wondering"])
+        #expect(s.finish("so I was") == [])
+        _ = s.partial("wondering if", at: 12)
+        #expect(s.tick(at: 13) == ["if"])
+        #expect(s.finish("wondering if") == [])
+    }
+
+    @Test func aNextResultWithOtherWordsIsSentWhole() {
+        var s = TranscriptSegmenter(pause: 1)
+        _ = s.partial("one two", at: 0)
+        #expect(s.tick(at: 1) == ["one two"])
+        #expect(s.finish("one") == [])
+        _ = s.partial("three four", at: 2)
+        #expect(s.tick(at: 3) == ["three four"])
+        #expect(s.finish("three four") == [])
+        // Taken back, and the next result never gets as far as those words: they are not held against it.
+        _ = s.partial("five six", at: 4)
+        #expect(s.tick(at: 5) == ["five six"])
+        #expect(s.finish("five") == [])
+        #expect(s.finish("si") == [], "only part of the word: it waits, then the recognition ends")
+        _ = s.partial("six", at: 6)
+        #expect(s.tick(at: 7) == ["six"], "a new recognition after that is not held back")
+    }
 }
 
 @Suite struct MeetingAppsTests {
