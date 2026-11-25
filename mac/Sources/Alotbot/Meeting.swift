@@ -170,6 +170,8 @@ final class MeetingAudioCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     private let onAudio: (AVAudioPCMBuffer) -> Void
     /// The capture ended on its own (the app quit, or access was taken away).
     var onStopped: ((String) -> Void)?
+    /// Watches for the meeting app quitting: its stream may just go quiet instead of stopping with an error.
+    private var quitWatch: (center: NotificationCenter, token: NSObjectProtocol)?
 
     init(onAudio: @escaping (AVAudioPCMBuffer) -> Void) {
         self.onAudio = onAudio
@@ -197,12 +199,30 @@ final class MeetingAudioCapture: NSObject, SCStreamOutput, SCStreamDelegate {
         try s.addStreamOutput(self, type: .audio, sampleHandlerQueue: queue)
         try await s.startCapture()
         stream = s
+        watchQuit(of: app, center: NSWorkspace.shared.notificationCenter)
+    }
+
+    func watchQuit(of app: MeetingApp, center: NotificationCenter) {
+        let token = center.addObserver(forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main) { [weak self] note in
+            guard (note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.processIdentifier == app.pid else { return }
+            MainActor.assumeIsolated { self?.ended("\(app.name) quit.") }
+        }
+        quitWatch = (center, token)
     }
 
     func stop() {
+        if let w = quitWatch { w.center.removeObserver(w.token) }
+        quitWatch = nil
         guard let s = stream else { return }
         stream = nil
         Task { try? await s.stopCapture() }
+    }
+
+    /// Said once: whichever comes first, the app quitting or the stream stopping, and nothing after.
+    @MainActor private func ended(_ why: String) {
+        guard quitWatch != nil || stream != nil else { return }
+        stop()
+        onStopped?(why)
     }
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sb: CMSampleBuffer, of type: SCStreamOutputType) {
@@ -219,8 +239,7 @@ final class MeetingAudioCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     func stream(_ stream: SCStream, didStopWithError error: Error) {
         DispatchQueue.main.async { [weak self] in
             guard let self, self.stream === stream else { return }
-            self.stream = nil
-            self.onStopped?(error.localizedDescription)
+            MainActor.assumeIsolated { self.ended(error.localizedDescription) }
         }
     }
 }

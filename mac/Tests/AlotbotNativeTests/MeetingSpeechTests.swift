@@ -1,5 +1,7 @@
+import AppKit
 import AVFoundation
 import Foundation
+import AlotbotCore
 import Speech
 import Testing
 @testable import Alotbot
@@ -86,5 +88,42 @@ private func pieces(_ buf: AVAudioPCMBuffer, frames: AVAudioFrameCount) -> [AVAu
         let both = try await AnalyzerTranscriber.pair(onMeeting: { _ in }, onHost: { _ in }, onProblem: { _ in })
         let (m, h) = try #require(both)
         #expect(m !== h)
+    }
+}
+
+/// Live, 25 Nov: you quit Zen mid-meeting and Alotbot said nothing. The capture stream went quiet instead of stopping
+/// with an error, so nothing told the app the meeting was gone.
+@Suite struct MeetingAppQuitTests {
+    @Test @MainActor func quittingTheMeetingAppStopsTheCaptureAndSaysSoOnce() {
+        let center = NotificationCenter()
+        let capture = MeetingAudioCapture { _ in }
+        var stopped: [String] = []
+        capture.onStopped = { stopped.append($0) }
+        let me = NSRunningApplication.current
+        capture.watchQuit(of: MeetingApp(name: "Zen", bundleId: "app.zen-browser.zen", pid: me.processIdentifier), center: center)
+        func quit(_ app: NSRunningApplication?) {
+            center.post(name: NSWorkspace.didTerminateApplicationNotification, object: nil, userInfo: app.map { [NSWorkspace.applicationUserInfoKey: $0] })
+        }
+        quit(nil)
+        #expect(stopped.isEmpty, "a note without an app is not the meeting app")
+        let other = NSWorkspace.shared.runningApplications.first { $0.processIdentifier != me.processIdentifier }
+        quit(other)
+        #expect(stopped.isEmpty, "another app quitting is not the meeting ending")
+        quit(me)
+        #expect(stopped == ["Zen quit."])
+        quit(me)
+        #expect(stopped == ["Zen quit."], "said once, no retry")
+    }
+
+    @Test @MainActor func stoppingTheMeetingStopsWatchingTheApp() {
+        let center = NotificationCenter()
+        let capture = MeetingAudioCapture { _ in }
+        var stopped: [String] = []
+        capture.onStopped = { stopped.append($0) }
+        let me = NSRunningApplication.current
+        capture.watchQuit(of: MeetingApp(name: "Zen", bundleId: "z", pid: me.processIdentifier), center: center)
+        capture.stop()
+        center.post(name: NSWorkspace.didTerminateApplicationNotification, object: nil, userInfo: [NSWorkspace.applicationUserInfoKey: me])
+        #expect(stopped.isEmpty, "you ended the meeting: the app quitting later is not news")
     }
 }
