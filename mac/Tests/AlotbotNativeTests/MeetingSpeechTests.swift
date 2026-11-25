@@ -98,7 +98,7 @@ private func pieces(_ buf: AVAudioPCMBuffer, frames: AVAudioFrameCount) -> [AVAu
         let center = NotificationCenter()
         let capture = MeetingAudioCapture { _ in }
         var stopped: [String] = []
-        capture.onStopped = { stopped.append($0) }
+        capture.onStopped = { why, quit in stopped.append(quit ? why : "not a quit: \(why)") }
         let me = NSRunningApplication.current
         capture.watchQuit(of: MeetingApp(name: "Zen", bundleId: "app.zen-browser.zen", pid: me.processIdentifier), center: center)
         func quit(_ app: NSRunningApplication?) {
@@ -119,7 +119,7 @@ private func pieces(_ buf: AVAudioPCMBuffer, frames: AVAudioFrameCount) -> [AVAu
         let center = NotificationCenter()
         let capture = MeetingAudioCapture { _ in }
         var stopped: [String] = []
-        capture.onStopped = { stopped.append($0) }
+        capture.onStopped = { why, quit in stopped.append(quit ? why : "not a quit: \(why)") }
         let me = NSRunningApplication.current
         capture.watchQuit(of: MeetingApp(name: "Zen", bundleId: "z", pid: me.processIdentifier), center: center)
         capture.stop()
@@ -132,14 +132,40 @@ private func pieces(_ buf: AVAudioPCMBuffer, frames: AVAudioFrameCount) -> [AVAu
 @Suite struct MeetingEndedNoticeTests {
     @Test @MainActor func theMeetingAppQuittingReachesTheEndedNoticeNotAPassingProblem() {
         let center = NotificationCenter()
-        var ended: [String] = [], problems: [String] = []
+        var ended: [String] = [], lost: [String] = [], problems: [String] = []
         let me = NSRunningApplication.current
         let session = MeetingSession(app: MeetingApp(name: "Zen", bundleId: "z", pid: me.processIdentifier), send: { _, _ in },
-                                     problem: { problems.append($0) }, ended: { ended.append($0) })
+                                     problem: { problems.append($0) }, ended: { ended.append($0) }, lost: { lost.append($0) })
         session.capture.watchQuit(of: session.app, center: center)
         center.post(name: NSWorkspace.didTerminateApplicationNotification, object: nil, userInfo: [NSWorkspace.applicationUserInfoKey: me])
         #expect(ended == ["Stopped hearing the meeting: Zen quit."])
-        #expect(problems.isEmpty)
+        #expect(lost.isEmpty && problems.isEmpty)
+    }
+
+    /// Review of 25 Nov: a capture error while the meeting app still runs went the "app quit" way, so a bot would say it
+    /// aloud and answer aloud from then on, in a meeting that can still hear the speakers.
+    @Test @MainActor func aCaptureErrorWhileTheMeetingRunsIsNotTheAppQuitting() {
+        var ended: [String] = [], lost: [String] = []
+        let session = MeetingSession(app: MeetingApp(name: "Zen", bundleId: "z", pid: NSRunningApplication.current.processIdentifier), send: { _, _ in },
+                                     problem: { _ in }, ended: { ended.append($0) }, lost: { lost.append($0) })
+        session.capture.watchQuit(of: session.app, center: NotificationCenter())
+        session.capture.ended("The user declined TCCs", quit: false)
+        #expect(ended.isEmpty, "no bot is asked to speak")
+        #expect(lost == ["Stopped hearing the meeting: The user declined TCCs"])
+    }
+
+    /// Review of 25 Nov: after the meeting app quit, your mic still went to the meeting's transcript, so the bot you
+    /// were told answers aloud ignored you unless you held the talk key.
+    @Test @MainActor func afterTheMeetingAppQuitsYourMicGoesToTheBots() {
+        let model = AppModel(backend: Backend(), demo: false)
+        let session = MeetingSession(app: MeetingApp(name: "Zen", bundleId: "z", pid: 1), send: { _, _ in }, problem: { _ in }, ended: { _ in }, lost: { _ in })
+        model.micRouter.set(route: .meeting, meeting: session)
+        model.meetingMic.silenced = true
+        model.meetingEnded("Stopped hearing the meeting: Zen quit.")
+        #expect(model.micRouter.route == .bots)
+        #expect(model.micRouter.meeting == nil)
+        #expect(model.meetingMic.silenced == false)
+        #expect(model.notice == "Stopped hearing the meeting: Zen quit.")
     }
 
     @Test @MainActor func aNoticeStaysUntilYouCloseIt() async throws {

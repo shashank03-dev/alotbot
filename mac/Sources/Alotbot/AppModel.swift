@@ -260,6 +260,12 @@ final class AppModel: ObservableObject {
     /// (the meeting can't hear it any more).
     func meetingEnded(_ why: String) {
         stick(why)
+        // No meeting left: your mic goes to the bots again, and nothing is held back from Alotbot Mic.
+        meeting?.stop()
+        meeting = nil
+        talkHeld = false
+        meetingMic.silenced = false
+        micRouter.set(route: .bots, meeting: nil)
         Task { try? await backend.send("meetingEnded", ["why": why]) }
     }
 
@@ -440,7 +446,7 @@ final class AppModel: ObservableObject {
         guard consent else { show("Confirm that the people in the meeting know it is being transcribed."); return }
         guard !botIds.isEmpty else { show("Choose a bot to listen with."); return }
         let session = MeetingSession(app: app, send: { [weak self] who, text in self?.meetingLine(who, text) }, problem: { [weak self] in self?.show($0) },
-                                     ended: { [weak self] in self?.meetingEnded($0) })
+                                     ended: { [weak self] in self?.meetingEnded($0) }, lost: { [weak self] in self?.stick($0) })
         // Your mic belongs to the meeting from the start; hold the talk key to speak to the bots.
         micRouter.set(route: .meeting, meeting: session)
         AppLog.write("meeting: \(app.name) with \(botIds.count) bot(s)")
@@ -470,7 +476,7 @@ final class AppModel: ObservableObject {
     func setTalk(_ held: Bool) {
         guard view?.meeting != nil, talkHeld != held else { return }
         talkHeld = held
-        micRouter.set(route: MicRoute.of(inMeeting: true, talkHeld: held), meeting: meeting)
+        micRouter.set(route: MicRoute.of(inMeeting: meeting != nil, talkHeld: held), meeting: meeting)
         // While you talk to the bots, a meeting listening to Alotbot Mic hears silence.
         meetingMic.silenced = held
         // Letting go ends your turn: the bot's voice service hears the end of speech only as silence, and after the

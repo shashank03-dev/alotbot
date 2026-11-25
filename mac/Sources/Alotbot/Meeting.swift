@@ -168,8 +168,9 @@ final class MeetingAudioCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     /// The first buffer's format goes in the app log once (used on `queue` only).
     private var loggedFormat = false
     private let onAudio: (AVAudioPCMBuffer) -> Void
-    /// The capture ended on its own (the app quit, or access was taken away).
-    var onStopped: ((String) -> Void)?
+    /// The capture ended on its own: why, and whether it was the meeting app quitting (rather than access taken away
+    /// or the stream failing while the meeting goes on).
+    var onStopped: ((String, Bool) -> Void)?
     /// Watches for the meeting app quitting: its stream may just go quiet instead of stopping with an error.
     private var quitWatch: (center: NotificationCenter, token: NSObjectProtocol)?
 
@@ -205,7 +206,7 @@ final class MeetingAudioCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     func watchQuit(of app: MeetingApp, center: NotificationCenter) {
         let token = center.addObserver(forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main) { [weak self] note in
             guard (note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.processIdentifier == app.pid else { return }
-            MainActor.assumeIsolated { self?.ended("\(app.name) quit.") }
+            MainActor.assumeIsolated { self?.ended("\(app.name) quit.", quit: true) }
         }
         quitWatch = (center, token)
     }
@@ -219,10 +220,10 @@ final class MeetingAudioCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     }
 
     /// Said once: whichever comes first, the app quitting or the stream stopping, and nothing after.
-    @MainActor private func ended(_ why: String) {
+    @MainActor func ended(_ why: String, quit: Bool) {
         guard quitWatch != nil || stream != nil else { return }
         stop()
-        onStopped?(why)
+        onStopped?(why, quit)
     }
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sb: CMSampleBuffer, of type: SCStreamOutputType) {
@@ -239,7 +240,7 @@ final class MeetingAudioCapture: NSObject, SCStreamOutput, SCStreamDelegate {
     func stream(_ stream: SCStream, didStopWithError error: Error) {
         DispatchQueue.main.async { [weak self] in
             guard let self, self.stream === stream else { return }
-            MainActor.assumeIsolated { self.ended(error.localizedDescription) }
+            MainActor.assumeIsolated { self.ended(error.localizedDescription, quit: false) }
         }
     }
 }
@@ -272,14 +273,16 @@ final class MeetingSession {
     private let problem: (String) -> Void
     nonisolated private static let micFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: AudioFrames.sampleRate, channels: 1, interleaved: false)!
 
-    /// `send(who, text)`: who is "meeting" or "host". `ended`: the meeting can't be heard any more (its app quit).
-    init(app: MeetingApp, send: @escaping (String, String) -> Void, problem: @escaping (String) -> Void, ended: @escaping (String) -> Void) {
+    /// `send(who, text)`: who is "meeting" or "host". `ended`: the meeting app quit, so there is no meeting any more.
+    /// `lost`: the meeting can't be heard any more, but its app still runs (it may still hear the speakers).
+    init(app: MeetingApp, send: @escaping (String, String) -> Void, problem: @escaping (String) -> Void,
+         ended: @escaping (String) -> Void, lost: @escaping (String) -> Void) {
         self.app = app
         self.send = send
         self.problem = problem
         let box = meetingBox
         capture = MeetingAudioCapture { box.value?.append($0) }
-        capture.onStopped = { ended("Stopped hearing the meeting: \($0)") }
+        capture.onStopped = { why, quit in (quit ? ended : lost)("Stopped hearing the meeting: \(why)") }
     }
 
     /// Starts hearing the meeting. Throws with what to fix (permissions, dictation not installed, the app gone).
