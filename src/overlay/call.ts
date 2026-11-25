@@ -337,7 +337,8 @@ export class OverlayCall extends CallBase {
     this.meetingGone = true;
     this.textOnly = false;
     this.event('meeting', why);
-    link.say(`[Alotbot]: ${why} Tell ${USER} this aloud in one short spoken line, then wait for him.`);
+    // No "then wait": that made the bot call wait_for_host and cut its own sentence short ("Shashank, Zen quit,").
+    link.say(`[Alotbot]: ${why} Tell ${USER} aloud, in one full short sentence, that you can't hear the meeting any more and why.`);
     link.respondWhenFree();
     return true;
   }

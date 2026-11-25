@@ -811,7 +811,8 @@ test('when the meeting app quits, the bot you were talking to says so aloud, onc
   const before = h.ws(other).sent.filter((m: any) => m.type === 'response.create').length;
   assert.equal(h.call.meetingEnded('Stopped hearing the meeting:   Zen quit.'), true);
   assert.equal(h.call.textOnly, false, 'nobody is left to overhear: replies are spoken');
-  assert.match(h.ws(id).said().at(-1)!, /Stopped hearing the meeting: Zen quit\. .*aloud/);
+  assert.match(h.ws(id).said().at(-1)!, /Stopped hearing the meeting: Zen quit\. .*aloud, in one full short sentence/);
+  assert.doesNotMatch(h.ws(id).said().at(-1)!, /wait/, 'asked to wait, the bot called wait_for_host mid-sentence');
   const asked = h.ws(id).sent.filter((m: any) => m.type === 'response.create');
   assert.equal(asked.length, 1);
   assert.equal(asked[0].response?.modalities, undefined, 'a spoken reply, not text only');
