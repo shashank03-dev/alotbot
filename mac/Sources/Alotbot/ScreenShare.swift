@@ -122,13 +122,16 @@ final class ScreenShareSession {
         }
         let current = reading!
         let limit = readLimit
+        var timer: Task<Void, Never>?
         let finished = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
             let once = Once(done)
             Task { _ = await current.result; once.resume(true) }
-            Task { try? await Task.sleep(for: .seconds(limit)); once.resume(false) }
+            timer = Task { try? await Task.sleep(for: .seconds(limit)); once.resume(false) }
         }
+        timer?.cancel()
         guard finished else { throw ReadTooSlow(step: step) }
-        reading = nil
+        // Only this read: after a stop and a start, a newer read may be the one under way.
+        if reading == current { reading = nil }
         try await current.value
     }
 

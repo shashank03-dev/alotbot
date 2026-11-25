@@ -114,6 +114,29 @@ import Testing
         #expect(box.reads == 1, "said at once, not after three tries")
     }
 
+    /// Review of 25 Nov: a refused switch stops the share and starts it again. The old loop's read, finishing late,
+    /// cleared the new loop's read, so a stuck new read was started again on top of itself.
+    @MainActor @Test func aStopAndStartDuringASlowReadKeepsTheNewReadTracked() async {
+        final class Box { var reads = 0; var first: CheckedContinuation<Void, Never>? }
+        let box = Box()
+        let s = ScreenShareSession(target: ShareTarget(kind: .window, app: "TextEdit", title: "notes.txt", windowID: 1, displayID: nil),
+                                   send: { _ in true }, stopped: { _ in }, read: { _ in
+            box.reads += 1
+            if box.reads == 1 { await withCheckedContinuation { box.first = $0 } } // the old loop's read, finishing late
+            else { try await Task.sleep(for: .seconds(3600)) } // the new loop's read: stuck for good
+        }, readLimit: 0.3)
+        s.start()
+        while box.first == nil { await Task.yield() }
+        s.stop()
+        s.start()
+        for _ in 0..<100 where box.reads < 2 { try? await Task.sleep(for: .milliseconds(10)) }
+        box.first?.resume()
+        // Long enough for the new loop to time out twice and look again.
+        try? await Task.sleep(for: .seconds(5))
+        s.stop()
+        #expect(box.reads == 2, "the stuck read is waited for, not started again")
+    }
+
     @MainActor @Test func aSlowReadThatFinishesInTimeIsFine() async {
         final class Box { var stops: [String] = []; var reads = 0 }
         let box = Box()
