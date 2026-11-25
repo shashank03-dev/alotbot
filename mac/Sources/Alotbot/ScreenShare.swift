@@ -87,15 +87,59 @@ final class ScreenShareSession {
     private let stopped: (String) -> Void
     /// Reads the screen once; tests replace it (the real one needs ScreenCaptureKit).
     private let read: ((ScreenShareSession) async throws -> Void)?
+    /// Seconds a read may take before it counts as failed. A capture can hang for good (live, after a window was renamed).
+    private let readLimit: Double
+    /// The read under way, kept while it is late, so a stuck one is waited for again rather than piled on.
+    private var reading: Task<Void, Error>?
+    /// What the read under way is doing, for the log when it is late.
+    private var step = "reading the screen"
 
     /// `send` posts a screenUpdate and says whether the backend took it in; `stopped` is told why sharing ended on its own.
     init(target: ShareTarget, send: @escaping ([String: Any]) async throws -> Bool, stopped: @escaping (String) -> Void,
-         read: ((ScreenShareSession) async throws -> Void)? = nil) {
+         read: ((ScreenShareSession) async throws -> Void)? = nil, readLimit: Double = 15) {
         self.target = target
         self.send = send
         self.stopped = stopped
         self.read = read
+        self.readLimit = readLimit
         lastTitle = target.title
+    }
+
+    struct ReadTooSlow: LocalizedError {
+        let step: String
+        var errorDescription: String? { "it stopped responding (\(step))." }
+    }
+
+    /// One read, or the one still under way, given `readLimit` seconds to finish.
+    private func readInTime() async throws {
+        if reading == nil {
+            step = "reading the screen"
+            reading = Task { [weak self] in
+                guard let self else { return }
+                if let read = self.read { try await read(self) } else { try await self.readOnce() }
+            }
+        }
+        let current = reading!
+        let limit = readLimit
+        let finished = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+            let once = Once(done)
+            Task { _ = await current.result; once.resume(true) }
+            Task { try? await Task.sleep(for: .seconds(limit)); once.resume(false) }
+        }
+        guard finished else { throw ReadTooSlow(step: step) }
+        reading = nil
+        try await current.value
+    }
+
+    /// Resumes a continuation once: whichever of the read and the time limit comes first.
+    private final class Once: @unchecked Sendable {
+        private let lock = NSLock()
+        private var done: CheckedContinuation<Bool, Never>?
+        init(_ c: CheckedContinuation<Bool, Never>) { done = c }
+        func resume(_ value: Bool) {
+            lock.lock(); let c = done; done = nil; lock.unlock()
+            c?.resume(returning: value)
+        }
     }
 
     func start() {
@@ -108,7 +152,7 @@ final class ScreenShareSession {
             while !Task.isCancelled {
                 guard let self else { return }
                 do {
-                    if let read = self.read { try await read(self) } else { try await self.readOnce() }
+                    try await self.readInTime()
                     failures = 0
                     if first { first = false; AppLog.write(String(format: "screen share: first read after %.1f s", Date().timeIntervalSince(began))) }
                 } catch let e as ShareEnded {
@@ -118,8 +162,12 @@ final class ScreenShareSession {
                 } catch {
                     if Task.isCancelled { return }
                     // The domain and code only: never what is on the screen.
-                    let e = error as NSError
-                    AppLog.write("screen share: a read failed (\(e.domain) \(e.code))")
+                    if let slow = error as? ReadTooSlow {
+                        AppLog.write("screen share: a read took over \(Int(self.readLimit)) s (\(slow.step))")
+                    } else {
+                        let e = error as NSError
+                        AppLog.write("screen share: a read failed (\(e.domain) \(e.code))")
+                    }
                     // A missed read now and then is fine; three in a row means it can't be read.
                     failures += 1
                     if failures >= 3 { self.end("Couldn't read the shared screen: \(error.localizedDescription)"); return }
@@ -132,6 +180,8 @@ final class ScreenShareSession {
     func stop() {
         loop?.cancel()
         loop = nil
+        reading?.cancel()
+        reading = nil
     }
 
     private func end(_ why: String) {
@@ -143,6 +193,7 @@ final class ScreenShareSession {
 
     private func readOnce() async throws {
         guard CGPreflightScreenCaptureAccess() else { throw ShareEnded(why: "Screen Recording is off for Alotbot, so sharing stopped.") }
+        step = "listing windows"
         let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
         let config = SCStreamConfiguration()
         config.showsCursor = false
@@ -169,7 +220,9 @@ final class ScreenShareSession {
             let hidden = Set(ShareTarget.hiddenWindows(info, me: ProcessInfo.processInfo.processIdentifier))
             filter = SCContentFilter(display: d, excludingWindows: content.windows.filter { hidden.contains($0.windowID) })
         }
+        step = "capturing"
         let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
+        step = "reading text"
         let text = try await Task.detached(priority: .utility) {
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
@@ -179,6 +232,7 @@ final class ScreenShareSession {
         }.value
         let retitled = title != lastTitle
         guard let changed = gate.accept(text, at: Date().timeIntervalSinceReferenceDate) ?? (retitled ? ScreenTextGate.normalize(text) : nil) else { return }
+        step = "sending"
         var args: [String: Any] = ["text": changed, "title": title]
         if let shot = try? Self.save(image) { args["screenshot"] = shot }
         // Not taken in (too soon for the backend): it is not counted as sent, so the next read sends it again.

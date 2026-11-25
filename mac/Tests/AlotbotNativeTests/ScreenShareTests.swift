@@ -79,6 +79,39 @@ import Testing
         #expect(switched.reads == 1)
     }
 
+    /// Live, 25 Nov: after renaming the shared TextEdit window, one read failed and the next never finished. For 6
+    /// minutes nothing was read and nothing was said, while the pill still showed TextEdit as shared.
+    @MainActor @Test func aReadThatNeverFinishesDoesNotFreezeSharing() async {
+        final class Box { var stops: [String] = []; var reads = 0; var sent = 0 }
+        let box = Box()
+        let s = ScreenShareSession(target: ShareTarget(kind: .window, app: "TextEdit", title: "notes.txt", windowID: 1, displayID: nil),
+                                   send: { _ in box.sent += 1; return true }, stopped: { box.stops.append($0) }, read: { _ in
+            box.reads += 1
+            // The first read hangs for good; it is waited for, not started again on top of itself.
+            if box.reads == 1 { try await Task.sleep(for: .seconds(3600)) }
+        }, readLimit: 0.2)
+        s.start()
+        for _ in 0..<200 where box.stops.isEmpty { try? await Task.sleep(for: .milliseconds(50)) }
+        #expect(box.stops == ["Couldn't read the shared screen: it stopped responding (reading the screen)."])
+        #expect(box.reads == 1, "a stuck read is not started again on top of itself")
+    }
+
+    @MainActor @Test func aSlowReadThatFinishesInTimeIsFine() async {
+        final class Box { var stops: [String] = []; var reads = 0 }
+        let box = Box()
+        let s = ScreenShareSession(target: ShareTarget(kind: .window, app: "TextEdit", title: "notes.txt", windowID: 1, displayID: nil),
+                                   send: { _ in true }, stopped: { box.stops.append($0) }, read: { _ in
+            box.reads += 1
+            // Over the limit once, then it finishes: the share goes on.
+            if box.reads == 1 { try await Task.sleep(for: .milliseconds(300)) }
+        }, readLimit: 0.2)
+        s.start()
+        for _ in 0..<200 where box.reads < 3 { try? await Task.sleep(for: .milliseconds(50)) }
+        s.stop()
+        #expect(box.reads >= 3)
+        #expect(box.stops.isEmpty)
+    }
+
     /// The same for a third failed read in a row (which ends a share that is still on): stopped first, it reports nothing.
     @MainActor @Test func aStoppedShareNeverReportsItsThirdFailedRead() async {
         final class Box { var stops: [String] = []; var reads = 0; var waiting: CheckedContinuation<Void, Never>? }
