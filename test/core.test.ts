@@ -68,6 +68,11 @@ import {
   spokenTo,
   wantsAnswer,
   isGroupAddress,
+  meansOthers,
+  asksHost,
+  captionText,
+  SECOND_COPY_MS,
+  MAX_CHIME_INS,
   isClosing,
   focusText,
   suggestionPrompt,
@@ -2063,6 +2068,7 @@ test('timeline: joins, lines, cut-offs, tools, notepad, direction, leaves, error
     'bot|Bot A: ok',
     'task|Bot B marked task 1 done: "Price list"',
     'bot|Bot B: ok',
+    'tool|Your turn: waiting for you',
     'tool|Bot B read the task list',
     'tool|Bot B handed the turn to Bot A',
     'bot|Bot B: Over to A.',
@@ -4207,4 +4213,162 @@ test('text-only calls: replies are asked for as text, any audio is dropped, and 
   assert.equal(ws('a').sent.filter((m: any) => m.type === 'response.create').at(-1).response, undefined);
   speak(ws('a'), 'Twelve percent.');
   assert.ok(audio.played.length > played);
+});
+
+// ---------- a call that goes back and forth (call of 2026-11-25 17:19) ----------
+
+test('isGroupAddress and meansOthers: the rest of the bots, all of them, both of you', () => {
+  for (const t of ['What do the rest of the bots think?', 'what all rest, rest of the bots think', 'all of them, tell me', 'both of you, go', 'what do the others think', 'anyone else?']) {
+    assert.equal(isGroupAddress(t), true, t);
+  }
+  for (const t of ['What do the rest of the bots think?', 'all of them, you tell me', 'anyone else?', 'what do others think about it']) assert.equal(meansOthers(t), true, t);
+  for (const t of ['What do you guys think?', 'everyone, thoughts?', 'the rest of the day', '']) assert.equal(meansOthers(t), false, t);
+});
+
+test('asksHost: a bot line that ends by asking him, not the other bots', () => {
+  for (const t of ["I'm all ears. What's on your mind?", 'Were you starting to say something?', 'Any topic in mind? ']) assert.equal(asksHost(t), true, t);
+  for (const t of ['Fifty-six.', 'What do you all think?', 'Is that right? I think so.', '']) assert.equal(asksHost(t), false, t);
+});
+
+test('captionText: plain sentences, no dashes, markup or stage directions', () => {
+  assert.equal(captionText('Hey Shashank, My Bot here — ready when you are.'), 'Hey Shashank, My Bot here, ready when you are.');
+  assert.equal(captionText('here—ready'), 'here, ready');
+  assert.equal(captionText('No weekends, no hobbies – just this.'), 'No weekends, no hobbies, just this.');
+  assert.equal(captionText('Wait. — okay'), 'Wait. okay');
+  assert.equal(captionText('— Hello there —'), 'Hello there');
+  assert.equal(captionText('pick 5–10 items, or 3 — 4'), 'pick 5 to 10 items, or 3 to 4');
+  assert.equal(captionText('it is -- fine - really'), 'it is, fine, really');
+  assert.equal(captionText('twenty-four and a half hours'), 'twenty-four and a half hours', 'a hyphen inside a word stays');
+  assert.equal(captionText('This is **really** `big` #news *laughs* [pause] ok'), 'This is really big news ok');
+  assert.equal(captionText('<response_segment_0_already_spoken>Old words</response_segment_0_already_spoken> New words'), 'New words');
+  assert.equal(captionText('New words <response_segment_0_already_spoken>Old wo'), 'New words', 'a segment still streaming is hidden');
+  assert.equal(captionText('New words <respo'), 'New words', 'half a tag is hidden');
+  assert.equal(captionText('Hi <break/> there <b>you</b>'), 'Hi there', 'a short tag pair and a lone tag are dropped');
+  assert.equal(captionText('Hi <br> there'), 'Hi there');
+  assert.equal(captionText('Okay ,  so ,, yes ;'), 'Okay, so, yes');
+  assert.equal(captionText(''), '');
+});
+
+test('in a one-on-one, "what do the rest of the bots think?" ends it and the others answer, not the bot he was talking to', async () => {
+  const { call, ws } = await three();
+  hostSays(ws('a'), 'Bot A, what do you think about the launch?');
+  assert.equal(call.focus, call.links.get('a'));
+  speak(ws('a'), 'I like Friday.');
+  hostSays(ws('a'), 'So what do, what all rest, rest of the bots think about this?');
+  assert.equal(call.focus, null);
+  assert.equal(call.timeline.at(-1).text, 'One-on-one with Bot A ended: talking with everyone again');
+  assert.equal(creates(ws('b')), 1, 'Bot B answers first');
+  assert.equal(creates(ws('a')), 1, 'only its greeting');
+  assert.equal(call.ear, call.links.get('b'));
+});
+
+test('"the others" goes past the bot he was talking to, even when he names it, but not past a different bot he names', async () => {
+  const { call, ws } = await three();
+  hostSays(ws('a'), 'Bot A, a question.');
+  speak(ws('a'), 'Go ahead.');
+  hostSays(ws('a'), 'Bot A, what do the others think?');
+  assert.equal(call.focus, null);
+  assert.equal(creates(ws('b')), 1, 'Bot A was the one he was talking to, so the next bot answers');
+  const t2 = await three();
+  hostSays(t2.ws('a'), 'Bot A, a question.');
+  speak(t2.ws('a'), 'Go ahead.');
+  hostSays(t2.ws('a'), 'Bot C, what do the others think?');
+  assert.equal(creates(t2.ws('c')), 1, 'Bot C was named, so Bot C answers');
+  assert.equal(creates(t2.ws('b')), 0);
+});
+
+test('"the rest of you" with one bot in the call: that bot answers', async () => {
+  const { call, ws, ready } = setup();
+  call.join([bot('a')]);
+  await ready('a');
+  hostSays(ws('a'), 'What do the rest of you think?');
+  assert.equal(call.answerOwed, call.links.get('a'));
+});
+
+test('a line to nobody in particular gets an answer and one more voice, then it is his turn', async () => {
+  const { call, ws, runTimers } = await three();
+  assert.equal(MAX_CHIME_INS, 1);
+  hostSays(ws('a'), 'I was thinking about pricing.');
+  speak(ws('a'), 'Five dollars sounds right.');
+  runTimers();
+  assert.equal(creates(ws('b')), 1, 'one more bot may join in');
+  speak(ws('b'), 'A free tier would help students.');
+  assert.equal(call.waitingForHost, true);
+  assert.equal(call.timeline.at(-1).text, 'Your turn: waiting for you');
+  runTimers();
+  assert.equal(creates(ws('c')), 0, 'no roll call');
+});
+
+test('a line to all of them lets each bot answer once', async () => {
+  const { call, ws, runTimers } = await three();
+  hostSays(ws('a'), 'How is your day going, all of you?');
+  speak(ws('a'), 'Busy with drafts.');
+  runTimers();
+  speak(ws('b'), 'Reading the news.');
+  runTimers();
+  assert.equal(creates(ws('c')), 1);
+  assert.equal(call.waitingForHost, false);
+});
+
+test('bots that name each other keep talking after his line', async () => {
+  const { call, ws, runTimers } = await three();
+  hostSays(ws('a'), 'Debate pricing.');
+  speak(ws('a'), 'Bot B, five or ten dollars?');
+  runTimers();
+  speak(ws('b'), 'Ten. Bot C, do you agree?');
+  runTimers();
+  assert.equal(creates(ws('c')), 1);
+  assert.equal(call.waitingForHost, false);
+});
+
+test('a bot that asks him something waits for his answer', async () => {
+  const { call, ws, runTimers } = await three();
+  hostSays(ws('a'), 'Hey everyone.');
+  speak(ws('a'), "I'm all ears. What's on your mind?");
+  assert.equal(call.waitingForHost, true);
+  assert.equal(call.timeline.at(-1).text, 'Bot A asked you something: waiting for you');
+  runTimers();
+  assert.equal(creates(ws('b')), 0);
+});
+
+test('"You all can leave": every bot leaves, even when their goodbyes sound the same', async () => {
+  const { call, ws, runTimers } = await three();
+  hostSays(ws('a'), 'You all can leave.');
+  useTool(ws('a'), 'leave_call', {}, 'Good night Shashank, take care everyone.');
+  runTimers();
+  assert.equal(creates(ws('b')), 1);
+  useTool(ws('b'), 'leave_call', {}, 'Good night Shashank, take care everyone.');
+  assert.ok(!call.timeline.some((e: any) => e.kind === 'loop'), 'a repeated goodbye is not a loop');
+  runTimers();
+  assert.equal(creates(ws('c')), 1, 'the last bot gets its turn to leave too');
+});
+
+test('a second copy of his last line from the voice server is dropped once a bot answered it', async () => {
+  const { call, ws, setClock } = await three();
+  setClock(1000);
+  hostSays(ws('a'), "Hey Bot A, what's 10 plus 15?");
+  speak(ws('a'), 'Twenty-five.');
+  setClock(1000 + SECOND_COPY_MS);
+  hostSays(ws('a'), "Hey Bot A, what's 10 plus 15?");
+  assert.equal(call.timeline.at(-1).text, `Ignored a second copy of your last line: "Hey Bot A, what's 10 plus 15?"`);
+  assert.equal(call.lines.filter((l: any) => l.who === 'Shashank').length, 1);
+  assert.equal(creates(ws('a')), 1, 'only its greeting: no second answer');
+  assert.equal(call.links.get('a').suppressNext, true, 'its own automatic reply to the copy never plays');
+  // later than that, it is him asking again
+  setClock(2001 + SECOND_COPY_MS * 2);
+  hostSays(ws('a'), "Hey Bot A, what's 10 plus 15?");
+  assert.equal(call.lines.filter((l: any) => l.who === 'Shashank').length, 2);
+});
+
+test('the same line again before any bot answered is him repeating himself, and "stop" twice still stops', async () => {
+  const { call, ws } = await three();
+  hostSays(ws('a'), 'Bot A, are you there?');
+  hostSays(ws('a'), 'Bot A, are you there?');
+  assert.equal(call.lines.filter((l: any) => l.who === 'Shashank').length, 2);
+  speak(ws('a'), 'I am.');
+  hostSays(ws('a'), 'Bot A, a new question.');
+  hostSays(ws('a'), 'Stop.');
+  speak(ws('a'), 'Okay.');
+  hostSays(ws('a'), 'Stop.');
+  assert.equal(call.timeline.at(-1).text, 'You said "Stop.": every bot is waiting for you');
 });

@@ -98,6 +98,10 @@ export const LANDED_POLL_MS = 3000;
 export const USER_FIRST_GRACE_MS = 15000;
 /** As in the Grok Bot app: once the voice server has pinged, this long without a ping means the line is dead. */
 export const SILENCE_MS = 20000;
+/** A host line heard again word for word within this long, after a bot answered it, is the voice server repeating it. */
+export const SECOND_COPY_MS = 20000;
+/** After a host line to nobody in particular, how many bots may join in on their own after the one answering him. */
+export const MAX_CHIME_INS = 1;
 /** What the Grok Bot app tells each bot's agent when a call ends (its own words). */
 export const VOICE_CALL_ENDED_MESSAGE = 'The call ended. This channel is closed from now on, so anything still owed goes in the chat.';
 /** Setup errors that trying again can't fix. */
@@ -196,6 +200,13 @@ export function wantsAnswer(text) {
   return t.endsWith('?') || normalize(t).split(' ').some((w) => CALL_WORDS.has(w));
 }
 
+/** True if a bot's line ends by asking the host something ("What's on your mind?"), not the other bots ("What do you all think?"). */
+export function asksHost(text) {
+  const t = String(text).trim();
+  const last = t.split(/(?<=[.!?])\s+/).at(-1);
+  return t.endsWith('?') && !isGroupAddress(last);
+}
+
 /** True if the text has a correction word ("no", "wait", "stop", "actually", "wrong") as a whole word. */
 export function hasCorrection(text) {
   const words = new Set(normalize(text).split(' '));
@@ -245,12 +256,29 @@ export function namedBots(text, bots) {
   return found;
 }
 
-const GROUP_WORDS = ['everyone', 'everybody', 'guys', 'anyone', 'anybody', 'folks', 'yall', 'you all', 'all of you'];
+/** Words that point past the bot he was just talking with, to the others ("what do the rest of you think?"). */
+const OTHERS_WORDS = [
+  'rest of you', 'rest of the bots', 'rest of them', 'the others', 'other bots', 'others think', 'all of them',
+  'everyone else', 'everybody else', 'anyone else', 'anybody else',
+];
+const GROUP_WORDS = [
+  'everyone', 'everybody', 'guys', 'anyone', 'anybody', 'folks', 'yall', 'you all', 'all of you', 'both of you', 'you both',
+  'you two', 'each of you', 'all the bots', 'all bots', 'every bot', ...OTHERS_WORDS,
+];
 
-/** True if the host is talking to every bot ("everyone", "guys", "all of you"). */
-export function isGroupAddress(text) {
+const hasPhrase = (text, phrases) => {
   const hay = ` ${normalize(text)} `;
-  return GROUP_WORDS.some((w) => hay.includes(` ${w} `));
+  return phrases.some((w) => hay.includes(` ${w} `));
+};
+
+/** True if the host is talking to every bot ("everyone", "guys", "all of you", "the rest of the bots"). */
+export function isGroupAddress(text) {
+  return hasPhrase(text, GROUP_WORDS);
+}
+
+/** True if the host turns from the bot he was talking with to the others ("what do the rest of you think?"). */
+export function meansOthers(text) {
+  return hasPhrase(text, OTHERS_WORDS);
 }
 
 const CLOSING_KEYS = new Set(['thanks', 'thank', 'thx', 'done', 'perfect', 'bye', 'appreciate', 'helpful']);
@@ -637,13 +665,17 @@ export function groupInstructions(base, me, roster, invitable = [], direction = 
     `when the host corrects you, changes the subject or asks for something, drop what you were doing and follow the host right away. ` +
     `A line tagged "(cut off by the host)" is only the part the host heard before cutting that speaker off. ` +
     `Speak only as yourself and never say a "[Name]:" prefix. Keep each turn to one to three short spoken sentences. ` +
-    `To ask someone to answer, say their name. ` +
+    `Talk like a person on a call, not a panel: react to what was just said, in plain spoken sentences with no dashes, lists or markup. ` +
+    `To ask someone to answer, say their name. When you ask ${USER} something, stop there and let him answer. ` +
     `Speech-to-text can garble a bot's name ("X bot" may come through as "export" or "ex-bot"): read it as the closest bot name. ${invite} ` +
     `Bots take turns on their own. After you speak, the turn goes to the bot you name, or round the call in order. ` +
     `Manage turns with your tools: hand_to gives the next turn to one bot, pass skips your turn when you have nothing to add, ` +
     `wait_for_host stops the bots and waits for ${USER} (use it when the topic is done or you are going in circles), ` +
     `and leave_call takes you out of the call. ` +
     `Never repeat a point already made in the call; if you have nothing new, pass. ` +
+    `Don't open with agreement like "Same here", "Agreed" or "Same as him"; if all you would do is agree, pass. ` +
+    `When ${USER} says something to nobody in particular, one or two of you answer and then it is his turn again; ` +
+    `when he asks all of you, each of you may answer once. ` +
     `When the host says stop or wait, every bot goes quiet until the host speaks again. ` +
     `When the host names one bot, that is a one-on-one: only that bot answers, and the others stay silent until it is over. ` +
     `There is a shared task list that every bot and ${USER} can see: add_task adds an action item, ` +
@@ -671,6 +703,26 @@ export function cleanTranscript(text) {
     .replace(/<\/?\w+\/?>/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+/**
+ * A bot's words as plain sentences for the live caption: no leaked markup (even half-streamed), no stage directions
+ * or markdown, and no dashes ("Hey, My Bot here — ready" reads "Hey, My Bot here, ready").
+ */
+export function captionText(text) {
+  return String(text)
+    .replace(/<(\w+)>[\s\S]*?<\/\1>/g, ' ')
+    .replace(/<\w+_\w+>[\s\S]*$/, ' ') // a leaked segment still streaming: its words were already spoken
+    .replace(/<\/?\w*\/?>?$/, ' ') // half a tag at the end
+    .replace(/<\/?\w+\/?>/g, ' ')
+    .replace(/\[[^\]]*\]|\*[^*]*\*/g, ' ')
+    .replace(/[*`#_~]+/g, '')
+    .replace(/(\d)\s*[–—]\s*(\d)/g, '$1 to $2')
+    .replace(/\s*(?:[—–―]|--| - )\s*/g, ', ')
+    .replace(/\s+/g, ' ')
+    .replace(/\s+([,.!?;:])/g, '$1')
+    .replace(/([,.!?;:]),+/g, '$1')
+    .replace(/^[\s,.;:]+|[\s,;:]+$/g, '');
 }
 
 /** The "[...]" tag a line is shown to the bots with. */
@@ -1584,6 +1636,10 @@ export class Call {
     this.waitingForHost = false; // a bot used wait_for_host (or every bot passed): no bot turns until Shashank speaks
     this.passes = 0; // passes in a row
     this.lastSpeaker = null; // the bot that said the last bot line since Shashank last spoke
+    this.botLines = 0; // bot lines since Shashank last spoke
+    this.hostRound = false; // the bots are answering a line of his (not talking on their own)
+    this.toAll = false; // his last line was to every bot, so each may answer it
+    this.lastHost = null; // { text, at } his last line, to drop a second copy the voice server sends
     this.gen = 0;
     this.nextTimer = null;
     this.preroll = [];
@@ -2082,6 +2138,17 @@ export class Call {
     link.suppressNext = false;
   }
 
+  /**
+   * True if the voice server sent his last line again, word for word, for new speech after a bot already answered it
+   * (call of 2026-11-25 16:07: "Hey Satya, what's 10 plus 15?" came twice, 17 s apart, and was answered twice).
+   */
+  isSecondCopy(text) {
+    const last = this.lastHost;
+    if (!last || this.d.now() - last.at > SECOND_COPY_MS || normalize(text) !== last.text) return false;
+    const i = this.lines.findLastIndex((l) => l.who === USER);
+    return this.lines.slice(i + 1).some((l) => l.who !== USER);
+  }
+
   onTranscript(link, text) {
     if (link !== this.ear || this.phase !== 'in-call') return;
     this.userSpeaking = false;
@@ -2092,9 +2159,11 @@ export class Call {
     this.echoText = '';
     const names = this.readyLinks().map((l) => l.bot.name);
     const stop = isStopCommand(text, names);
-    if (!stop && isNoiseOrEcho(text, recent)) {
+    const echo = !stop && isNoiseOrEcho(text, recent);
+    if (echo || (!stop && this.isSecondCopy(text))) {
       link.suppress();
-      if (text.trim()) this.event('echo', `Ignored as speaker echo: "${text.trim()}"`);
+      if (!echo) this.event('echo', `Ignored a second copy of your last line: "${text.trim()}"`);
+      else if (text.trim()) this.event('echo', `Ignored as speaker echo: "${text.trim()}"`);
       // Echo cut a bot off by mistake: let the talk go on from where it stopped.
       const cut = this.cutBot;
       this.cutBot = null;
@@ -2102,6 +2171,7 @@ export class Call {
       return;
     }
     this.record(USER, text.trim(), link);
+    this.lastHost = { text: normalize(text), at: this.d.now() };
     if (stop) {
       link.suppress();
       this.stopAll(`You said "${text.trim()}": every bot is waiting for you`);
@@ -2167,6 +2237,9 @@ export class Call {
     this.waitingForHost = false;
     this.passes = 0;
     this.lastSpeaker = null;
+    this.botLines = 0;
+    this.hostRound = true;
+    this.toAll = isGroupAddress(text);
     this.cutBot = null;
     this.suggesting = null;
     this.clearFocusIdle();
@@ -2333,7 +2406,8 @@ export class Call {
     const turn = link.turn;
     link.turn = null;
     if (turn?.kind === 'leave') this.leaveSoon(link);
-    if (link.repeated && !this.focus && !this.suggesting) {
+    // A goodbye said by every bot leaving is not going in circles ("You all can leave.": the last bot never got its turn).
+    if (link.repeated && turn?.kind !== 'leave' && !this.focus && !this.suggesting) {
       // Going in circles: stop here rather than hope a bot calls wait_for_host.
       this.waitingForHost = true;
       this.event('loop', `${link.bot.name} repeated what was already said: waiting for you`);
@@ -2406,8 +2480,13 @@ export class Call {
       this.setFocus(named[0]);
       return named[0];
     }
+    const was = this.focus;
     if (this.focus) this.setFocus(null);
-    return first ? this.links.get(first) : fallback;
+    const target = first ? this.links.get(first) : fallback;
+    // "What do the rest of the bots think?" in a one-on-one with Jensen went back to Jensen ("That's really their
+    // call.", call of 2026-11-25 17:19): the bot he was just talking with is not the one who answers.
+    if (meansOthers(text) && ready.length > 1 && (!first || target === was)) return this.after(target, ready.filter((l) => l !== target));
+    return target;
   }
 
   /** Starts, moves or ends (null) the one-on-one, and tells every bot. */
@@ -2495,6 +2574,7 @@ export class Call {
     if (said) {
       this.passes = 0;
       this.lastSpeaker = link;
+      this.botLines++;
     } else if (turn?.kind === 'pass') this.passes++;
     const others = this.readyLinks().filter((l) => l !== link);
     // After a bot's line, every other bot passing means nobody adds anything; without this the turn went back to
@@ -2509,6 +2589,17 @@ export class Call {
     if (!others.length || this.userSpeaking || this.waitingForHost) return;
     const target = turn?.kind === 'hand' ? others.find((l) => l.bot.id === turn.target) : null;
     const named = findAddressee(said, others.map((l) => l.bot));
+    if (turn?.kind !== 'hand' && !named) {
+      // A real call goes back and forth: a bot that asks him something waits for his answer, and his line to nobody in
+      // particular gets an answer and maybe one more voice, not a roll call of every bot (call of 2026-11-25 17:19).
+      // Bots that talk to each other by name, or on their own before he speaks, carry on as before.
+      const asked = asksHost(said);
+      if (asked || (this.hostRound && !this.toAll && this.botLines > MAX_CHIME_INS)) {
+        this.waitingForHost = true;
+        this.event('tool', asked ? `${link.bot.name} asked you something: waiting for you` : 'Your turn: waiting for you');
+        return;
+      }
+    }
     const next = target ?? (named ? this.links.get(named) : this.after(link, others));
     this.cueTurn(next);
   }

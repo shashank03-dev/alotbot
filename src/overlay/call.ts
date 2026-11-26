@@ -4,6 +4,7 @@
 import {
   BotLink,
   Call,
+  captionText,
   HOST,
   isNoiseOrEcho,
   CONTEXT_LINES,
@@ -795,7 +796,8 @@ export class OverlayCall extends CallBase {
     const focusId = this.focus?.bot.id ?? null;
     const looks = gaze(v.bots, v.userSpeaking, focusId);
     const speaking = v.bots.find((b) => b.status === 'speaking');
-    const live: string = speaking ? this.links.get(speaking.id).text : '';
+    // The caption shows plain sentences: no leaked markup, stage directions or dashes.
+    const live: string = speaking ? captionText(this.links.get(speaking.id).text) : '';
     return {
       phase: v.phase,
       muted: v.muted,

@@ -194,13 +194,99 @@ private struct TileLabel: View {
             Text(status).font(.system(size: max(11, min(13, size * 0.06)))).foregroundStyle(statusColor).lineLimit(1)
                 .transaction { $0.animation = nil }
             if let caption, !caption.isEmpty {
-                Text(caption).font(.system(size: max(11, min(13.5, size * 0.062)))).foregroundStyle(Theme.text.opacity(0.8))
+                RevealCaption(text: caption).font(.system(size: max(11, min(13.5, size * 0.062)))).foregroundStyle(Theme.text.opacity(0.8))
                     .multilineTextAlignment(.center).lineLimit(2).truncationMode(.head)
                     .padding(.top, 4).padding(.horizontal, 14)
                     .transition(Motion.fadeTransition())
             }
         }
         .animation(Motion.crossfade, value: caption == nil)
+    }
+}
+
+/// A bot's live words: each new word comes into focus out of a soft blur and rises a touch into place, one after
+/// another as it speaks (CaptionReveal has the timing). With Reduce Motion, or before macOS 15, plain text.
+private struct RevealCaption: View {
+    let text: String
+    @StateObject private var state = RevealState()
+
+    var body: some View {
+        content
+            .accessibilityLabel(state.reveal.plain)
+            .onAppear { state.take(text) }
+            .onChange(of: text) { _, t in state.take(t) }
+            .task(id: state.reveal) { await state.settle() }
+    }
+
+    @ViewBuilder private var content: some View {
+        if #available(macOS 15, *), !Theme.reduceMotion {
+            TimelineView(.animation(paused: state.settled)) { tl in
+                words.textRenderer(BlurReveal(now: tl.date.timeIntervalSinceReferenceDate))
+            }
+        } else {
+            Text(state.reveal.plain)
+        }
+    }
+
+    /// One run per word, each tagged with when it starts, so the renderer can bring it into focus on its own.
+    @available(macOS 15, *)
+    private var words: Text {
+        let r = state.reveal
+        return r.visible.enumerated().reduce(Text(r.trimmed ? "… " : "")) { line, item in
+            line + Text(item.offset == 0 ? item.element.text : " " + item.element.text).customAttribute(WordStart(born: item.element.born))
+        }
+    }
+}
+
+/// The words shown and whether they have all landed (then the frame clock stops until new words come).
+@MainActor
+private final class RevealState: ObservableObject {
+    @Published private(set) var reveal = CaptionReveal()
+    @Published private(set) var settled = true
+
+    private static var now: Double { Date.timeIntervalSinceReferenceDate }
+
+    func take(_ text: String) {
+        reveal.update(text, now: Self.now)
+        settled = reveal.settles <= Self.now
+    }
+
+    /// Waits until the last word has landed, then stops the clock (cancelled when new words come first).
+    func settle() async {
+        let wait = reveal.settles - Self.now
+        if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
+        if !Task.isCancelled { settled = true }
+    }
+}
+
+@available(macOS 15, *)
+private struct WordStart: TextAttribute {
+    let born: Double
+}
+
+/// Draws each word at its own point in the reveal: blurred, faint and a little low at first, sharp and in place at the end.
+@available(macOS 15, *)
+private struct BlurReveal: TextRenderer {
+    var now: Double
+
+    /// Room for the blur, so a word coming into focus is never clipped at the caption's edges.
+    var displayPadding: EdgeInsets {
+        let b = CaptionReveal.blur * 2
+        return EdgeInsets(top: b, leading: b, bottom: b, trailing: b)
+    }
+
+    func draw(layout: Text.Layout, in ctx: inout GraphicsContext) {
+        for line in layout {
+            for run in line {
+                let p = run[WordStart.self].map { CaptionReveal.progress(born: $0.born, now: now) } ?? 1
+                guard p < 1 else { ctx.draw(run); continue }
+                var c = ctx
+                c.opacity = p
+                c.translateBy(x: 0, y: CaptionReveal.rise * (1 - p))
+                c.addFilter(.blur(radius: CaptionReveal.blurRadius(p)))
+                c.draw(run)
+            }
+        }
     }
 }
 
@@ -267,10 +353,10 @@ private struct BotTile: View {
         return Labels.status(bot.status)
     }
 
-    /// The end of what the bot is saying now.
+    /// What the bot is saying now (the caption shows its newest words).
     private var caption: String? {
         guard let live = model.view?.live, live.botId == bot.id else { return nil }
-        return live.text.count > 160 ? "…" + live.text.suffix(160) : live.text
+        return live.text
     }
 }
 
