@@ -2,8 +2,8 @@ import AppKit
 import AlotbotCore
 import SwiftUI
 
-/// The launch animation: the icon's four tiles come alive, turn into your own bots, and the name slides in.
-/// Plays once per launch, skipped with Reduce Motion. It never takes clicks.
+/// The launch animation: your bots spiral in from all over the screen onto an arc, talk, the name comes in under them,
+/// and then they sink one by one into the middle of the screen, on a plain black stage. Plays once per launch, skipped with Reduce Motion. It never takes clicks.
 @MainActor enum Opening {
     private static var panel: NSPanel?
 
@@ -18,7 +18,7 @@ import SwiftUI
         p.orderFrontRegardless()
     }
 
-    /// The whole screen, see-through and click-through, so the closing zoom can fly past the edges.
+    /// The whole screen, see-through and click-through, so the bots can spiral in from its edges.
     static func makePanel(on screen: NSScreen, done: @escaping () -> Void) -> NSPanel {
         let p = NSPanel(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         p.isOpaque = false
@@ -40,212 +40,215 @@ import SwiftUI
 /// The last bots you had, so the opening can turn into them before the backend has started.
 enum OpeningBots {
     static let key = "openingBots"
-    /// The icon's tiles, in order, and what they turn into when no bots are known yet.
+    /// The icon's tiles, in order.
     static let tiles = ["violet", "cyan", "orange", "magenta"]
-    static let fallback: [Look] = [Look(shape: "blob", color: "violet"), Look(shape: "gem", color: "cyan"), Look(shape: "cloud", color: "orange"), Look(shape: "heart", color: "magenta")]
+    /// How many bots the opening shows.
+    static let count = 7
+    /// What fills the stage when fewer bots are known: the icon's four, then three more.
+    static let fallback: [Look] = [Look(shape: "blob", color: "violet"), Look(shape: "gem", color: "cyan"), Look(shape: "cloud", color: "orange"),
+                                   Look(shape: "heart", color: "magenta"), Look(shape: "star", color: "yellow"), Look(shape: "flower", color: "green"),
+                                   Look(shape: "squircle", color: "blue")]
 
     struct Look: Equatable { var shape: String?; var color: String? }
 
     static func save(_ bots: [Bot], defaults: UserDefaults = .standard) {
         guard !bots.isEmpty else { return }
-        defaults.set(bots.prefix(4).map { ["shape": $0.shape ?? "", "color": $0.color ?? ""] }, forKey: key)
+        defaults.set(bots.prefix(count).map { ["shape": $0.shape ?? "", "color": $0.color ?? ""] }, forKey: key)
     }
 
-    /// Always four: your bots first, then the defaults.
+    /// Always `count`: your bots first, then the defaults.
     static func load(defaults: UserDefaults = .standard) -> [Look] {
-        let saved = (defaults.array(forKey: key) as? [[String: String]] ?? []).prefix(4).map {
+        let saved = (defaults.array(forKey: key) as? [[String: String]] ?? []).prefix(count).map {
             Look(shape: $0["shape"].flatMap { $0.isEmpty ? nil : $0 }, color: $0["color"].flatMap { $0.isEmpty ? nil : $0 })
         }
         return Array(saved) + fallback.dropFirst(saved.count)
     }
 }
 
-/// "The call connects": the app's collapsed circle appears with its spinning color ring, stretches into the
-/// call pill, the icon's four tiles hop out and turn into your bots, and the name is wiped in. It ends by
-/// folding back into the circle.
+/// The opening's own colors: a plain black stage and the app's ink. All other color comes from the bots.
+enum OpeningPalette {
+    static let stage = Color.black                                       // #000000
+    static let ink = Color(red: 0.941, green: 0.941, blue: 0.941)        // #F0F0F0, the app's text
+    static let inkText = Color(red: 0.078, green: 0.078, blue: 0.078)    // #141414, the app's chrome
+}
+
+/// The scene, drawn for each moment from `OpeningScene`: the stage, light motes rushing past in depth, the bots with
+/// their light trails, their speech bubbles, and the name.
 struct OpeningView: View {
     let bots: [OpeningBots.Look]
     let done: () -> Void
-    @Local private var circle = false
-    @Local private var open = false
-    @Local private var content = false
-    @Local private var faces = 0
-    @Local private var morphed = 0
-    @Local private var landed = 0
-    @Local private var speaking: Int?
-    @Local private var said: [Date?] = [nil, nil, nil, nil]
-    @Local private var leaving = false
+    /// A fixed moment to draw (seconds), for stills; nil plays it.
+    var frozenAt: Double? = nil
+    @Local private var began = Date()
 
-    static let size = CGSize(width: 580, height: 300)
-    private static let pill = CGSize(width: 452, height: 104)
-    private static let dot: CGFloat = 84
-    static let face: CGFloat = 42
-    static let faceGap: CGFloat = 8
-    static let gap: CGFloat = 18
-    /// How far each face starts from its place: all four hop out of the pill's middle.
-    private static var launch: [CGFloat] { (0..<4).map { -Wordmark.faceX($0) } }
-
-    private var ring: [Color] { Palette.ringStops(bots.map(\.color)).map(\.color) }
+    static let face: CGFloat = 96
 
     var body: some View {
-        let w = open ? Self.pill.width : Self.dot, h = open ? Self.pill.height : Self.dot
-        ZStack {
-            // Color light under the shape, from the same ring.
-            SpinningRing(colors: ring, width: 10).frame(width: w, height: h).blur(radius: 22).opacity(0.55)
-            Capsule()
-                .fill(LinearGradient(colors: [Color(red: 0.12, green: 0.12, blue: 0.14), Color(red: 0.05, green: 0.05, blue: 0.06)], startPoint: .top, endPoint: .bottom))
-                .overlay(Capsule().strokeBorder(LinearGradient(colors: [.white.opacity(0.14), .clear], startPoint: .top, endPoint: .center), lineWidth: 1).padding(3))
-                .frame(width: w, height: h)
-                .shadow(color: .black.opacity(0.55), radius: 26, y: 14)
-            SpinningRing(colors: ring, width: 2.5).frame(width: w, height: h)
-            HStack(spacing: Self.gap) {
-                HStack(spacing: Self.faceGap) { ForEach(0..<4, id: \.self) { face($0) } }
-                Wordmark(landed: landed, tints: bots.map { Palette.body($0.color) })
-            }
-            .opacity(content ? 1 : 0)
+        TimelineView(.animation(paused: frozenAt != nil)) { tl in
+            let t = frozenAt ?? tl.date.timeIntervalSince(began)
+            GeometryReader { g in scene(at: t, in: g.size) }
         }
-        .frame(width: Self.size.width, height: Self.size.height)
-        .scaleEffect(leaving ? 4.5 : circle ? 1 : 0.2)
-        .blur(radius: leaving ? 18 : 0)
-        .opacity(leaving ? 0 : circle ? 1 : 0)
-        .task { await run() }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
         .accessibilityLabel("Alotbot")
+        .task {
+            guard frozenAt == nil else { return }
+            try? await Task.sleep(for: .seconds(OpeningScene.duration))
+            done()
+        }
     }
 
-    private func face(_ i: Int) -> some View {
-        let look = morphed > i ? bots[i] : OpeningBots.Look(shape: "squircle", color: OpeningBots.tiles[i])
-        return MorphAvatar(shape: look.shape, color: look.color, state: speaking == i ? .speaking : morphed > i ? .listening : .idle,
-                           gaze: landed > 0 && speaking != i ? GazeTarget(x: 1, y: 0) : nil,
-                           level: { 0.55 + 0.35 * sin(Date().timeIntervalSinceReferenceDate * 22) })
+    private func scene(at t: Double, in size: CGSize) -> some View {
+        let n = bots.count
+        let stage = OpeningScene.stage(at: t)
+        let order = (0..<n).sorted { OpeningScene.pose($0, of: n, at: t).z > OpeningScene.pose($1, of: n, at: t).z }
+        return ZStack {
+            OpeningPalette.stage.opacity(stage)
+            Canvas { ctx, sz in
+                Motes.draw(in: &ctx, size: sz, t: t, stage: stage)
+                Trails.draw(in: &ctx, size: sz, t: t, bots: bots)
+            }
+            ZStack {
+                ForEach(order, id: \.self) { i in botView(i, of: n, at: t) }
+                ForEach(0..<n, id: \.self) { i in bubble(i, of: n, at: t) }
+                NameReveal(t: t).offset(y: OpeningScene.centerY)
+            }
+            .scaleEffect(OpeningScene.drift(at: t))
+        }
+        .frame(width: size.width, height: size.height)
+    }
+
+    private func botView(_ i: Int, of n: Int, at t: Double) -> some View {
+        let p = OpeningScene.pose(i, of: n, at: t)
+        let look = bots[i]
+        let hop = OpeningScene.hop(i, of: n, at: t)
+        let speaker = OpeningScene.speaker(at: t, of: n)
+        let settled = t >= OpeningScene.start(of: i) + OpeningScene.flight
+        // The others turn toward whoever is talking.
+        let gaze = speaker.flatMap { s in s == i ? nil : GazeTarget(x: s < i ? -1 : 1, y: 0) }
+        return MorphAvatar(shape: look.shape, color: look.color, state: speaker == i ? .speaking : settled ? .listening : .idle, gaze: gaze,
+                           level: { 0.5 + 0.4 * abs(sin(Date().timeIntervalSinceReferenceDate * 17 + Double(i))) })
             .frame(width: Self.face, height: Self.face)
-            .background(SpeechRipple(color: Palette.body(look.color).color, at: said[i]))
-            .scaleEffect(faces > i ? 1 : 0.05)
-            .offset(x: faces > i ? 0 : Self.launch[i])
-            .opacity(faces > i ? 1 : 0)
+            // The talker hops up and swells a little as its line starts.
+            .scaleEffect(1 + 0.12 * hop, anchor: .bottom)
+            .offset(y: -18 * hop)
+            .scaleEffect(p.scale)
+            .blur(radius: p.blur)
+            .opacity(p.opacity)
+            .offset(x: p.x, y: p.y)
     }
 
-    @MainActor private func run() async {
-        withAnimation(.spring(response: 0.5, dampingFraction: 0.6)) { circle = true }
-        await pause(0.6)
-        withAnimation(.spring(response: 0.6, dampingFraction: 0.74)) { open = true }
-        await pause(0.2)
-        withAnimation(.easeOut(duration: 0.2)) { content = true }
-        for i in 0..<4 {
-            withAnimation(.spring(response: 0.48, dampingFraction: 0.56)) { faces = i + 1 }
-            await pause(0.06)
-        }
-        await pause(0.4)
-        // Each tile's shape springs into its bot (the avatar engine does the morph).
-        for i in 0..<4 {
-            morphed = i + 1
-            await pause(0.1)
-        }
-        await pause(0.2)
-        // Each bot says its part of the name; the letters fly out of it.
-        for i in Wordmark.letters.indices {
-            let bot = Wordmark.speaker[i]
-            if bot != speaking { speaking = bot; await pause(0.05) }
-            said[bot] = Date()
-            withAnimation(.spring(response: 0.8, dampingFraction: 0.7)) { landed = i + 1 }
-            await pause(0.12)
-        }
-        await pause(0.4)
-        speaking = nil
-        await pause(1.2)
-        finish()
+    private func bubble(_ i: Int, of n: Int, at t: Double) -> some View {
+        let b = OpeningScene.bubble(i, of: n, at: t)
+        let p = OpeningScene.pose(i, of: n, at: t)
+        return Text(OpeningScene.line(for: i, of: n))
+            .font(.system(size: 16, weight: .semibold, design: .rounded))
+            .foregroundStyle(OpeningPalette.inkText)
+            .padding(.horizontal, 12).padding(.vertical, 7)
+            .background(BubbleShape().fill(OpeningPalette.ink))
+            .shadow(color: .black.opacity(0.35), radius: 10, y: 5)
+            .fixedSize()
+            .scaleEffect(0.55 + 0.45 * Self.springy(b), anchor: .bottom)
+            .opacity(b)
+            .offset(x: p.x, y: p.y - (Double(Self.face) * 0.5 + 18 * OpeningScene.hop(i, of: n, at: t)) * p.scale - 30)
     }
 
-    /// Zooms out of the screen toward you and is gone.
-    @MainActor private func finish() {
-        withAnimation(.easeIn(duration: 0.5)) { leaving = true }
-        Task { await pause(0.55); done() }
-    }
-
-    private func pause(_ s: Double) async { try? await Task.sleep(nanoseconds: UInt64(s * 1_000_000_000)) }
+    /// 0 to 1 with a small overshoot, for things that pop in.
+    static func springy(_ p: Double) -> Double { p >= 1 ? 1 : 1 - pow(1 - p, 3) + sin(p * .pi) * 0.12 }
 }
 
-/// The app's color ring: one color per bot, turning, on whatever capsule it is given.
-private struct SpinningRing: View {
-    var colors: [Color]
-    var width: CGFloat
-    var body: some View {
-        TimelineView(.animation) { tl in
-            let a = tl.date.timeIntervalSinceReferenceDate * 150
-            Capsule().strokeBorder(AngularGradient(colors: colors, center: .center, angle: .degrees(a)), lineWidth: width)
-        }
-        .allowsHitTesting(false)
-    }
-}
+/// Small gray specks drifting toward you through the depth, a touch faster as the camera pushes in at the end.
+private enum Motes {
+    static let count = 150
 
-/// A ring that pushes out of a bot each time it says a letter.
-private struct SpeechRipple: View {
-    var color: Color
-    var at: Date?
-    var body: some View {
-        TimelineView(.animation(paused: at == nil)) { tl in
-            let p = at.map { tl.date.timeIntervalSince($0) / 0.55 } ?? 1
-            Circle()
-                .stroke(color, lineWidth: 2)
-                .scaleEffect(1 + 0.9 * min(1, max(0, p)))
-                .opacity(p < 1 ? 0.9 * (1 - p) : 0)
+    static func draw(in ctx: inout GraphicsContext, size: CGSize, t: Double, stage: Double) {
+        let mid = CGPoint(x: size.width / 2, y: size.height / 2)
+        let depth = 3000.0
+        let travel = 260 * t + 1400 * pow(OpeningScene.exit(at: t), 2) * (OpeningScene.duration - OpeningScene.exitStart)
+        for k in 0..<count {
+            // Fixed pseudo-random spots, so every launch looks the same.
+            let a = hash(k, 1), b = hash(k, 2), c = hash(k, 3)
+            let x = (a - 0.5) * size.width * 2.2, y = (b - 0.5) * size.height * 2.2
+            var z = c * depth - travel
+            z = z.truncatingRemainder(dividingBy: depth); if z < 0 { z += depth }
+            let s = OpeningScene.focal / (OpeningScene.focal + z)
+            let px = mid.x + x * s, py = mid.y + y * s
+            let near = 1 - z / depth
+            let r = 0.6 + 2.2 * near
+            ctx.fill(Path(ellipseIn: CGRect(x: px - r, y: py - r, width: r * 2, height: r * 2)), with: .color(OpeningPalette.ink.opacity(stage * (0.08 + 0.4 * near * near))))
         }
-        .allowsHitTesting(false)
+    }
+
+    static func hash(_ k: Int, _ salt: Int) -> Double {
+        var h = UInt64(truncatingIfNeeded: k &* 2654435761 &+ salt &* 40503)
+        h ^= h >> 33; h = h &* 0xff51afd7ed558ccd; h ^= h >> 33; h = h &* 0xc4ceb9fe1a85ec53; h ^= h >> 33
+        return Double(h % 100_000) / 100_000
     }
 }
 
-/// "Alotbot" in Helvetica Neue. Each letter flies out of the bot that says it, in a small arc, and lands.
-private struct Wordmark: View {
-    static let letters = Array("Alotbot")
-    /// Which bot says each letter: "Al", "ot", "bo", "t".
-    static let speaker = [0, 0, 1, 1, 2, 2, 3]
-    static let font = NSFont(name: "HelveticaNeue-Bold", size: 38) ?? .boldSystemFont(ofSize: 38)
-    static let tracking: CGFloat = -1.2
-    static let widths = letters.map { NSAttributedString(string: String($0), attributes: [.font: font]).size().width }
-    static let textWidth = widths.reduce(0, +) + tracking * CGFloat(letters.count - 1)
-    private static let facesWidth = 4 * OpeningView.face + 3 * OpeningView.faceGap
-    private static let left = -(facesWidth + OpeningView.gap + textWidth) / 2
+/// A tail behind each bot while it flies in, in the bot's own color: one smooth stroke that thins and fades toward its end.
+private enum Trails {
+    static let samples = 28
 
-    /// Centers, measured from the middle of the row, worked out from the font so nothing has to be measured on screen.
-    static func faceX(_ i: Int) -> CGFloat { left + OpeningView.face / 2 + CGFloat(i) * (OpeningView.face + OpeningView.faceGap) }
-    static func letterX(_ i: Int) -> CGFloat {
-        left + facesWidth + OpeningView.gap + widths[..<i].reduce(0, +) + tracking * CGFloat(i) + widths[i] / 2
-    }
-
-    var landed: Int
-    var tints: [RGB]
-
-    var body: some View {
-        HStack(spacing: Self.tracking) {
-            ForEach(Self.letters.indices, id: \.self) { i in
-                Text(String(Self.letters[i]))
-                    .font(Font(Self.font))
-                    .foregroundStyle(LinearGradient(colors: [.white, Color(white: 0.74)], startPoint: .top, endPoint: .bottom))
-                    .fixedSize()
-                    .frame(width: Self.widths[i])
-                    .modifier(Fly(progress: landed > i ? 1 : 0, from: CGSize(width: Self.faceX(Self.speaker[i]) - Self.letterX(i), height: 4), tint: tints[Self.speaker[i]]))
-                    .opacity(landed > i ? 1 : 0)
+    static func draw(in ctx: inout GraphicsContext, size: CGSize, t: Double, bots: [OpeningBots.Look]) {
+        let mid = CGPoint(x: size.width / 2, y: size.height / 2)
+        let n = bots.count
+        let drift = OpeningScene.drift(at: t)
+        for i in 0..<n {
+            // Only while flying in: no tail once it has landed.
+            guard t < OpeningScene.start(of: i) + OpeningScene.flight * 0.9 else { continue }
+            let tint = Palette.body(bots[i].color).color
+            let pts = (0...samples).map { k -> (CGPoint, Double, Double) in
+                let p = OpeningScene.pose(i, of: n, at: t - Double(k) * 0.006)
+                return (CGPoint(x: mid.x + p.x * drift, y: mid.y + p.y * drift), p.scale, p.opacity)
+            }
+            for k in 0..<samples {
+                let (a, s, o) = pts[k], (b, _, _) = pts[k + 1]
+                let fade = 1 - Double(k) / Double(samples)
+                guard o > 0 else { continue }
+                var seg = Path()
+                seg.move(to: a)
+                seg.addLine(to: b)
+                ctx.stroke(seg, with: .color(tint.opacity(0.75 * fade * o)),
+                           style: StrokeStyle(lineWidth: max(0.5, Double(OpeningView.face) * 0.16 * s * fade), lineCap: .round))
             }
         }
-        .fixedSize()
     }
 }
 
-/// Moves a letter from `from` to its place along an arc, growing and untwisting as it goes.
-private struct Fly: ViewModifier, Animatable {
-    var progress: CGFloat
-    var from: CGSize
-    var tint: RGB
-    var animatableData: CGFloat {
-        get { progress }
-        set { progress = newValue }
+/// A rounded bubble with a small tail pointing down at the bot.
+private struct BubbleShape: SwiftUI.Shape {
+    func path(in r: CGRect) -> Path {
+        var p = Path(roundedRect: r, cornerRadius: min(14, r.height / 2), style: .continuous)
+        p.move(to: CGPoint(x: r.midX - 6, y: r.maxY - 1))
+        p.addLine(to: CGPoint(x: r.midX, y: r.maxY + 7))
+        p.addLine(to: CGPoint(x: r.midX + 6, y: r.maxY - 1))
+        p.closeSubpath()
+        return p
     }
-    func body(content: Content) -> some View {
-        let p = progress, q = 1 - progress
-        let c = tint.mix(RGB(1, 1, 1), Double(min(1, p * 1.4)))
-        content
-            .colorMultiply(c.color)
-            .scaleEffect(0.15 + 0.85 * p)
-            .rotationEffect(.degrees(-50 * q))
-            .offset(x: from.width * q, y: from.height * q - 36 * 4 * p * q)
+}
+
+/// "Alotbot", wiped in from the left behind a soft edge and rising a touch into place.
+private struct NameReveal: View {
+    let t: Double
+    var body: some View {
+        let v = OpeningScene.name(at: t)
+        let out = OpeningScene.exit(at: t)
+        let word = Text("Alotbot").font(.system(size: 64, weight: .bold, design: .rounded)).tracking(-0.5)
+        word
+            .foregroundStyle(OpeningPalette.ink)
+            .fixedSize()
+            .mask {
+                GeometryReader { g in
+                    LinearGradient(stops: [.init(color: .white, location: 0), .init(color: .white, location: 0.8), .init(color: .clear, location: 1)],
+                                   startPoint: .leading, endPoint: .trailing)
+                        .frame(width: g.size.width * (0.25 + 1.1 * v))
+                }
+            }
+            .offset(y: 10 * (1 - v))
+            .opacity(v > 0 ? 1 - out : 0)
+            // Sinks back into the depth after the bots.
+            .scaleEffect(1 - 0.55 * out)
+            .blur(radius: 4 * out)
     }
 }

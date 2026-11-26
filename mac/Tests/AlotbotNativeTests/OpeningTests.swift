@@ -17,22 +17,22 @@ import AlotbotCore
         #expect(OpeningBots.load(defaults: defaults()) == OpeningBots.fallback)
     }
 
-    @Test func turnsIntoYourBotsFirstThenFillsUpToFour() {
+    @Test func turnsIntoYourBotsFirstThenFillsUpToSeven() {
         let d = defaults()
         OpeningBots.save([Bot(id: "a", name: "A", color: "green", shape: "star"), Bot(id: "b", name: "B")], defaults: d)
         let looks = OpeningBots.load(defaults: d)
-        #expect(looks.count == 4)
+        #expect(looks.count == OpeningBots.count && OpeningBots.fallback.count == OpeningBots.count)
         #expect(looks[0] == .init(shape: "star", color: "green"))
         #expect(looks[1] == .init(shape: nil, color: nil))
         #expect(Array(looks[2...]) == Array(OpeningBots.fallback[2...]))
     }
 
-    @Test func keepsOnlyTheFirstFourAndIgnoresAnEmptyList() {
+    @Test func keepsOnlyTheFirstSevenAndIgnoresAnEmptyList() {
         let d = defaults()
-        let many = (0..<6).map { Bot(id: "\($0)", name: "\($0)", color: "red", shape: "hex") }
+        let many = (0..<9).map { Bot(id: "\($0)", name: "\($0)", color: "red", shape: "hex") }
         OpeningBots.save(many, defaults: d)
         OpeningBots.save([], defaults: d)
-        #expect(OpeningBots.load(defaults: d) == Array(repeating: .init(shape: "hex", color: "red"), count: 4))
+        #expect(OpeningBots.load(defaults: d) == Array(repeating: .init(shape: "hex", color: "red"), count: 7))
     }
 
     @Test func menuBarIconIsATemplateInBothStates() {
@@ -128,5 +128,23 @@ import AlotbotCore
         #expect { try resolve(files: [], exe: []) } throws: { ($0 as? BackendError)?.errorDescription?.contains("Download it again") == true }
         #expect { try resolve(info: ["GCRepoPath": "/gone"], files: [], exe: []) } throws: { ($0 as? BackendError)?.errorDescription?.contains("folder moved") == true }
         #expect { try resolve(info: ["GCRepoPath": "/repo"], files: ["/repo/src/overlay/main.ts"], exe: []) } throws: { ($0 as? BackendError)?.errorDescription?.contains("Node.js was not found") == true }
+    }
+
+    /// Every moment of the opening draws: the stage, the bots on their way in, talking, the name, and the fly-through.
+    /// With ALOTBOT_FRAMES_DIR set, the stills are saved there to look at.
+    @Test @MainActor func everyMomentOfTheOpeningDraws() throws {
+        let size = CGSize(width: 1470, height: 956)
+        let dir = ProcessInfo.processInfo.environment["ALOTBOT_FRAMES_DIR"].map { URL(fileURLWithPath: $0) }
+        for t in [0.2, 0.6, 0.95, 1.3, 1.75, 2.2, 2.65, 3.1, 3.5, 3.9, 4.15, 4.45, 4.75, 5.05] {
+            let view = OpeningView(bots: OpeningBots.fallback, done: {}, frozenAt: t).frame(width: size.width, height: size.height)
+            let r = ImageRenderer(content: view)
+            r.scale = 1
+            let image = try #require(r.cgImage, "frame at \(t) s")
+            #expect(image.width == Int(size.width) && image.height == Int(size.height))
+            if let dir {
+                let rep = NSBitmapImageRep(cgImage: image)
+                try rep.representation(using: .png, properties: [:])?.write(to: dir.appendingPathComponent(String(format: "opening-%.2f.png", t)))
+            }
+        }
     }
 }
