@@ -333,12 +333,12 @@ private struct BotTile: View {
             .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
             .onTapGesture { model.openCard(bot.id) }
             .overlay(alignment: .topTrailing) {
-                if !model.approvals(for: bot.id).isEmpty { AttentionDot().scaleEffect(1.3).padding(14).transition(Motion.pop()) }
+                if model.needsYou(bot.id) { AttentionDot().scaleEffect(1.3).padding(14).transition(Motion.pop()) }
             }
             .contextMenu { Button("Open workspace") { model.openWorkspace(bot.id) } }
         }
         .accessibilityElement()
-        .accessibilityLabel("\(bot.name), \(statusText)\(model.approvals(for: bot.id).isEmpty ? "" : ", needs your OK")")
+        .accessibilityLabel("\(bot.name), \(statusText)\(model.needsYou(bot.id) ? ", needs your OK" : "")")
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { model.openCard(bot.id) }
     }

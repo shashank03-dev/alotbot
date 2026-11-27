@@ -93,6 +93,8 @@ async function start(signedIn = true, viewMs: number | null = 5, workspaceEntrie
   /** Jobs whose agent first says this (a progress reply), by request. */
   const progress = new Map<string, string>();
   let minted = 0;
+  /** How the agents answer an approved phone call's job. */
+  let phoneReply: 'accept' | 'refuse' | 'unknown' | 'slow' = 'accept';
   const up = await mock((r, res) => {
     const method = r.url.split('/').pop()!;
     if(method in workspaceReplies){const reply=workspaceReplies[method];return sendJson(res,reply.status??200,reply.body);}
@@ -102,6 +104,11 @@ async function start(signedIn = true, viewMs: number | null = 5, workspaceEntrie
     if (method === 'ListGrokBotAgents') return sendJson(res, 200, { agents });
     if (method === 'VoiceCallHarnessSession') return sendJson(res, 200, { instructions: `I am ${r.body.agentName}.`, tools: [SEND_TASK] });
     if (method === 'VoiceCallHarnessTool' && r.body.input.request === 'break') return sendJson(res, 500, { message: 'tool broke' });
+    if (method === 'VoiceCallHarnessTool' && /approved this phone call/.test(String(r.body.input.request))) {
+      if (phoneReply === 'slow') return void setTimeout(() => sendJson(res, 200, { kind: 'VOICE_CALL_HARNESS_TOOL_OUTCOME_KIND_SERVED', output: {} }), 150);
+      if (phoneReply === 'unknown') return sendJson(res, 200, { kind: 'VOICE_CALL_HARNESS_TOOL_OUTCOME_KIND_UNKNOWN_TOOL', output: {} });
+      return sendJson(res, 200, { kind: 'VOICE_CALL_HARNESS_TOOL_OUTCOME_KIND_SERVED', output: phoneReply === 'accept' ? { relay: 'accepted' } : { relay: 'refused' } });
+    }
     if (method === 'VoiceCallHarnessTool') {
       if (/^(post|relay) /.test(String(r.body.input.request))) jobs.push({ agentId: r.body.agentId, callId: r.body.callId, request: r.body.input.request, at: Date.now() });
       // "relay ..." jobs are accepted the way Grok Bot accepts background work, so they stay under way until answered.
@@ -167,6 +174,7 @@ async function start(signedIn = true, viewMs: number | null = 5, workspaceEntrie
   (h as any).expect = (ids: string[]) => (mintFor = [...ids]);
   (h as any).holdJobs = (v: boolean) => (holdJobs = v);
   (h as any).progress = progress;
+  (h as any).phoneReply = (v: typeof phoneReply) => (phoneReply = v);
   open.push(h);
   return h;
 }
@@ -1232,6 +1240,115 @@ test('a bot promises a call back during a call: by minutes or a time, or when it
   await askedForSummary(a);
   reply(a, '', [['save_summary', { summary: 'Call backs.', action_items: [] }]]);
   await leaving;
+});
+
+test('a bot phones someone for the host: nothing is dialed until he approves; then its agent gets the call as a job', async () => {
+  let t = 1_000_000;
+  const h = await start(true, 5, [], {}, { zone: () => 'UTC', incomingClock: { now: () => t, setTimer: (fn: () => void, ms: number) => setTimeout(fn, ms).unref(), clearTimer: (x: unknown) => clearTimeout(x as NodeJS.Timeout) } });
+  const c = await connect(h);
+  await c.fails('phoneDecision', { id: 'x', decision: 'approve' }, /not in a call/);
+  assert.deepEqual((await c.ok('phoneRequests')).requests, []);
+  await inCall(h, c, ['a', 'b']);
+  const a = h.sockets.get('a')!;
+  assert.ok(a.lastSession().tools.some((x: any) => x.name === 'call_someone'));
+  const phoneJobs = () => h.up.requests.filter((r) => r.url.endsWith('/VoiceCallHarnessTool') && /approved this phone call/.test(String(r.body.input?.request)));
+  const until = async (ok: () => boolean, what: string) => {
+    for (let i = 0; i < 200 && !ok(); i++) await new Promise((r) => setTimeout(r, 5));
+    assert.ok(ok(), what);
+  };
+  const ask = (args: object) => {
+    reply(a, '', [['call_someone', args]]);
+    const out = a.outputs().at(-1)!;
+    return { out, id: /\(request ([0-9a-f-]{36})\)/.exec(out)?.[1] ?? '' };
+  };
+  const status = async (id: string, s: string) => (await c.next((m) => m.t === 'phone' && m.requests.some((r: any) => r.id === id && r.status === s)));
+
+  // Asked: the app is told, and nothing reaches the agent.
+  const first = ask({ who: 'Dr. Lee', number: '+1 415 555 0134', goal: 'Book a cleaning', details: 'Tuesday mornings' });
+  assert.match(first.out, /^Asked Shashank to approve calling Dr\. Lee at \+14155550134 \(request [0-9a-f-]{36}\)\. Nothing is dialed yet\./);
+  await status(first.id, 'pending');
+  assert.equal((await c.ok('phoneRequests')).requests[0].goal, 'Book a cleaning');
+  assert.equal(phoneJobs().length, 0);
+  await c.fails('phoneDecision', { id: first.id, decision: 'maybe' }, /decision must be approve or deny/);
+  await c.fails('phoneDecision', { decision: 'approve' }, /id is required/);
+  await c.fails('phoneDecision', { id: 'nope', decision: 'approve' }, /There is no phone request "nope"/);
+  // Approved in the app: the agent gets the call on the bot's own channel, and the bot is told to say so.
+  assert.equal((await c.ok('phoneDecision', { id: first.id, decision: 'approve' })).request.status, 'approved');
+  await c.fails('phoneDecision', { id: first.id, decision: 'deny' }, /already approved/);
+  await until(() => phoneJobs().length === 1, 'the job was sent');
+  const job = phoneJobs()[0].body;
+  assert.match(job.callId, /-a$/);
+  assert.match(job.input.request, /Call: Dr\. Lee at \+14155550134\.\nGoal: Book a cleaning\nYou may share: Tuesday mornings/);
+  await until(() => a.said().some((x) => /^\[Phone\] Shashank approved calling Dr\. Lee\. Your agent is placing the call now/.test(x)), 'the bot is told');
+
+  // Said yes or no out loud, passed on by the bot: only its own requests, a real decision, and once.
+  const shop = ask({ who: 'Shop', goal: 'Ask the opening hours' });
+  reply(a, '', [['confirm_phone_call', { id: shop.id, decision: 'yes' }]]);
+  assert.equal(a.outputs().at(-1), 'Not done: decision must be approve or deny.');
+  reply(a, '', [['confirm_phone_call', { decision: 'approve' }]]);
+  assert.match(a.outputs().at(-1)!, /^Not done: There is no phone request "" of yours\./);
+  reply(h.sockets.get('b')!, '', [['confirm_phone_call', { id: shop.id, decision: 'approve' }]]);
+  assert.match(h.sockets.get('b')!.outputs().at(-1)!, /of yours/);
+  reply(a, '', [['confirm_phone_call', { id: shop.id, decision: 'deny' }]]);
+  assert.equal(a.outputs().at(-1), 'Cancelled the call to Shop. Nothing was dialed.');
+  const mom = ask({ who: 'Mom', goal: 'Say happy birthday' });
+  reply(a, '', [['confirm_phone_call', { id: mom.id, decision: 'approve' }]]);
+  assert.match(a.outputs().at(-1)!, /^Approved: your agent is placing the call to Mom now\./);
+  await until(() => phoneJobs().length === 2, 'the spoken yes sent the job');
+  assert.ok(!a.said().some((x) => x.includes('approved calling Mom')), 'the bot already knows: no extra note');
+
+  // Denied in the app.
+  const gym = ask({ who: 'Gym', goal: 'Cancel the membership' });
+  await c.ok('phoneDecision', { id: gym.id, decision: 'deny' });
+  await until(() => a.said().some((x) => x.startsWith('[Phone] Shashank said no to calling Gym. Nothing was dialed.')), 'told no');
+
+  // The agent does not take the job, or the tool is unknown: the request failed, and the bot says so.
+  (h as any).phoneReply('refuse');
+  const p1 = ask({ who: 'Pizza place', goal: 'Order a margherita' });
+  await c.ok('phoneDecision', { id: p1.id, decision: 'approve' });
+  assert.equal((await status(p1.id, 'failed')).requests.find((r: any) => r.id === p1.id).error, 'the agent did not accept the job');
+  await until(() => a.said().some((x) => x.startsWith('[Phone] The call to Pizza place could not be handed to your agent (the agent did not accept the job).')), 'told it failed');
+  (h as any).phoneReply('unknown');
+  const p2 = ask({ who: 'Bakery', goal: 'Order a cake' });
+  await c.ok('phoneDecision', { id: p2.id, decision: 'approve' });
+  await status(p2.id, 'failed');
+
+  // Nobody answers in time: it expires, and the app is told.
+  (h as any).phoneReply('accept');
+  const late = ask({ who: 'Bank', goal: 'Ask about the card' });
+  t += 11 * 60_000;
+  await status(late.id, 'expired');
+  // The call ends: what still waits is closed, and nothing is left.
+  const open = ask({ who: 'Dentist', goal: 'Move the appointment' });
+  reply(a, 'Shall I call the dentist?');
+  const leaving = c.op('leave');
+  await askedForSummary(a);
+  reply(a, '', [['save_summary', { summary: 'Calls.', action_items: [] }]]);
+  await leaving;
+  await status(open.id, 'expired');
+  assert.deepEqual((await c.ok('phoneRequests')).requests, []);
+  assert.equal(phoneJobs().length, 4);
+});
+
+test('an approved phone call the agent turns down after the call ended is still recorded, and nothing reaches the ended call', async () => {
+  const h = await start();
+  const c = await connect(h);
+  await inCall(h, c, ['a']);
+  const a = h.sockets.get('a')!;
+  (h as any).phoneReply('slow');
+  reply(a, '', [['call_someone', { who: 'Mom', goal: 'Say hello' }]]);
+  const id = /\(request ([0-9a-f-]{36})\)/.exec(a.outputs().at(-1)!)![1];
+  reply(a, 'Shall I call her?');
+  await c.ok('phoneDecision', { id, decision: 'approve' });
+  const leaving = c.op('leave');
+  await askedForSummary(a);
+  reply(a, '', [['save_summary', { summary: 'Mom.', action_items: [] }]]);
+  await leaving;
+  const n = a.said().length;
+  // The failure lands after the call: the app is told there is nothing waiting, and the closed call hears nothing.
+  const told = await c.next((m) => m.t === 'phone' && m.requests.length === 0, true);
+  assert.deepEqual(told.requests, []);
+  assert.equal(a.said().length, n);
 });
 
 test('a call back waiting on a job rings after the call once the job finishes, and the bot opens with the result', async () => {

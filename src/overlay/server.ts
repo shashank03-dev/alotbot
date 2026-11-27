@@ -25,6 +25,10 @@ import { ActionStore } from '../actions.ts';
 import { CallActions } from '../dispatch.ts';
 import { JobWatcher } from '../jobs.ts';
 import { STATUSES, TaskBoard, TaskError, type TaskStatus } from './tasks.ts';
+import { PhoneDesk, PhoneError, type PhoneRequest, phoneTask } from './phone.ts';
+
+/** A job the backend sends for a bot (not one it asked for in its own turn): nothing is owed in its conversation. */
+const QUIET_LINE: ToolCall['line'] = { theyJustTalked: false, newsOwed: false, receiptOwed: false, alreadySpokeThisTurn: false };
 
 export const PROTOCOL_VERSION = 1;
 /** Bot audio is scheduled this far ahead, so it reaches the app before it is due. */
@@ -267,6 +271,9 @@ export function createOverlayServer(opts: OverlayOptions) {
     connections = grok.createConnections();
     runtime = this.createRuntime();
     viewers = this.createViewers();
+    /** This call's phone requests, or null outside a call. */
+    phone: PhoneDesk | null = null;
+    phoneSent = -1;
     localPending = new Map<string, { resolve: (v: any) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
 
     private createRuntime() {
@@ -583,6 +590,23 @@ export function createOverlayServer(opts: OverlayOptions) {
           return this.incomingDo(() => incoming.decline(str(m.id, 'id')));
         case 'ringSnooze':
           return this.incomingDo(() => incoming.snooze(str(m.id, 'id'), m.minutes));
+        case 'phoneRequests':
+          return { requests: this.phone?.requests() ?? [] };
+        case 'phoneDecision': {
+          const call = this.inCall();
+          if (m.decision !== 'approve' && m.decision !== 'deny') throw new ClientError('decision must be approve or deny');
+          let r: PhoneRequest;
+          try {
+            r = this.phone!.decide(str(m.id, 'id'), m.decision);
+          } catch (err) {
+            if (err instanceof PhoneError) throw new ClientError(err.message);
+            throw err;
+          }
+          this.phoneChanged();
+          if (r.status === 'approved') void this.dial(call, r, true);
+          else call.phoneNews(r.botId, `${USER} said no to calling ${r.who}. Nothing was dialed. Don't ask again unless he does.`);
+          return { request: r };
+        }
         case 'callbackCancel':
           return this.incomingDo(() => incoming.cancelCallback(str(m.id, 'id')));
         case 'missedClear':
@@ -742,6 +766,25 @@ export function createOverlayServer(opts: OverlayOptions) {
           return `Call back set: Alotbot rings ${USER} at ${at}, and you open that call. Tell him in a few words.`;
         },
       };
+      const desk = new PhoneDesk(iclock.now);
+      call.phone = {
+        propose: (botId, botName, args) => {
+          const r = desk.propose(botId, botName, args);
+          this.phoneChanged();
+          return `Asked ${USER} to approve calling ${r.who}${r.number ? ` at ${r.number}` : ''} (request ${r.id}). Nothing is dialed yet. ` +
+            `Ask him in one short sentence whether to place it. He can tap Approve in Alotbot, or say yes; if he says yes to this call, call confirm_phone_call with this id.`;
+        },
+        confirm: (botId, args) => {
+          if (args.decision !== 'approve' && args.decision !== 'deny') throw new PhoneError('decision must be approve or deny.');
+          const r = desk.decide(typeof args.id === 'string' ? args.id : '', args.decision, botId);
+          this.phoneChanged();
+          if (r.status === 'denied') return `Cancelled the call to ${r.who}. Nothing was dialed.`;
+          void this.dial(call, r, false);
+          return `Approved: your agent is placing the call to ${r.who} now. Tell ${USER} in a few words; its result reaches you when the phone call ends.`;
+        },
+      };
+      this.phone = desk;
+      this.phoneSent = -1;
       this.log = log;
       this.mic = new MicStats(Date.now());
       call.joinWith(picked, all, calls.readMemory(), { continued, opening, meeting });
@@ -768,6 +811,8 @@ export function createOverlayServer(opts: OverlayOptions) {
         this.send({ t: 'lines', lines: call.linesSince(this.linesSent) });
         this.linesSent = call.lines.length;
       }
+      this.phone!.expire();
+      if (this.phone!.version !== this.phoneSent) this.phoneChanged();
       if (call.board.version !== this.tasksSent) {
         this.tasksSent = call.board.version;
         this.send({ t: 'tasks', ...this.taskList() });
@@ -802,6 +847,33 @@ export function createOverlayServer(opts: OverlayOptions) {
       return { file, id: file ? callIdOf(file) : null, summary: data.summary, decisions: data.decisions, actionItems: data.actionItems };
     }
 
+    /** Tells the app what the call's phone requests are now. */
+    phoneChanged() {
+      this.phoneSent = this.phone?.version ?? -1;
+      this.send({ t: 'phone', requests: this.phone?.requests() ?? [] });
+    }
+
+    /**
+     * An approved phone call goes to the bot's agent as a job on the bot's own call channel: Grok Bot's outbound calling
+     * places it, and its report comes back like any job's (into this call, or as a ring once the call has ended).
+     */
+    async dial(call: OverlayCall, r: PhoneRequest, tell: boolean) {
+      // Kept: the call may end while the agent answers, and the request still records how it went.
+      const desk = this.phone!;
+      try {
+        const out = await actions.tool(r.botId, r.botName, { callId: `${call.callId}-${r.botId}`, name: 'send_task', input: { request: phoneTask(r) }, line: QUIET_LINE });
+        if (out.kind !== 'served' || (out.output as any)?.relay !== 'accepted') throw new Error('the agent did not accept the job');
+        this.log?.write('phone', { bot: r.botName, request: r.id, action: 'dialing' });
+        if (tell) call.phoneNews(r.botId, `${USER} approved calling ${r.who}. Your agent is placing the call now: tell him in a few words. Its result reaches you when the phone call ends.`);
+      } catch (err) {
+        const why = (err as Error).message;
+        desk.failed(r.id, why);
+        this.phoneChanged();
+        this.log?.write('phone', { bot: r.botName, request: r.id, action: 'failed', error: why });
+        call.phoneNews(r.botId, `The call to ${r.who} could not be handed to your agent (${why}). Nothing was dialed by Alotbot. Tell ${USER}.`);
+      }
+    }
+
     /** A bot's agent sent something: the call hears it now (not at its next check), and the app's list refreshes. */
     actionsChanged(botId: string) {
       const link = this.call?.links.get(botId);
@@ -822,6 +894,11 @@ export function createOverlayServer(opts: OverlayOptions) {
       }
       if (this.timer) clearInterval(this.timer);
       this.timer = null;
+      if (this.phone) {
+        this.phone.endAll();
+        this.phoneChanged();
+        this.phone = null;
+      }
       this.call?.leave(); // closing the bots' sockets is logged too, so the log ends after it
       this.call = null;
       this.ending = null;

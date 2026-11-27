@@ -203,7 +203,7 @@ struct OverlayRoot: View {
                     }
                     .overlay(alignment: .topTrailing) {
                         // This bot is waiting for your OK: tap it to answer.
-                        if model.expanded && !model.approvals(for: b.id).isEmpty { AttentionDot().offset(x: 3, y: -3).transition(Motion.pop()) }
+                        if model.expanded && model.needsYou(b.id) { AttentionDot().offset(x: 3, y: -3).transition(Motion.pop()) }
                     }
                     // The call's opening wave: each face pops in just after the one before it.
                     .scaleEffect(facesIn ? 1 : 0.55)
@@ -220,7 +220,7 @@ struct OverlayRoot: View {
                     .onTapGesture { if model.expanded { model.openCard(b.id) } else { model.setMode(.pill) } }
                     .allowsHitTesting(model.expanded && shown)
                     .accessibilityElement()
-                    .accessibilityLabel("\(b.name), \(Labels.status(b.status))\(model.approvals(for: b.id).isEmpty ? "" : ", needs your OK")")
+                    .accessibilityLabel("\(b.name), \(Labels.status(b.status))\(model.needsYou(b.id) ? ", needs your OK" : "")")
                     .accessibilityAddTraits(.isButton)
             }
             HostAvatar(prefs: prefs, name: model.hostName, speaking: model.view?.userSpeaking == true && model.view?.muted == false, level: hostLevel)

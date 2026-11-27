@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { CallLibrary, callIdOf, fileTime } from '../src/overlay/library.ts';
+import { type PhoneLine } from '../src/overlay/call.ts';
 import { type CallBacks, type CallOpening, CALLBACK_TOOL, LOOK_TOOL, MEETING_ECHO_MS, MEETING_LINES_PER_MIN, SCREEN_CHANGE_MAX, SCREEN_LOOK_MAX, SCREEN_TEXT_MAX, screenChange, screenName, type PastCalls, RECALL_OUTPUT_MAX, RECALL_TOOLS, PAST_LINES } from '../src/overlay/call.ts';
 
 const A = bot('a');
@@ -573,6 +574,62 @@ test('call_back_later is offered when call backs are available, and its answer o
   assert.ok(!off.ws('a').lastSession().tools.some((t: any) => t.name === CALLBACK_TOOL.name));
   reply(off.ws('a'), '', [['call_back_later', { reason: 'x', in_minutes: 5 }]]);
   assert.match(off.ws('a').outputs().at(-1)!, /^Call backs are not available right now/);
+});
+
+test('call_someone and confirm_phone_call: offered to a bot with send_task while phone calls are on; answers and refusals go to the bot', async () => {
+  const SEND_TASK = { type: 'function', name: 'send_task', description: 'Send a job.', parameters: { type: 'object', properties: {}, required: [] } };
+  const asked: any[] = [];
+  const phone: PhoneLine = {
+    propose: (botId, botName, args) => {
+      asked.push(['propose', botId, botName, args]);
+      if (args.who === 'fail') throw new Error('Give goal.');
+      return 'Asked Shashank to approve calling Mom (request p1).';
+    },
+    confirm: (botId, args) => {
+      asked.push(['confirm', botId, args]);
+      return 'Approved: your agent is placing the call to Mom now.';
+    },
+  };
+  const h = setup();
+  h.call.phone = phone;
+  const mint = h.call.d.mintVoice;
+  h.call.d.mintVoice = async (id: string) => ({ ...(await mint(id)), tools: id === 'a' ? [SEND_TASK] : [] });
+  h.call.joinWith([A, B], [A, B], null);
+  await h.ready('a', 'b');
+  const names = (id: string) => h.ws(id).lastSession().tools.map((t: any) => t.name);
+  assert.ok(names('a').includes('call_someone') && names('a').includes('confirm_phone_call'));
+  assert.ok(!names('b').includes('call_someone'), 'no agent to place the call');
+  reply(h.ws('a'), 'I will ask.', [['call_someone', { who: 'Mom', goal: 'Say happy birthday' }]]);
+  assert.deepEqual(asked[0], ['propose', 'a', 'Bot A', { who: 'Mom', goal: 'Say happy birthday' }]);
+  assert.equal(h.ws('a').outputs().at(-1), 'Asked Shashank to approve calling Mom (request p1).');
+  assert.ok(h.call.timeline.some((e: any) => e.text === 'Bot A: Asked Shashank to approve calling Mom (request p1).'));
+  reply(h.ws('a'), '', [['confirm_phone_call', { id: 'p1', decision: 'approve' }]]);
+  assert.deepEqual(asked[1], ['confirm', 'a', { id: 'p1', decision: 'approve' }]);
+  assert.equal(h.ws('a').outputs().at(-1), 'Approved: your agent is placing the call to Mom now.');
+  reply(h.ws('a'), '', [['call_someone', { who: 'fail' }]]);
+  assert.equal(h.ws('a').outputs().at(-1), 'Not done: Give goal.');
+  reply(h.ws('b'), '', [['call_someone', { who: 'Mom', goal: 'g' }]]);
+  assert.match(h.ws('b').outputs().at(-1)!, /^Phone calls are not available right now\. Tell Shashank/);
+  assert.equal(asked.length, 3);
+  // News from the app (the host decided there) is told to the bot, which gets a turn to tell him.
+  h.call.phoneNews('a', 'Shashank approved calling Mom.');
+  assert.equal(lastSaid(h.ws('a')), '[Phone] Shashank approved calling Mom.');
+  assert.ok(h.call.timeline.some((e: any) => e.text === 'Bot A: Shashank approved calling Mom.'));
+  const link = h.call.links.get('a');
+  assert.ok(link.holdNext && (link.queued !== null || link.pending), 'it gets a turn to tell him');
+  h.call.phoneNews('zzz', 'nobody');
+  h.call.leave();
+  const n = said(h.ws('a')).length;
+  h.call.phoneNews('a', 'too late');
+  assert.equal(said(h.ws('a')).length, n);
+  // Phone calls off: not offered, and asked anyway the bot is told.
+  const off = setup();
+  off.call.d.mintVoice = async (id: string) => ({ ...(await mint(id)), tools: [SEND_TASK] });
+  off.call.joinWith([A], [A], null);
+  await off.ready('a');
+  assert.ok(!off.ws('a').lastSession().tools.some((t: any) => t.name === 'call_someone'));
+  reply(off.ws('a'), '', [['confirm_phone_call', { id: 'p1', decision: 'approve' }]]);
+  assert.match(off.ws('a').outputs().at(-1)!, /^Phone calls are not available right now/);
 });
 
 test('an answered callback: the bot that called opens at once with why, and the others join quietly', async () => {

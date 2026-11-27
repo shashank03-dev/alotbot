@@ -40,6 +40,7 @@ struct BotCard: View {
             }
             .padding(.bottom, 14)
 
+            ForEach(model.pendingPhoneCalls(for: bot.id)) { r in PhoneRequestRow(model: model, request: r, showBot: false).padding(.bottom, 10) }
             ForEach(model.approvals(for: bot.id)) { a in ApprovalRow(model: model, action: a, showBot: false).padding(.bottom, 10) }
 
             if let b = model.bot(bot.id), let c = model.choices {
@@ -120,6 +121,43 @@ struct ApprovalRow: View {
             HStack(spacing: 8) {
                 Button("Allow once") { Task { await model.resolveAction(action, decision: "approve") } }.buttonStyle(FilledButton(primary: true))
                 Button("Don't allow") { Task { await model.resolveAction(action, decision: "deny") } }.buttonStyle(FilledButton())
+            }
+            .disabled(busy)
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.warn.opacity(0.1)))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.warn.opacity(0.25), lineWidth: 1))
+        .transition(Motion.surfaceTransition(anchor: .top))
+    }
+}
+
+/// A phone call a bot wants to place for you: who, why and what it may share. Nothing is dialed until you approve.
+struct PhoneRequestRow: View {
+    @ObservedObject var model: AppModel
+    let request: PhoneRequest
+    var showBot = true
+
+    var body: some View {
+        let busy = model.decidingPhone.contains(request.id)
+        VStack(alignment: .leading, spacing: 8) {
+            Label(showBot ? "\(request.botName) wants to call \(request.who)" : "Wants to call \(request.who)", systemImage: "phone.arrow.up.right.fill")
+                .font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.warn)
+            if let number = request.number {
+                Text(number).font(.system(size: 12, design: .monospaced)).foregroundStyle(Theme.secondary).textSelection(.enabled)
+            } else {
+                Text("The agent looks up the number").font(.system(size: 12)).foregroundStyle(Theme.secondary)
+            }
+            Text(request.goal)
+                .font(.system(size: 13.5)).foregroundStyle(Theme.text).fixedSize(horizontal: false, vertical: true)
+            if !request.details.isEmpty {
+                Text("May share: \(request.details)")
+                    .font(.system(size: 12)).foregroundStyle(Theme.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            Text("The bot says it's an AI assistant calling for you, and reports back when the call ends.")
+                .font(.system(size: 11)).foregroundStyle(Theme.tertiary).fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                Button("Call") { Task { await model.decidePhone(request, decision: "approve") } }.buttonStyle(FilledButton(primary: true))
+                Button("Don't call") { Task { await model.decidePhone(request, decision: "deny") } }.buttonStyle(FilledButton())
             }
             .disabled(busy)
         }
@@ -530,11 +568,13 @@ struct ApprovalsView: View {
     @ObservedObject var model: AppModel
     var body: some View {
         let pending = model.approvals()
-        if !pending.isEmpty {
+        let calls = model.pendingPhoneCalls()
+        if !pending.isEmpty || !calls.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
+                ForEach(calls) { r in PhoneRequestRow(model: model, request: r) }
                 ForEach(pending) { a in ApprovalRow(model: model, action: a) }
             }
-            .animation(Motion.layout, value: pending.map(\.id))
+            .animation(Motion.layout, value: calls.map(\.id) + pending.map(\.id))
         }
     }
 }

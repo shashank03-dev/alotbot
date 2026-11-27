@@ -52,6 +52,15 @@ import Testing
         #expect(list.tasks.first?.parent == nil)
     }
 
+    @Test func phoneRequests() throws {
+        let m = try ServerMessage.decode(#"{"t":"phone","requests":[{"id":"p1","botId":"a","botName":"Bot A","who":"Dr. Lee","number":"+14155550134","goal":"Book a cleaning","details":"","status":"pending","createdAt":1000,"decidedAt":null,"error":null},{"id":"p2","botId":"a","botName":"Bot A","who":"Shop","number":null,"goal":"Ask hours","details":"x","status":"failed","createdAt":1001,"decidedAt":1002,"error":"the agent did not accept the job"}]}"#)
+        guard case let .phone(list) = m else { Issue.record("not phone"); return }
+        #expect(list.map(\.id) == ["p1", "p2"])
+        #expect(list[0].isPending && list[0].number == "+14155550134")
+        #expect(!list[1].isPending && list[1].number == nil && list[1].error == "the agent did not accept the job")
+        #expect(try ServerMessage.decode(#"{"t":"phone","requests":[]}"#) == .phone([]))
+    }
+
     @Test func smallMessages() throws {
         #expect(try ServerMessage.decode(#"{"t":"workspaceChanged"}"#) == .workspaceChanged)
         #expect(try ServerMessage.decode(#"{"t":"stopAudio","id":7}"#) == .stopAudio(7))

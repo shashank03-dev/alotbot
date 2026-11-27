@@ -21,6 +21,7 @@ import type { RingSource } from './incoming.ts';
 import type { CallKind, CallRecord, Hit, LibraryLine } from './library.ts';
 import { type CallLog, SCREEN_NOTE, SCREEN_TEXT } from './log.ts';
 import { STATUSES, type Task, TaskBoard, TaskError, type TaskStatus } from './tasks.ts';
+import { PHONE_CONFIRM_TOOL, PHONE_TOOL } from './phone.ts';
 
 // core.js is untyped JavaScript: its classes are typed loosely here, and this file's own code stays strict.
 const LinkBase: new (call: any, bot: Bot) => any = BotLink;
@@ -112,6 +113,14 @@ export const CALLBACK_TOOL = fn(
   },
   ['reason'],
 );
+
+/** Lets bots in a call phone people for the host, once he approves each call (the server's phone desk). */
+export interface PhoneLine {
+  /** A bot asks to place a call; returns what the bot is told. Throws when the request is refused. */
+  propose(botId: string, botName: string, args: Record<string, unknown>): string;
+  /** A bot passes on the host's spoken answer to its own request; returns what the bot is told. Throws when refused. */
+  confirm(botId: string, args: Record<string, unknown>): string;
+}
 
 /** Why a call started when it rang: the bot that called opens it. */
 export interface CallOpening {
@@ -248,6 +257,8 @@ class OverlayLink extends LinkBase {
       ...TASK_TOOLS,
       ...((this.call as OverlayCall).pastCalls ? RECALL_TOOLS : []),
       ...((this.call as OverlayCall).callBacks ? [CALLBACK_TOOL] : []),
+      // Phone calls are placed by the bot's agent, so only a bot with send_task can ask for one.
+      ...((this.call as OverlayCall).phone && this.isHarnessTool('send_task') ? [PHONE_TOOL, PHONE_CONFIRM_TOOL] : []),
       LOOK_TOOL,
     ];
     return u;
@@ -277,6 +288,8 @@ export class OverlayCall extends CallBase {
   pastCalls: PastCalls | null = null;
   /** Lets bots promise a call back, or null when that is unavailable. */
   callBacks: CallBacks | null = null;
+  /** Lets bots phone people for the host, or null when that is unavailable. */
+  phone: PhoneLine | null = null;
   /** An answered call: the calling bot has opened it. */
   private callerOpened = false;
   /** The calling bot could not join, so another bot opened the call for it. */
@@ -596,8 +609,9 @@ export class OverlayCall extends CallBase {
     }
     const recall = RECALL_TOOLS.some((t) => t.name === c.name);
     const callBack = c.name === CALLBACK_TOOL.name;
+    const phone = c.name === PHONE_TOOL.name || c.name === PHONE_CONFIRM_TOOL.name;
     if (c.name === LOOK_TOOL.name) return { output: this.look(link.bot.name), followUp: true };
-    if (!TASK_TOOLS.some((t) => t.name === c.name) && !recall && !callBack) return super.onToolCall(link, c);
+    if (!TASK_TOOLS.some((t) => t.name === c.name) && !recall && !callBack && !phone) return super.onToolCall(link, c);
     let a: Record<string, unknown> = {};
     try {
       a = JSON.parse(c.args) ?? {};
@@ -606,6 +620,16 @@ export class OverlayCall extends CallBase {
     }
     const me: string = link.bot.name;
     if (recall) return { output: this.recall(c.name, a, me), followUp: true };
+    if (phone) {
+      if (!this.phone || !link.isHarnessTool('send_task')) return { output: `Phone calls are not available right now. Tell ${USER} you can't place that call from here.`, followUp: true };
+      try {
+        const out = c.name === PHONE_TOOL.name ? this.phone.propose(link.bot.id, me, a) : this.phone.confirm(link.bot.id, a);
+        this.event('tool', `${me}: ${out}`);
+        return { output: out, followUp: true };
+      } catch (err) {
+        return { output: `Not done: ${(err as Error).message}`, followUp: true };
+      }
+    }
     if (callBack) {
       if (!this.callBacks) return { output: 'Call backs are not available right now. Tell the host you can\'t call back.', followUp: true };
       try {
@@ -638,6 +662,15 @@ export class OverlayCall extends CallBase {
       if (err instanceof TaskError) return { output: `Not done: ${err.message}`, followUp: 'if-quiet' };
       throw err;
     }
+  }
+
+  /** News about a bot's phone request (the host decided in the app, or the hand-off failed): the bot tells him. */
+  phoneNews(botId: string, text: string) {
+    const link = this.links.get(botId);
+    if (!link || this.phase !== 'in-call') return;
+    this.event('tool', `${link.bot.name}: ${text}`);
+    link.say(`[Phone] ${text}`);
+    this.tellNews(link);
   }
 
   // ----- earlier calls -----

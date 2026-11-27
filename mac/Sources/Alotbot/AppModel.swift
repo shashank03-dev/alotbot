@@ -92,6 +92,9 @@ final class AppModel: ObservableObject {
     @Published var resolvingActions = Set<String>()
     private var actionPoll: Task<Void, Never>?
     @Published var tasks: [TaskItem] = []
+    /// Phone calls the bots in this call asked to place, and how each went.
+    @Published var phoneRequests: [PhoneRequest] = []
+    @Published var decidingPhone = Set<String>()
     @Published var pastCalls: [PastCall] = []
     // Calls to you: standing calls, call backs, rings and what you missed.
     @Published var incoming: IncomingState?
@@ -243,6 +246,8 @@ final class AppModel: ObservableObject {
             audio.stopChunk(id)
         case .incoming(let state):
             incoming = state
+        case .phone(let requests):
+            phoneRequests = requests
         case .ended:
             endCallLocally()
         case .reply, .unknown:
@@ -556,6 +561,7 @@ final class AppModel: ObservableObject {
         meetingMic.silenced = false
         audio.stop()
         view = nil
+        phoneRequests = []
         tray = nil
         cardBot = nil
         mode = .circle
@@ -651,6 +657,25 @@ final class AppModel: ObservableObject {
         defer { resolvingActions.remove(action.id) }
         if let detail: ActionDetail = await attempt("Resolve approval", { try await backend.request("resolveApproval", ["id": action.id, "decision": decision]) }) { actionDetail = detail.action }
         await refreshActions()
+    }
+
+    // MARK: phone calls
+
+    /// Phone calls waiting for your OK, oldest first (one bot's, or every bot's).
+    func pendingPhoneCalls(for botId: String? = nil) -> [PhoneRequest] {
+        phoneRequests.filter { $0.isPending && (botId == nil || $0.botId == botId) }.sorted { $0.createdAt < $1.createdAt }
+    }
+
+    /// A bot waits for your OK: an approval, or a phone call it wants to place.
+    func needsYou(_ botId: String) -> Bool { !approvals(for: botId).isEmpty || !pendingPhoneCalls(for: botId).isEmpty }
+
+    /// Approve or deny one phone call a bot asked to place. Only an approved call is ever dialed.
+    func decidePhone(_ request: PhoneRequest, decision: String) async {
+        guard !decidingPhone.contains(request.id) else { return }
+        decidingPhone.insert(request.id)
+        defer { decidingPhone.remove(request.id) }
+        AppLog.write("phone call \(decision): \(request.botName) → \(request.who)")
+        _ = await attempt(decision == "approve" ? "Approve the call" : "Decline the call") { try await backend.send("phoneDecision", ["id": request.id, "decision": decision]) }
     }
 
     // MARK: tasks

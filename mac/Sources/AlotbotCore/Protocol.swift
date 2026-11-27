@@ -146,6 +146,32 @@ public struct LeaveResult: Codable, Equatable, Sendable {
     public var actionItems: [String]
 }
 
+/// A phone call a bot asked to place for you. Nothing is dialed until you approve it; then the bot's Grok Bot agent
+/// places it with Grok Bot's own outbound calling.
+public struct PhoneRequest: Codable, Equatable, Identifiable, Sendable {
+    public var id: String
+    public var botId: String
+    public var botName: String
+    public var who: String
+    public var number: String?
+    public var goal: String
+    public var details: String
+    /// pending, approved, denied, expired, failed
+    public var status: String
+    public var createdAt: Double
+    public var decidedAt: Double?
+    public var error: String?
+    public var isPending: Bool { status == "pending" }
+    public init(id: String, botId: String, botName: String, who: String, number: String?, goal: String, details: String, status: String, createdAt: Double, decidedAt: Double?, error: String?) {
+        self.id = id; self.botId = botId; self.botName = botName; self.who = who; self.number = number; self.goal = goal; self.details = details
+        self.status = status; self.createdAt = createdAt; self.decidedAt = decidedAt; self.error = error
+    }
+}
+
+public struct PhoneRequestList: Codable, Equatable, Sendable {
+    public var requests: [PhoneRequest]
+}
+
 /// A message pushed by the backend.
 public enum ServerMessage: Equatable {
     case reply(req: Int?, ok: Bool, result: Data?, error: String?, signedOut: Bool)
@@ -157,6 +183,7 @@ public enum ServerMessage: Equatable {
     case localTool(LocalToolCommand)
     case stopAudio(Int)
     case incoming(IncomingState)
+    case phone([PhoneRequest])
     case ended
     case unknown(String)
 
@@ -179,6 +206,7 @@ public enum ServerMessage: Equatable {
         case "tasks": return .tasks(try dec.decode(TaskList.self, from: data))
         case "stopAudio": return .stopAudio((obj["id"] as? NSNumber)?.intValue ?? -1)
         case "incoming": return .incoming(try dec.decode(IncomingState.self, from: try sub("state")))
+        case "phone": return .phone(try dec.decode(PhoneRequestList.self, from: data).requests)
         case "ended": return .ended
         default: return .unknown(t)
         }

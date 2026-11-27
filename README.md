@@ -30,6 +30,7 @@ A group voice call with your own Grok Bots, as a native Mac app.
 - **Look at your Mac**: with your permission, bots can read an app window you name (even in the background or on another Space), files or one folder you allow, or a dedicated browser profile.
 - **Call history the bots remember**: every call and meeting is saved and searchable. Bots look up earlier calls themselves ("what did we decide about pricing?"), every summary records the decisions made, and you can continue any earlier call with the bots you choose.
 - **Bots call you**: standing calls (for example a weekday standup at 9:30 with an agenda), call backs a bot promises during a call, and a call when a job from an ended call finishes or needs your OK. Quiet hours, do not disturb and missed calls included.
+- **Bots phone people for you**: ask a bot to call someone (the dentist, a restaurant, a shop, a person) to get something done. It asks first, and only after you approve does its Grok Bot agent place the call with Grok Bot's own outbound calling and report back what happened.
 - **Your bots in your meetings**: they follow a Zoom, Teams, Meet, FaceTime or other meeting, transcribed on this Mac, and whisper to you in text (or aloud on headphones). Nobody in the meeting hears them. Hold ⌥Space to talk to them.
 - **Share your screen**: share a window or your whole screen; the bots read its text, get what changed with each thing you say, and can look at all of it.
 
@@ -161,6 +162,15 @@ Set `PORT=9000` (or `HOST=localhost`) in the environment or a `.env` file to cha
 - Times are worked out in the IANA time zone with daylight-saving changes handled (a time that doesn't exist that day moves forward by the gap; one that happens twice uses the first). A clock set back a little never rings a call twice; one set back more than a day (it was wrong) starts counting again.
 - Saved in `incoming.json` (readable only by you); a damaged entry is dropped and the rest kept. Alotbot has to be running for anything to ring.
 
+## Calls the bots make for you
+
+- **Ask in a call**: "Bot A, call Dr. Lee's office and book a cleaning, Tuesday or Wednesday morning." The bot uses `call_someone` with who to call, the number if it knows it, the goal, and what it may share for you.
+- **Nothing is dialed until you approve that exact call.** A card shows who, the number, the goal and what the bot may share, with *Call* and *Don't call* (in the call window, the bot's card and the menu; the bot's face gets an attention dot). Or say yes to the bot: it passes on your answer with `confirm_phone_call`, and it can only confirm its own request.
+- **The call itself is Grok Bot's**: once approved, Alotbot sends the bot's agent a job on that bot's call channel, and the agent places the phone call with Grok Bot's native outbound calling. Phone calls need a Grok plan that includes them, and a bot whose agent has `send_task`; otherwise the bot is told it can't call from here.
+- **How it calls**: the agent says at the start that it is an AI assistant calling on your behalf, stays within the goal, never pays, agrees to costs, signs you up or shares more than you allowed, respects "stop calling" or "don't record", and reports back with the outcome, anything agreed (dates, times, prices, reference numbers) and what is still to do. With no number, it looks one up and doesn't call unless it is sure.
+- **The result comes back** like any job's: told in the call when it lands, or as a ring once the call has ended. The live phone call shows up as a *Phone call* card in the bot's workspace, with *Hang up*, *Transfer* and the recording.
+- **Limits**: each bot can have 3 calls waiting for your answer; one you don't answer in 10 minutes expires, and the end of the call closes the rest. Numbers must have 7 to 15 digits, so emergency and short service numbers (911, 112, 999...) are refused.
+
 ## Meetings
 
 - In the menu, *Listen to a meeting*: pick the meeting's app (meeting apps first; for Google Meet pick your browser), confirm that the people in the meeting know it is being transcribed (required), and start with the bots you ticked.
@@ -244,6 +254,7 @@ src/                  backend (TypeScript, run directly by Node)
   memory.ts           saved calls and the memory the next call starts from
   overlay/library.ts  call history: the searchable index of saved calls
   overlay/incoming.ts standing calls, call backs and rings; overlay/zoned.ts the time-zone math
+  overlay/phone.ts    phone calls bots ask to place: your approval, then the job to the bot's agent
 public/
   core.js             call engine: voice sessions, turn-taking, interrupting, tasks, summary, timeline
   app.js, index.html  the browser version's page
